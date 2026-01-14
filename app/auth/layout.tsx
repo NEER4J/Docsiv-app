@@ -4,7 +4,6 @@ import { Command } from "lucide-react";
 
 import { Separator } from "@/components/ui/separator";
 import { APP_CONFIG } from "@/config/app-config";
-import Silk from "@/components/silk";
 
 export default function Layout({ children }: Readonly<{ children: ReactNode }>) {
   return (

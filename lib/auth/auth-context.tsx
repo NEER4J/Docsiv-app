@@ -10,9 +10,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const supabase = createClient()
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
+    // Only create client on the client side
+    const supabase = createClient()
+    
     // Get initial session
     const getInitialSession = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -37,7 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     )
 
     return () => subscription.unsubscribe()
-  }, [supabase.auth])
+  }, [])
 
   const transformUser = (user: any): AuthUser => ({
     id: user.id,
@@ -50,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     try {
       setError(null)
+      const supabase = createClient()
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -63,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string) => {
     try {
       setError(null)
+      const supabase = createClient()
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -76,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = async () => {
     try {
       setError(null)
+      const supabase = createClient()
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -91,6 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     try {
       setError(null)
+      const supabase = createClient()
       const { error } = await supabase.auth.signOut()
       return { error: error?.message || null }
     } catch (err) {
@@ -101,6 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (email: string) => {
     try {
       setError(null)
+      const supabase = createClient()
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/reset-password`
       })
@@ -113,6 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updatePassword = async (password: string) => {
     try {
       setError(null)
+      const supabase = createClient()
       const { error } = await supabase.auth.updateUser({
         password
       })
@@ -132,6 +142,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut,
     resetPassword,
     updatePassword,
+  }
+
+  // During SSR, don't access any uncached data
+  if (!mounted) {
+    return <AuthContext.Provider value={{ user: null, loading: true, error: null, signIn: async () => ({ error: null }), signUp: async () => ({ error: null }), signInWithGoogle: async () => ({ error: null }), signOut: async () => ({ error: null }), resetPassword: async () => ({ error: null }), updatePassword: async () => ({ error: null }) }}>{children}</AuthContext.Provider>
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

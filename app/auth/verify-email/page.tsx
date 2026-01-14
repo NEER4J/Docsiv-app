@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Mail, CheckCircle, AlertCircle } from "lucide-react";
@@ -8,7 +8,7 @@ import { Mail, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/use-auth";
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<'pending' | 'success' | 'error'>('pending');
   const { user } = useAuth();
@@ -130,5 +130,22 @@ export default function VerifyEmailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={
+      <div className="mx-auto flex w-full flex-col justify-center space-y-8 sm:w-[350px]">
+        <div className="space-y-4 text-center">
+          <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+            <Mail className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-pulse" />
+          </div>
+          <h1 className="text-3xl font-medium">Loading...</h1>
+        </div>
+      </div>
+    }>
+      <VerifyEmailContent />
+    </Suspense>
   );
 }

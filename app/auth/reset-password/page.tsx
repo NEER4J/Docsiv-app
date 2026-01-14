@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
@@ -23,7 +23,7 @@ const FormSchema = z
     path: ["confirmPassword"],
   });
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [isValidToken, setIsValidToken] = useState(false);
   const { updatePassword } = useAuth();
@@ -158,5 +158,19 @@ export default function ResetPasswordPage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={
+      <div className="mx-auto flex w-full flex-col justify-center space-y-8 sm:w-[350px]">
+        <div className="space-y-2 text-center">
+          <h1 className="text-3xl font-medium">Loading...</h1>
+        </div>
+      </div>
+    }>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }
