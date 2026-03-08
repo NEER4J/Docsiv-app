@@ -48,8 +48,8 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
       >
         <header
           className={cn(
-            "flex h-12 shrink-0 items-center gap-2 border-b border-gray-200 dark:border-gray-800 transition-[width,height] ease-linear",
-            "sticky top-0 z-50 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md",
+            "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
+            "sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
           )}
         >
           <div className="flex w-full items-center justify-between px-4 lg:px-6">

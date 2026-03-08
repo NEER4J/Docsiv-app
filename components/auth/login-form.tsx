@@ -101,7 +101,7 @@ export function LoginForm() {
                   className="size-4"
                 />
               </FormControl>
-              <FormLabel htmlFor="login-remember" className="text-gray-500 dark:text-gray-400 ml-1 text-sm font-medium">
+              <FormLabel htmlFor="login-remember" className="text-muted-foreground ml-1 text-sm font-medium">
                 Remember me for 30 days
               </FormLabel>
             </FormItem>
@@ -110,13 +110,13 @@ export function LoginForm() {
         <div className="flex items-center justify-between">
           <Link 
             href="/auth/forgot-password" 
-            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-50"
+            className="text-sm text-muted-foreground hover:text-foreground"
           >
             Forgot password?
           </Link>
         </div>
         <Button className="w-full" type="submit" disabled={isLoading}>
-          {isLoading ? "Signing in..." : "Login"}
+          {isLoading ? "Signing in..." : "Sign in"}
         </Button>
       </form>
     </Form>

@@ -3,10 +3,74 @@
 @tailwind utilities;
 
 @layer base {
-  * {
-    @apply border-gray-200 dark:border-gray-800;
+  :root {
+    /* Docsiv brand colours — https://docsiv.com/vision */
+    --ink: #0a0a0a;
+    --paper: #ffffff;
+    --warm-mid: #f2f2f2;
+    --muted: #6b6560;
+
+    /* Semantic tokens (map to brand) */
+    --background: var(--paper);
+    --foreground: var(--ink);
+    --border: #e5e5e5;
+    --muted-bg: var(--warm-mid);
+    --muted-foreground: var(--muted);
+    --popover: var(--paper);
+    --popover-foreground: var(--ink);
+    --radius: 0.5rem;
+
+    /* Notion-inspired accent palette — tags, badges, callouts. No borders. */
+    --notion-default: #37352f;
+    --notion-default-bg: #f2f2f2;
+    --notion-gray: #9b9a97;
+    --notion-gray-bg: #f2f2f2;
+    --notion-brown: #64473a;
+    --notion-brown-bg: #f2f2f2;
+    --notion-orange: #d9730d;
+    --notion-orange-bg: #faebdd;
+    --notion-yellow: #dfab01;
+    --notion-yellow-bg: #fbf3db;
+    --notion-green: #0f7b6c;
+    --notion-green-bg: #ddedea;
+    --notion-blue: #0b6e99;
+    --notion-blue-bg: #ddebf1;
+    --notion-purple: #6940a5;
+    --notion-purple-bg: #eae4f2;
+    --notion-pink: #ad1a72;
+    --notion-pink-bg: #f4dfeb;
+    --notion-red: #e03e3e;
+    --notion-red-bg: #fbe4e4;
   }
+
+  .dark {
+    --background: var(--ink);
+    --foreground: var(--paper);
+    --border: #2a2825;
+    --muted-bg: #1c1b19;
+    --muted-foreground: #9b9a97;
+    --popover: #252422;
+    --popover-foreground: var(--paper);
+
+    /* Notion accents — slightly adjusted for dark */
+    --notion-default-bg: #37352f;
+    --notion-gray-bg: #3d3d3d;
+    --notion-brown-bg: #4a3f3a;
+    --notion-orange-bg: #4a3520;
+    --notion-yellow-bg: #4a4320;
+    --notion-green-bg: #1a3d38;
+    --notion-blue-bg: #1a2d38;
+    --notion-purple-bg: #2d2640;
+    --notion-pink-bg: #3d2640;
+    --notion-red-bg: #3d2626;
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
   body {
-    @apply bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-50;
+    background-color: var(--background);
+    color: var(--foreground);
   }
 }

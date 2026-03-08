@@ -1,14 +1,14 @@
-# Habiv
+# Docsiv
 
-AI-Powered Report Generation Platform. Transform client data into beautiful, white-labeled reports.
+The AI document hub for agencies. Proposals, reports, briefs, contracts: created with AI and delivered to clients under your name.
 
 ## Features
 
-- **Authentication**: Complete auth system with email/password and Google OAuth
-- **Dashboard**: Modern sidebar navigation with collapsible menu
-- **UI Components**: Comprehensive shadcn/ui component library
+- **Authentication**: Email/password and Google OAuth
+- **Dashboard**: Sidebar navigation with collapsible menu (Notion-like layout)
+- **UI Components**: shadcn/ui component library
+- **Design**: Black & white palette, flat design, responsive
 - **Theme Support**: Dark mode with system preference detection
-- **Responsive Design**: Mobile-first design with adaptive layouts
 
 ## Tech Stack
 
@@ -48,29 +48,25 @@ npm run dev
 ## Project Structure
 
 ```
-habiv/
-├── app/
-│   ├── auth/          # Authentication pages
-│   ├── dashboard/     # Dashboard pages
-│   └── layout.tsx     # Root layout
-├── components/
-│   ├── auth/          # Auth form components
-│   ├── sidebar/       # Sidebar navigation components
-│   └── ui/            # Reusable UI components
-├── config/            # App configuration
-├── lib/               # Utility functions and helpers
-├── hooks/             # Custom React hooks
-└── navigation/        # Navigation configuration
+app/
+├── auth/          # Authentication pages
+├── dashboard/     # Dashboard pages
+└── layout.tsx     # Root layout
+components/
+├── auth/          # Auth form components
+├── sidebar/       # Sidebar navigation components
+└── ui/            # Reusable UI components
+config/            # App configuration
+lib/               # Utility functions and helpers
+hooks/             # Custom React hooks
+navigation/       # Navigation configuration
 ```
 
 ## Authentication
 
-The app includes a complete authentication system:
-
-- Login/Register pages
-- Password reset flow
-- Email verification
-- Google OAuth integration
+- Login / Register
+- Password reset & email verification
+- Google OAuth
 - Protected routes
 
 ## Development

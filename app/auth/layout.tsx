@@ -1,41 +1,42 @@
 import { ReactNode } from "react";
+import Image from "next/image";
 
-import { Command } from "lucide-react";
-
-import { Separator } from "@/components/ui/separator";
 import { APP_CONFIG } from "@/config/app-config";
 
 export default function Layout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <main>
-      <div className="grid h-dvh justify-center p-2 lg:grid-cols-2">
-        <div className="bg-blue-600 dark:bg-blue-500 relative order-2 hidden h-full rounded-3xl lg:flex overflow-hidden">
-         
-          
-          {/* Content overlay */}
-          <div className="relative z-10 flex flex-col w-full">
-            <div className="text-white absolute top-10 space-y-1 px-10">
-              <Command className="size-10" />
-              <h1 className="text-2xl font-medium">{APP_CONFIG.name}</h1>
-              <p className="text-sm">AI-Powered Report Generation. Transform Data into Insights.</p>
-            </div>
-
-            <div className="absolute bottom-10 flex w-full justify-between px-10">
-              <div className="text-white flex-1 space-y-1">
-                <h2 className="font-medium">Upload & Generate</h2>
-                <p className="text-sm">Connect APIs or upload CSV files. AI handles the rest—formatting, cleaning, and generating beautiful reports.</p>
-              </div>
-              <Separator orientation="vertical" className="mx-3 !h-auto bg-white/20" />
-              <div className="text-white flex-1 space-y-1">
-                <h2 className="font-medium">Share with Clients</h2>
-                <p className="text-sm">
-                  White-labeled reports with interactive dashboards and PDF downloads. Shareable links for seamless client access.
-                </p>
-              </div>
-            </div>
-          </div>
+    <main className="min-h-dvh flex flex-col lg:flex-row">
+      {/* Left: Brand panel - black, Notion-like */}
+      <div className="hidden lg:flex lg:w-[50%] bg-foreground text-background flex-col p-10 lg:p-16 justify-between">
+        <div className="flex justify-end">
+          <Image
+            src="/docsiv-icon.png"
+            alt={APP_CONFIG.name}
+            width={40}
+            height={40}
+            className="opacity-90"
+          />
         </div>
-        <div className="relative order-1 flex h-full">{children}</div>
+        <div className="space-y-4 max-w-md">
+          <h1 className="font-playfair text-3xl lg:text-4xl font-bold tracking-[-0.02em]">
+            Every doc.
+            <br />
+            <span className="italic">One hub.</span>
+            <br />
+            Your brand.
+          </h1>
+          <p className="font-body text-sm text-background/80 max-w-sm">
+            {APP_CONFIG.meta.description}
+          </p>
+        </div>
+        <div className="font-body text-xs text-background/60">
+          {APP_CONFIG.copyright}
+        </div>
+      </div>
+
+      {/* Right: Form area - white */}
+      <div className="flex-1 flex flex-col justify-center items-center p-6 lg:p-12 bg-background border-t lg:border-t-0 lg:border-l border-border">
+        <div className="w-full max-w-[360px]">{children}</div>
       </div>
     </main>
   );

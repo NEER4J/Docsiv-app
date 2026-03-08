@@ -1,12 +1,12 @@
 const currentYear = new Date().getFullYear();
 
 export const APP_CONFIG = {
-  name: "Habiv",
+  name: "Docsiv",
   version: "1.0.0",
-  copyright: `© ${currentYear}, Habiv.`,
+  copyright: `© ${currentYear} Docsiv. All rights reserved.`,
   meta: {
-    title: "Habiv - AI-Powered Report Generation",
+    title: "Docsiv – The AI Document Hub for Agencies",
     description:
-      "Transform client data into beautiful, white-labeled reports. Upload CSV files or connect APIs, and let AI generate stunning interactive dashboards and PDF reports.",
+      "Docsiv is the AI-powered document hub built for agencies. Proposals, reports, briefs, contracts: created with AI and delivered to clients under your name. Not ours.",
   },
 };

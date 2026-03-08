@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-
-import { Command } from "lucide-react";
+import Image from "next/image";
 
 import {
   Sidebar,
@@ -33,7 +32,7 @@ export function AppSidebar({
 
   return (
     <Sidebar {...props}>
-      <SidebarHeader className="h-12 border-b border-gray-200 dark:border-gray-800 p-0">
+      <SidebarHeader className="h-12 border-b border-border p-0">
         <Link
           href="/dashboard"
           className={cn(
@@ -41,10 +40,16 @@ export function AppSidebar({
             isCollapsed ? "justify-center px-2" : "gap-2 px-4"
           )}
         >
-          <Command className="size-5 shrink-0" />
+          <Image
+            src="/docsiv-icon.png"
+            alt={APP_CONFIG.name}
+            width={24}
+            height={24}
+            className="size-6 shrink-0"
+          />
           <span
             className={cn(
-              "text-base font-semibold transition-opacity",
+              "font-ui text-[1.125rem] font-semibold tracking-[-0.01em] transition-opacity",
               isCollapsed && "hidden"
             )}
           >

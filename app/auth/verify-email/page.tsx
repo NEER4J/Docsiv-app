@@ -47,11 +47,11 @@ function VerifyEmailContent() {
     return (
       <div className="mx-auto flex w-full flex-col justify-center space-y-8 sm:w-[350px]">
         <div className="space-y-4 text-center">
-          <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-            <Mail className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-pulse" />
+          <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center">
+            <Mail className="w-8 h-8 text-foreground animate-pulse" />
           </div>
           <h1 className="text-3xl font-medium">Verifying your email...</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
+          <p className="text-muted-foreground text-sm">
             Please wait while we verify your email address.
           </p>
         </div>
@@ -63,11 +63,11 @@ function VerifyEmailContent() {
     return (
       <div className="mx-auto flex w-full flex-col justify-center space-y-8 sm:w-[350px]">
         <div className="space-y-4 text-center">
-          <div className="mx-auto w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
-            <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+          <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center">
+            <CheckCircle className="w-8 h-8 text-foreground" />
           </div>
           <h1 className="text-3xl font-medium">Email verified!</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
+          <p className="text-muted-foreground text-sm">
             Your email has been successfully verified. Redirecting to dashboard...
           </p>
         </div>
@@ -79,11 +79,11 @@ function VerifyEmailContent() {
     return (
       <div className="mx-auto flex w-full flex-col justify-center space-y-8 sm:w-[350px]">
         <div className="space-y-4 text-center">
-          <div className="mx-auto w-16 h-16 bg-red-100 dark:bg-red-900 rounded-full flex items-center justify-center">
-            <AlertCircle className="w-8 h-8 text-red-600 dark:text-red-400" />
+          <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-foreground" />
           </div>
           <h1 className="text-3xl font-medium">Verification failed</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
+          <p className="text-muted-foreground text-sm">
             There was an error verifying your email. The link may have expired.
           </p>
         </div>
@@ -106,11 +106,11 @@ function VerifyEmailContent() {
   return (
     <div className="mx-auto flex w-full flex-col justify-center space-y-8 sm:w-[350px]">
       <div className="space-y-4 text-center">
-        <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-          <Mail className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+        <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center">
+          <Mail className="w-8 h-8 text-foreground" />
         </div>
         <h1 className="text-3xl font-medium">Check your email</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm">
+        <p className="text-muted-foreground text-sm">
           We've sent you a verification link. Please check your email and click the link to verify your account.
         </p>
       </div>
@@ -121,9 +121,9 @@ function VerifyEmailContent() {
           </Button>
         </Link>
         <div className="text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground">
             Didn't receive the email? Check your spam folder or{" "}
-            <Link href="/auth/register" className="text-blue-600 dark:text-blue-400 hover:underline">
+            <Link href="/auth/register" className="text-foreground hover:underline font-medium">
               try registering again
             </Link>
           </p>
@@ -138,8 +138,8 @@ export default function VerifyEmailPage() {
     <Suspense fallback={
       <div className="mx-auto flex w-full flex-col justify-center space-y-8 sm:w-[350px]">
         <div className="space-y-4 text-center">
-          <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-            <Mail className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-pulse" />
+          <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center">
+            <Mail className="w-8 h-8 text-foreground animate-pulse" />
           </div>
           <h1 className="text-3xl font-medium">Loading...</h1>
         </div>
