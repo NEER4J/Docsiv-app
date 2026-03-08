@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
+import { Switch } from "@/components/ui/switch";
 import { getInitials } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/use-auth";
 
@@ -31,11 +32,11 @@ export function NavUser({
   const { isMobile } = useSidebar();
   const { signOut } = useAuth();
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
-  const handleThemeToggle = () => {
-    const newTheme = theme === "dark" ? "light" : "dark";
-    setTheme(newTheme);
+  const handleThemeChange = (checked: boolean) => {
+    setTheme(checked ? "dark" : "light");
   };
 
   const handleSignOut = async () => {
@@ -105,9 +106,19 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleThemeToggle}>
-              {theme === "dark" ? <Sun /> : <Moon />}
-              {theme === "dark" ? "Light Mode" : "Dark Mode"}
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+              className="flex items-center justify-between gap-2 focus:bg-muted"
+            >
+              <span className="flex items-center gap-2">
+                {isDark ? <Moon /> : <Sun />}
+                {isDark ? "Dark mode" : "Light mode"}
+              </span>
+              <Switch
+                checked={isDark}
+                onCheckedChange={handleThemeChange}
+                aria-label="Toggle dark mode"
+              />
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut}>

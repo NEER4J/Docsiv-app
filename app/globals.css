@@ -73,4 +73,17 @@
     background-color: var(--background);
     color: var(--foreground);
   }
+
+  /* Toast notifications: solid background, top-center, flat */
+  [data-sonner-toaster] {
+    --normal-bg: var(--background) !important;
+    --normal-text: var(--foreground) !important;
+    --normal-border: var(--border) !important;
+  }
+  [data-sonner-toast] {
+    background: var(--background) !important;
+    color: var(--foreground) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+  }
 }

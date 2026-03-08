@@ -19,7 +19,8 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
   }
   
   const cookieStore = await cookies();
-  const defaultOpen = cookieStore.get("sidebar_state")?.value === "true";
+  // Open by default on first visit; only collapse if user explicitly closed it
+  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
 
   // Transform user data for the sidebar
   const userData = {
