@@ -24,6 +24,8 @@ export default {
         foreground: "var(--foreground)",
         muted: "var(--muted-bg)",
         "muted-foreground": "var(--muted-foreground)",
+        "muted-hover": "var(--muted-hover)",
+        "muted-active": "var(--muted-active)",
         popover: "var(--popover)",
         "popover-foreground": "var(--popover-foreground)",
         "notion-default": "var(--notion-default)",

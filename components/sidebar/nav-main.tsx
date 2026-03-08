@@ -25,13 +25,16 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { type NavGroup, type NavMainItem } from "@/navigation/sidebar-items";
+import { cn } from "@/lib/utils";
 
 interface NavMainProps {
   readonly items: readonly NavGroup[];
 }
 
 const IsComingSoon = () => (
-  <span className="ml-auto rounded-lg bg-notion-gray-bg px-2 py-1 text-xs font-medium uppercase tracking-wider text-notion-gray">Soon</span>
+  <span className="ml-auto rounded-md bg-muted-hover px-1.5 py-0.5 text-[0.65rem] font-medium uppercase tracking-wider text-muted-foreground">
+    Soon
+  </span>
 );
 
 const NavItemExpanded = ({
@@ -43,6 +46,8 @@ const NavItemExpanded = ({
   isActive: (url: string, subItems?: NavMainItem["subItems"]) => boolean;
   isSubmenuOpen: (subItems?: NavMainItem["subItems"]) => boolean;
 }) => {
+  const active = isActive(item.url, item.subItems);
+
   return (
     <Collapsible key={item.title} asChild defaultOpen={isSubmenuOpen(item.subItems)} className="group/collapsible">
       <SidebarMenuItem>
@@ -50,23 +55,31 @@ const NavItemExpanded = ({
           {item.subItems ? (
             <SidebarMenuButton
               disabled={item.comingSoon}
-              isActive={isActive(item.url, item.subItems)}
+              isActive={active}
               tooltip={item.title}
+              className={cn(
+                "h-9 gap-3 text-[0.8125rem]",
+                active && "font-semibold"
+              )}
             >
-              {item.icon && <item.icon />}
+              {item.icon && <item.icon className={cn("size-[1.0625rem] shrink-0", active ? "opacity-100" : "opacity-60")} />}
               <span>{item.title}</span>
               {item.comingSoon && <IsComingSoon />}
-              <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+              <ChevronRight className="ml-auto size-3.5 opacity-50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
             </SidebarMenuButton>
           ) : (
             <SidebarMenuButton
               asChild
               aria-disabled={item.comingSoon}
-              isActive={isActive(item.url)}
+              isActive={active}
               tooltip={item.title}
+              className={cn(
+                "h-9 gap-3 text-[0.8125rem]",
+                active && "font-semibold"
+              )}
             >
               <Link href={item.url} target={item.newTab ? "_blank" : undefined}>
-                {item.icon && <item.icon />}
+                {item.icon && <item.icon className={cn("size-[1.0625rem] shrink-0", active ? "opacity-100" : "opacity-60")} />}
                 <span>{item.title}</span>
                 {item.comingSoon && <IsComingSoon />}
               </Link>
@@ -76,17 +89,28 @@ const NavItemExpanded = ({
         {item.subItems && (
           <CollapsibleContent>
             <SidebarMenuSub>
-              {item.subItems.map((subItem) => (
-                <SidebarMenuSubItem key={subItem.title}>
-                  <SidebarMenuSubButton aria-disabled={subItem.comingSoon} isActive={isActive(subItem.url)} asChild>
-                    <Link href={subItem.url} target={subItem.newTab ? "_blank" : undefined}>
-                      {subItem.icon && <subItem.icon />}
-                      <span>{subItem.title}</span>
-                      {subItem.comingSoon && <IsComingSoon />}
-                    </Link>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-              ))}
+              {item.subItems.map((subItem) => {
+                const subActive = isActive(subItem.url);
+                return (
+                  <SidebarMenuSubItem key={subItem.title}>
+                    <SidebarMenuSubButton
+                      aria-disabled={subItem.comingSoon}
+                      isActive={subActive}
+                      asChild
+                      className={cn(
+                        "h-8 text-[0.8rem] text-muted-foreground",
+                        subActive && "text-foreground font-medium"
+                      )}
+                    >
+                      <Link href={subItem.url} target={subItem.newTab ? "_blank" : undefined}>
+                        {subItem.icon && <subItem.icon className="size-3.5 shrink-0" />}
+                        <span>{subItem.title}</span>
+                        {subItem.comingSoon && <IsComingSoon />}
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                );
+              })}
             </SidebarMenuSub>
           </CollapsibleContent>
         )}
@@ -106,14 +130,14 @@ const NavItemCollapsed = ({
     <SidebarMenuItem key={item.title}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <SidebarMenuButton
+            <SidebarMenuButton
             disabled={item.comingSoon}
             tooltip={item.title}
             isActive={isActive(item.url, item.subItems)}
           >
-            {item.icon && <item.icon />}
+            {item.icon && <item.icon className="opacity-70" />}
             <span>{item.title}</span>
-            <ChevronRight />
+            <ChevronRight className="size-3.5 opacity-50 group-data-[collapsible=icon]:hidden" />
           </SidebarMenuButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-50 space-y-1" side="right" align="start">
@@ -152,20 +176,22 @@ export function NavMain({ items }: NavMainProps) {
   };
 
   const isSubmenuOpen = (subItems?: NavMainItem["subItems"]) => {
-    // Open dropdowns by default if they have subItems
     return subItems?.length ? true : false;
   };
 
   return (
     <>
       {items.map((group) => (
-        <SidebarGroup key={group.id}>
-          {group.label && <SidebarGroupLabel>{group.label}</SidebarGroupLabel>}
-          <SidebarGroupContent className="flex flex-col gap-2">
-            <SidebarMenu>
+        <SidebarGroup key={group.id} className="!px-0 py-1">
+          {group.label && (
+            <SidebarGroupLabel className="mb-1 h-6 px-0 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
+              {group.label}
+            </SidebarGroupLabel>
+          )}
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-0.5">
               {group.items.map((item) => {
                 if (state === "collapsed" && !isMobile) {
-                  // If no subItems, just render the button as a link
                   if (!item.subItems) {
                     return (
                       <SidebarMenuItem key={item.title}>
@@ -176,17 +202,15 @@ export function NavMain({ items }: NavMainProps) {
                           isActive={isItemActive(item.url)}
                         >
                           <Link href={item.url} target={item.newTab ? "_blank" : undefined}>
-                            {item.icon && <item.icon />}
+                            {item.icon && <item.icon className="size-[1.125rem] shrink-0" />}
                             <span>{item.title}</span>
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     );
                   }
-                  // Otherwise, render the dropdown as before
                   return <NavItemCollapsed key={item.title} item={item} isActive={isItemActive} />;
                 }
-                // Expanded view
                 return (
                   <NavItemExpanded key={item.title} item={item} isActive={isItemActive} isSubmenuOpen={isSubmenuOpen} />
                 );

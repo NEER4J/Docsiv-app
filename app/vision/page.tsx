@@ -23,8 +23,8 @@ const notionColors = [
 const brandColors = [
   { name: 'Ink',      variable: '--ink',      hex: '#0A0A0A', rgb: '10, 10, 10',    usage: 'Primary text, buttons, strong UI chrome' },
   { name: 'Paper',    variable: '--paper',    hex: '#FFFFFF', rgb: '255, 255, 255', usage: 'Page backgrounds, reversed text on dark' },
-  { name: 'Warm Mid', variable: '--warm-mid', hex: '#F2F2F2', rgb: '242, 242, 242', usage: 'Subtle backgrounds, section separators'   },
-  { name: 'Muted',    variable: '--muted',    hex: '#6B6560', rgb: '107, 101, 96',  usage: 'Secondary text, captions, labels'         },
+  { name: 'Warm Mid', variable: '--warm-mid', hex: '#171717', rgb: '23, 23, 23', usage: 'Subtle backgrounds, section separators'   },
+  { name: 'Muted',    variable: '--muted',    hex: '#171717', rgb: '23, 23, 23',  usage: 'Secondary text, captions, labels'         },
 ];
 
 const marketingTypeScale = [
@@ -62,6 +62,7 @@ const voiceTraits = [
 const docTypeMap = [
   { type: 'Proposals',          lib: 'Puck',         color: '#ddebf1', text: '#0b6e99', reason: 'Visual layout, premium feel for winning business' },
   { type: 'Reports',            lib: 'Puck / Plate',  color: '#ddedea', text: '#0f7b6c', reason: 'Puck for visual; Plate.js for data-dense text' },
+  { type: 'Sheets',             lib: 'Custom',       color: '#ddedea', text: '#0f7b6c', reason: 'Spreadsheet-style data, budgets, trackers; structured grid or export' },
   { type: 'Strategy Decks',     lib: 'Presenton',     color: '#eae4f2', text: '#6940a5', reason: 'Slide-native format, built for presentations' },
   { type: 'SOWs / Contracts',   lib: 'Plate.js',      color: '#fbf3db', text: '#dfab01', reason: 'Text-heavy, structured, precise editing control' },
   { type: 'Briefs',             lib: 'Plate.js',      color: '#faebdd', text: '#d9730d', reason: 'Structured input, collaborative block editing' },
@@ -87,7 +88,7 @@ const integrations = [
 
 const coreFeatures = [
   { n: '01', label: 'AI Document Creation',   color: '#ddebf1', text: '#0b6e99', desc: 'Turn meeting notes or raw data into polished, client-ready documents in minutes.' },
-  { n: '02', label: 'Every Document Type',    color: '#ddedea', text: '#0f7b6c', desc: 'Proposals, reports, strategy decks, SOWs, onboarding docs — all in one place.' },
+  { n: '02', label: 'Every Document Type',    color: '#ddedea', text: '#0f7b6c', desc: 'Proposals, reports, sheets, strategy decks, SOWs, onboarding docs — all in one place.' },
   { n: '03', label: 'White-Label by Default', color: '#eae4f2', text: '#6940a5', desc: 'Your logo, your colors, your domain. Clients never see Docsiv; they see you.' },
   { n: '04', label: 'Branded Client Portal',  color: '#fbf3db', text: '#dfab01', desc: 'One link. Every document you\'ve ever sent, organised in a beautiful branded space.' },
   { n: '05', label: 'Document Analytics',     color: '#faebdd', text: '#d9730d', desc: 'Know when clients open, read, and engage with what you send them.' },

@@ -1,11 +1,10 @@
 import {
-  LayoutDashboard,
+  Home,
   FileText,
-  Database,
   Users,
-  MessageSquare,
-  Palette,
-  CreditCard,
+  FolderOpen,
+  Plug,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 
@@ -37,81 +36,13 @@ export interface NavGroup {
 export const sidebarItems: NavGroup[] = [
   {
     id: 1,
-    label: "Dashboards",
     items: [
-      {
-        title: "Dashboards",
-        url: "/dashboard",
-        icon: LayoutDashboard,
-      },
-      {
-        title: "Reports",
-        url: "/dashboard/reports",
-        icon: FileText,
-        subItems: [
-          {
-            title: "All Reports",
-            url: "/dashboard/reports",
-          },
-          {
-            title: "Create Report",
-            url: "/dashboard/reports/create",
-          },
-          {
-            title: "Templates",
-            url: "/dashboard/reports/templates",
-          },
-        ],
-      },
-      {
-        title: "Data",
-        url: "/dashboard/data",
-        icon: Database,
-        subItems: [
-          {
-            title: "Connections",
-            url: "/dashboard/data/connections",
-          },
-          {
-            title: "CSV Uploads",
-            url: "/dashboard/data/uploads",
-          },
-          {
-            title: "Sync Logs",
-            url: "/dashboard/data/sync-logs",
-          },
-        ],
-      },
-      {
-        title: "Clients",
-        url: "/dashboard/clients",
-        icon: Users,
-        subItems: [
-          {
-            title: "Client List",
-            url: "/dashboard/clients",
-          },
-          {
-            title: "Shareable Links",
-            url: "/dashboard/clients/shareable-links",
-          },
-        ],
-      },
-      {
-        title: "Chat",
-        url: "/dashboard/chat",
-        icon: MessageSquare,
-      },
-      {
-        title: "Branding",
-        url: "/dashboard/branding",
-        icon: Palette,
-      },
-      {
-        title: "Billing",
-        url: "/dashboard/billing",
-        icon: CreditCard,
-      },
+      { title: "Home", url: "/dashboard", icon: Home },
+      { title: "Documents", url: "/dashboard/documents", icon: FileText },
+      { title: "Clients", url: "/dashboard/clients", icon: Users },
+      { title: "Templates", url: "/dashboard/templates", icon: FolderOpen },
+      { title: "Integrations", url: "/dashboard/integrations", icon: Plug },
+      { title: "Settings", url: "/dashboard/settings", icon: Settings },
     ],
   },
 ];

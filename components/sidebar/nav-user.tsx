@@ -59,17 +59,17 @@ export function NavUser({
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
-              className="data-[state=open]:bg-muted data-[state=open]:text-foreground"
+              className="h-auto py-2 data-[state=open]:bg-muted-hover data-[state=open]:text-foreground"
             >
-              <Avatar className="h-8 w-8 rounded-lg grayscale">
+              <Avatar className="h-7 w-7 rounded-full grayscale shrink-0">
                 <AvatarImage src={user.avatar || undefined} alt={user.name} />
-                <AvatarFallback className="rounded-lg">{getInitials(user.name)}</AvatarFallback>
+                <AvatarFallback className="rounded-full text-xs">{getInitials(user.name)}</AvatarFallback>
               </Avatar>
-              <div className="grid flex-1 text-left leading-tight">
-                <span className="font-ui truncate text-[0.875rem] font-medium">{user.name}</span>
-                <span className="font-body text-muted-foreground truncate text-xs">{user.email}</span>
+              <div className="grid flex-1 text-left leading-snug">
+                <span className="font-ui truncate text-[0.8125rem] font-medium">{user.name}</span>
+                <span className="font-body text-muted-foreground truncate text-[0.7rem]">{user.email}</span>
               </div>
-              <EllipsisVertical className="ml-auto size-4" />
+              <EllipsisVertical className="ml-auto size-3.5 opacity-40 group-data-[collapsible=icon]:hidden" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -108,7 +108,7 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={(e) => e.preventDefault()}
-              className="flex items-center justify-between gap-2 focus:bg-muted"
+              className="flex items-center justify-between gap-2 focus:bg-muted-hover hover:bg-muted-hover"
             >
               <span className="flex items-center gap-2">
                 {isDark ? <Moon /> : <Sun />}
