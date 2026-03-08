@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -7,11 +8,20 @@ import { ChevronRight } from "lucide-react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -24,6 +34,7 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Badge } from "@/components/ui/badge";
 import { type NavGroup, type NavMainItem } from "@/navigation/sidebar-items";
 import { cn } from "@/lib/utils";
 
@@ -37,14 +48,22 @@ const IsComingSoon = () => (
   </span>
 );
 
+const ProTag = () => (
+  <Badge variant="secondary" className="ml-auto border-0 bg-black text-[0.65rem] font-normal uppercase tracking-wider text-white">
+    Pro
+  </Badge>
+);
+
 const NavItemExpanded = ({
   item,
   isActive,
   isSubmenuOpen,
+  onProClick,
 }: {
   item: NavMainItem;
   isActive: (url: string, subItems?: NavMainItem["subItems"]) => boolean;
   isSubmenuOpen: (subItems?: NavMainItem["subItems"]) => boolean;
+  onProClick?: (item: NavMainItem) => void;
 }) => {
   const active = isActive(item.url, item.subItems);
 
@@ -66,6 +85,20 @@ const NavItemExpanded = ({
               <span>{item.title}</span>
               {item.comingSoon && <IsComingSoon />}
               <ChevronRight className="ml-auto size-3.5 opacity-50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
+            </SidebarMenuButton>
+          ) : item.pro && onProClick ? (
+            <SidebarMenuButton
+              onClick={() => onProClick(item)}
+              isActive={active}
+              tooltip={`${item.title} (Pro)`}
+              className={cn(
+                "h-9 gap-3 text-[0.8125rem] cursor-pointer",
+                active && "font-semibold"
+              )}
+            >
+              {item.icon && <item.icon className={cn("size-[1.0625rem] shrink-0", active ? "opacity-100" : "opacity-60")} />}
+              <span>{item.title}</span>
+              <ProTag />
             </SidebarMenuButton>
           ) : (
             <SidebarMenuButton
@@ -167,6 +200,13 @@ const NavItemCollapsed = ({
 export function NavMain({ items }: NavMainProps) {
   const path = usePathname();
   const { state, isMobile } = useSidebar();
+  const [proDialogOpen, setProDialogOpen] = useState(false);
+  const [proFeatureTitle, setProFeatureTitle] = useState<string>("");
+
+  const handleProClick = (item: NavMainItem) => {
+    setProFeatureTitle(item.title);
+    setProDialogOpen(true);
+  };
 
   const isItemActive = (url: string, subItems?: NavMainItem["subItems"]) => {
     if (subItems?.length) {
@@ -193,6 +233,21 @@ export function NavMain({ items }: NavMainProps) {
               {group.items.map((item) => {
                 if (state === "collapsed" && !isMobile) {
                   if (!item.subItems) {
+                    if (item.pro) {
+                      return (
+                        <SidebarMenuItem key={item.title}>
+                          <SidebarMenuButton
+                            onClick={() => handleProClick(item)}
+                            tooltip={`${item.title} (Pro)`}
+                            isActive={isItemActive(item.url)}
+                            className="cursor-pointer"
+                          >
+                            {item.icon && <item.icon className="size-[1.125rem] shrink-0" />}
+                            <span>{item.title}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    }
                     return (
                       <SidebarMenuItem key={item.title}>
                         <SidebarMenuButton
@@ -212,13 +267,38 @@ export function NavMain({ items }: NavMainProps) {
                   return <NavItemCollapsed key={item.title} item={item} isActive={isItemActive} />;
                 }
                 return (
-                  <NavItemExpanded key={item.title} item={item} isActive={isItemActive} isSubmenuOpen={isSubmenuOpen} />
+                  <NavItemExpanded
+                    key={item.title}
+                    item={item}
+                    isActive={isItemActive}
+                    isSubmenuOpen={isSubmenuOpen}
+                    onProClick={handleProClick}
+                  />
                 );
               })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       ))}
+
+      <Dialog open={proDialogOpen} onOpenChange={setProDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unlock {proFeatureTitle} with Pro</DialogTitle>
+            <DialogDescription>
+              Upgrade to Pro to access {proFeatureTitle}. Get full visibility into your proposals and reports with advanced analytics and insights.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProDialogOpen(false)}>
+              Maybe later
+            </Button>
+            <Button asChild>
+              <Link href="#">Upgrade to Pro</Link>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

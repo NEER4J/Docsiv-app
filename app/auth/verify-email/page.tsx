@@ -28,18 +28,18 @@ function VerifyEmailContent() {
       setTimeout(() => {
         setVerificationStatus('success');
         setIsVerifying(false);
-        // Redirect to dashboard after successful verification
+        // Redirect to documents after successful verification
         setTimeout(() => {
-          router.push('/dashboard');
+          router.push('/dashboard/documents');
         }, 2000);
       }, 1000);
     }
   }, [searchParams, router]);
 
-  // If user is already verified and logged in, redirect to dashboard
+  // If user is already verified and logged in, redirect to documents
   useEffect(() => {
     if (user && verificationStatus === 'pending') {
-      router.push('/dashboard');
+      router.push('/dashboard/documents');
     }
   }, [user, router, verificationStatus]);
 
@@ -68,7 +68,7 @@ function VerifyEmailContent() {
           </div>
           <h1 className="text-3xl font-medium">Email verified!</h1>
           <p className="text-muted-foreground text-sm">
-            Your email has been successfully verified. Redirecting to dashboard...
+            Your email has been successfully verified. Redirecting to documents...
           </p>
         </div>
       </div>

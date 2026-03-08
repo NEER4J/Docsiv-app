@@ -715,6 +715,7 @@ export default function VisionPage() {
                   <li>Your name (first + last)</li>
                   <li>Agency name</li>
                   <li>Agency website (optional)</li>
+                  <li>Theme Selction - Dark or light</li>
                   <li>Team size (solo / 2-5 / 6-20 / 20+)</li>
                   <li>What do you mainly send clients? (proposals / reports / contracts / all of the above — multi select)</li>
                   <li>How did you hear about us? (Reddit / LinkedIn / Google / Friend / Other)</li>

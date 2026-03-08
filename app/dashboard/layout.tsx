@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import { cookies } from "next/headers";
 
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
+import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
 import { DashboardNavbar } from "@/components/dashboard/dashboard-navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -43,27 +44,26 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
           avatar: userData.avatar,
         }}
       />
-      <SidebarInset
-        className={cn(
-          "max-w-full",
-        )}
-      >
-        <header
-          className={cn(
-            "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
-            "sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
-          )}
-        >
-          <div className="flex w-full items-center gap-2 px-4 lg:px-6">
-            <SidebarTrigger className="-ml-1 shrink-0" />
-            <Separator orientation="vertical" className="h-4 shrink-0" />
-            <DashboardNavbar />
-            <div className="ml-auto shrink-0">
-              <SearchDialog />
+      <SidebarInset className={cn("min-w-0 max-w-full flex flex-col overflow-hidden")}>
+        <AiAssistantProvider>
+          <header
+            className={cn(
+              "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
+              "sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
+            )}
+          >
+            <div className="flex w-full items-center gap-2 px-4 lg:px-6">
+              <SidebarTrigger className="-ml-1 shrink-0" />
+              <Separator orientation="vertical" className="h-4 shrink-0" />
+              <DashboardNavbar />
+              <div className="ml-auto flex shrink-0 items-center gap-1">
+                <SearchDialog />
+                <AiAssistantSidebar />
+              </div>
             </div>
-          </div>
-        </header>
-        <div className="h-full p-4 md:p-6">{children}</div>
+          </header>
+          <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden p-4 md:p-6">{children}</div>
+        </AiAssistantProvider>
       </SidebarInset>
     </SidebarProvider>
   );

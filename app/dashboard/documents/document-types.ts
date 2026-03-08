@@ -1,10 +1,10 @@
 import {
   FileText,
-  Table2,
+  Table,
   Presentation,
-  FileSignature,
-  type LucideIcon,
-} from "lucide-react";
+  Signature,
+  type Icon,
+} from "@phosphor-icons/react";
 
 export type DocumentTypeId = "doc" | "sheet" | "presentation" | "contract";
 
@@ -18,7 +18,7 @@ export type Doc = {
 
 export const DOCUMENT_TYPES: Record<
   DocumentTypeId,
-  { label: string; icon: LucideIcon; color: string; bgColor: string }
+  { label: string; icon: Icon; color: string; bgColor: string }
 > = {
   doc: {
     label: "Document",
@@ -28,7 +28,7 @@ export const DOCUMENT_TYPES: Record<
   },
   sheet: {
     label: "Sheet",
-    icon: Table2,
+    icon: Table,
     color: "#0F9D58",
     bgColor: "#E6F4EA",
   },
@@ -40,7 +40,7 @@ export const DOCUMENT_TYPES: Record<
   },
   contract: {
     label: "Contract",
-    icon: FileSignature,
+    icon: Signature,
     color: "#A142F4",
     bgColor: "#F3E8FD",
   },

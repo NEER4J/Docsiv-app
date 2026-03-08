@@ -12,7 +12,7 @@ export default async function AuthCallback({
   console.log('OAuth callback received params:', params)
 
   const code = Array.isArray(params.code) ? params.code[0] : params.code
-  const next = Array.isArray(params.next) ? params.next[0] : params.next ?? '/dashboard'
+  const next = Array.isArray(params.next) ? params.next[0] : params.next ?? '/dashboard/documents'
 
   console.log('Code:', code, 'Next:', next)
 

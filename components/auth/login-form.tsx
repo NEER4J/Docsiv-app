@@ -45,9 +45,9 @@ export function LoginForm() {
       });
     } else {
       toast.success("Login successful", {
-        description: "Redirecting to dashboard...",
+        description: "Redirecting to documents...",
       });
-      router.push("/dashboard");
+      router.push("/dashboard/documents");
     }
     
     setIsLoading(false);

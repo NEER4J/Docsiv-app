@@ -2,7 +2,9 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { LayoutGrid, List, Plus, FolderOpen, FileText, Table2, FileSignature, ChevronDown, Search, Presentation } from "lucide-react";
+import { FolderOpen } from "@phosphor-icons/react";
+import { LayoutGrid, List, Plus, ChevronDown, Search } from "lucide-react";
+import { useAuth } from "@/lib/auth/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +20,13 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Separator } from "@/components/ui/separator";
 import { Card } from "@/components/ui/card";
@@ -32,12 +41,13 @@ import { DOCUMENT_TYPES, type DocumentTypeId, type Doc } from "./document-types"
 
 const DOCUMENT_TABS: DocumentTypeTabItem[] = [
   { value: "All", label: "All", icon: FolderOpen, color: "var(--muted-foreground)" },
-  { value: "Proposals", label: "Proposals", icon: FileText, color: DOCUMENT_TYPES.doc.color },
-  { value: "Reports", label: "Reports", icon: Table2, color: DOCUMENT_TYPES.sheet.color },
-  { value: "Sheets", label: "Sheets", icon: Table2, color: DOCUMENT_TYPES.sheet.color },
-  { value: "Decks", label: "Decks", icon: Presentation, color: DOCUMENT_TYPES.presentation.color },
-  { value: "SOWs", label: "SOWs", icon: FileSignature, color: DOCUMENT_TYPES.contract.color },
-  { value: "Briefs", label: "Briefs", icon: FileText, color: DOCUMENT_TYPES.doc.color },
+  { value: "Proposals", label: "Proposals", icon: DOCUMENT_TYPES.doc.icon, color: DOCUMENT_TYPES.doc.color },
+  { value: "Reports", label: "Reports", icon: DOCUMENT_TYPES.sheet.icon, color: DOCUMENT_TYPES.sheet.color },
+  { value: "Sheets", label: "Sheets", icon: DOCUMENT_TYPES.sheet.icon, color: DOCUMENT_TYPES.sheet.color },
+  { value: "Contracts", label: "Contracts", icon: DOCUMENT_TYPES.contract.icon, color: DOCUMENT_TYPES.contract.color },
+  { value: "Decks", label: "Decks", icon: DOCUMENT_TYPES.presentation.icon, color: DOCUMENT_TYPES.presentation.color },
+  { value: "SOWs", label: "SOWs", icon: DOCUMENT_TYPES.contract.icon, color: DOCUMENT_TYPES.contract.color },
+  { value: "Briefs", label: "Briefs", icon: DOCUMENT_TYPES.doc.icon, color: DOCUMENT_TYPES.doc.color },
 ];
 
 const CLIENTS = ["All", "Maharaja", "Peninsula", "WBT"];
@@ -52,7 +62,22 @@ const DUMMY_DOCS: Doc[] = [
   { id: "6", title: "Budget Tracker", status: "Open", time: "2d ago", type: "sheet" },
 ];
 
-const RECENT_DOCS_COUNT = 4;
+/** "Xd ago" = within this week; "Xw ago" = older */
+function isThisWeek(time: string): boolean {
+  return /^\d+d\s*ago$/i.test(time.trim());
+}
+
+function documentsSubheading(docs: Doc[]): string {
+  const drafts = docs.filter((d) => d.status === "Draft").length;
+  const sentThisWeek = docs.filter((d) => d.status === "Sent" && isThisWeek(d.time)).length;
+  const parts: string[] = [];
+  if (drafts > 0) parts.push(`${drafts} draft${drafts === 1 ? "" : "s"}`);
+  if (sentThisWeek > 0) parts.push(`${sentThisWeek} sent this week`);
+  if (parts.length === 0) return "Here are your documents.";
+  return parts.join(", ");
+}
+
+const RECENT_DOCS_COUNT = 6;
 function RecentlyUsedSection({ docs }: { docs: Doc[] }) {
   const recent = docs.slice(0, RECENT_DOCS_COUNT);
   if (recent.length === 0) return null;
@@ -61,12 +86,10 @@ function RecentlyUsedSection({ docs }: { docs: Doc[] }) {
       <h2 className="font-ui mb-3 text-sm font-semibold tracking-[-0.01em] text-foreground">
         Recently used
       </h2>
-      <div className="flex gap-3 overflow-x-auto pb-2 md:overflow-x-visible">
-        <div className="grid min-w-0 grid-cols-2 gap-3 sm:flex sm:flex-nowrap sm:grid-cols-none md:grid-cols-4">
-          {recent.map((doc) => (
-            <DocumentCard key={doc.id} doc={doc} variant="recent" />
-          ))}
-        </div>
+      <div className="grid min-w-0 max-w-full grid-cols-3 justify-items-start gap-2 sm:gap-3 md:w-max md:grid-cols-[repeat(6,180px)]">
+        {recent.map((doc) => (
+          <DocumentCard key={doc.id} doc={doc} variant="recent" />
+        ))}
       </div>
     </section>
   );
@@ -81,7 +104,7 @@ function DocumentsList({
 }) {
   if (layout === "grid") {
     return (
-      <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+      <ul className="grid min-w-0 grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {docs.map((doc) => (
           <DocumentCard key={doc.id} doc={doc} variant="grid" />
         ))}
@@ -129,9 +152,10 @@ function FilterBar({
   };
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4">
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-        <div className="relative min-w-[200px] max-w-sm flex-1">
+    <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-4">
+      {/* Row 1: Search + view toggle */}
+      <div className="flex min-w-0 gap-2 md:min-w-[200px] md:max-w-sm md:flex-1">
+        <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
             type="search"
@@ -165,12 +189,12 @@ function FilterBar({
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
-      <div className="flex items-center gap-3 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground whitespace-nowrap">Client</span>
-          <DropdownMenu open={clientOpen} onOpenChange={setClientOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="w-[140px] justify-between font-normal">
+      {/* Row 2: Client + Status */}
+      <div className="grid grid-cols-[auto_1fr_auto_1fr] items-center gap-x-2 gap-y-1 md:flex md:flex-wrap md:gap-3 md:shrink-0">
+        <span className="text-sm text-muted-foreground whitespace-nowrap">Client</span>
+        <DropdownMenu open={clientOpen} onOpenChange={setClientOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full min-w-0 justify-between font-normal md:w-[140px]">
                 {client}
                 <ChevronDown className="size-4 opacity-50" />
               </Button>
@@ -198,10 +222,28 @@ function FilterBar({
               </Command>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
-          <div className="flex h-9 flex-wrap items-center gap-0 rounded-lg bg-muted-hover p-0.5">
+        <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
+          {/* Mobile: dropdown */}
+          <div className="md:hidden">
+            <Select
+              value={statusFilters.length === 0 ? "All" : statusFilters[0]}
+              onValueChange={(v) => onStatusFiltersChange(v === "All" ? [] : [v])}
+            >
+              <SelectTrigger size="sm" className="min-w-0 w-full font-normal md:w-[120px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All</SelectItem>
+                {STATUS_OPTIONS.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        {/* Desktop: toggle buttons */}
+        <div className="hidden h-9 flex-wrap items-center gap-0 rounded-lg bg-muted-hover p-0.5 md:flex">
             {STATUS_OPTIONS.map((s) => {
               const selected = statusFilters.includes(s);
               return (
@@ -220,7 +262,6 @@ function FilterBar({
                 </button>
               );
             })}
-          </div>
         </div>
       </div>
     </div>
@@ -228,11 +269,16 @@ function FilterBar({
 }
 
 export function DocumentsView() {
+  const { user } = useAuth();
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [documentTab, setDocumentTab] = useState("All");
   const [client, setClient] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
+
+  const displayName = user?.name || user?.email?.split("@")[0] || "there";
+  const greeting = `Hello, ${displayName}!`;
+  const subheading = documentsSubheading(DUMMY_DOCS);
 
   const filteredDocs = useMemo(() => {
     return DUMMY_DOCS.filter((doc) => {
@@ -244,11 +290,16 @@ export function DocumentsView() {
   }, [searchQuery, client, statusFilters]);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-ui text-2xl font-bold tracking-[-0.02em]">
-          Documents
-        </h1>
+        <div>
+          <h1 className="font-[family-name:var(--font-playfair)] text-2xl font-bold tracking-[-0.02em]">
+            {greeting}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {subheading}
+          </p>
+        </div>
         <Button variant="main" size="default" asChild>
           <Link href="/dashboard/documents" className="gap-2">
             <Plus className="size-4" />

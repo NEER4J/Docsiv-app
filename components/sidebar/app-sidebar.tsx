@@ -43,7 +43,7 @@ export function AppSidebar({
     <Sidebar {...props}>
       <SidebarHeader className={cn("py-4", sidebarPaddingX)}>
         <Link
-          href="/dashboard"
+          href="/dashboard/documents"
           className={cn(
             "flex items-center hover:opacity-75 transition-opacity",
             isCollapsed ? "justify-center w-full" : "gap-2.5"
@@ -67,7 +67,7 @@ export function AppSidebar({
         </Link>
         {!isCollapsed && (
           <>
-            <SidebarSeparator className="m-0 my-2" />
+            <div className="my-1"></div>
             <WorkspaceSwitcher />
           </>
         )}

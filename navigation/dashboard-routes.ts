@@ -3,10 +3,11 @@
  * First key is the path segment after /dashboard; second key is optional (e.g. settings sub-page, or "id" for dynamic).
  */
 const SEGMENT_LABELS: Record<string, string> = {
-  "": "Home",
+  "": "Documents",
   documents: "Documents",
   clients: "Clients",
   templates: "Templates",
+  analytics: "Analytics",
   integrations: "Integrations",
   settings: "Settings",
   // Settings sub-routes

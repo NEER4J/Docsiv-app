@@ -22,36 +22,40 @@ const benefits = [
 function UpgradeIllustration({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 80 56"
+      viewBox="0 0 64 48"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={cn("size-full", className)}
       aria-hidden
     >
-      {/* Document */}
+      {/* Document — rounded, clean */}
       <path
-        d="M12 4h32l12 12v32a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4Z"
+        d="M10 6h28l8 8v26a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"
         fill="var(--muted-hover)"
         stroke="var(--border)"
-        strokeWidth="1.5"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
       />
-      <path d="M44 4v12h12" stroke="var(--border)" strokeWidth="1.5" fill="none" />
-      {/* Lines */}
-      <rect x="18" y="24" width="24" height="2" rx="1" fill="var(--muted-foreground)" opacity="0.5" />
-      <rect x="18" y="32" width="20" height="2" rx="1" fill="var(--muted-foreground)" opacity="0.4" />
-      <rect x="18" y="40" width="28" height="2" rx="1" fill="var(--muted-foreground)" opacity="0.3" />
-      {/* Sparkle / AI indicator */}
-      <g transform="translate(52, 20)">
-        <path
-          d="M14 2L15.5 6.5L20 8L15.5 9.5L14 14L12.5 9.5L8 8L12.5 6.5L14 2Z"
-          fill="var(--notion-yellow)"
-        />
-        <path
-          d="M22 18L23 20L25 21L23 22L22 24L21 22L19 21L21 20L22 18Z"
-          fill="var(--notion-blue)"
-          opacity="0.8"
-        />
-      </g>
+      <path
+        d="M38 6v8h8"
+        stroke="var(--border)"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      {/* Text lines */}
+      <rect x="16" y="22" width="20" height="1.5" rx="0.75" fill="var(--muted-foreground)" opacity="0.45" />
+      <rect x="16" y="28" width="16" height="1.5" rx="0.75" fill="var(--muted-foreground)" opacity="0.35" />
+      <rect x="16" y="34" width="22" height="1.5" rx="0.75" fill="var(--muted-foreground)" opacity="0.25" />
+      {/* Single clean sparkle */}
+      <path
+        d="M50 14 51.4 17.2 55 18.5 51.4 19.8 50 23 48.6 19.8 45 18.5 48.6 17.2 50 14Z"
+        fill="var(--notion-yellow)"
+        stroke="var(--notion-yellow)"
+        strokeWidth="0.5"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

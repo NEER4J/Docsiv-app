@@ -1,8 +1,8 @@
 import {
-  Home,
   FileText,
   Users,
   FolderOpen,
+  BarChart3,
   Plug,
   Settings,
   type LucideIcon,
@@ -25,6 +25,7 @@ export interface NavMainItem {
   comingSoon?: boolean;
   newTab?: boolean;
   isNew?: boolean;
+  pro?: boolean;
 }
 
 export interface NavGroup {
@@ -37,10 +38,10 @@ export const sidebarItems: NavGroup[] = [
   {
     id: 1,
     items: [
-      { title: "Home", url: "/dashboard", icon: Home },
       { title: "Documents", url: "/dashboard/documents", icon: FileText },
       { title: "Clients", url: "/dashboard/clients", icon: Users },
       { title: "Templates", url: "/dashboard/templates", icon: FolderOpen },
+      { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3, pro: true },
       { title: "Integrations", url: "/dashboard/integrations", icon: Plug },
       { title: "Settings", url: "/dashboard/settings", icon: Settings },
     ],

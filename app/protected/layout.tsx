@@ -12,7 +12,7 @@ export default function ProtectedLayout({
       <div className="flex-1 w-full flex flex-col gap-20 items-center">
         <nav className="w-full flex justify-center border-b border-border h-16 bg-background">
           <div className="w-full max-w-5xl flex justify-between items-center px-5 text-sm">
-            <Link href="/dashboard" className="font-semibold text-foreground">
+            <Link href="/dashboard/documents" className="font-semibold text-foreground">
               {APP_CONFIG.name}
             </Link>
           </div>
