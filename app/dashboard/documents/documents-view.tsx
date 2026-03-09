@@ -1,9 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import Link from "next/link";
-import { FolderOpen } from "@phosphor-icons/react";
-import { LayoutGrid, List, Plus, ChevronDown, Search } from "lucide-react";
+import { LayoutGrid, List, ChevronDown, Search } from "lucide-react";
 import { useAuth } from "@/lib/auth/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,56 +27,54 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Separator } from "@/components/ui/separator";
-import { Card } from "@/components/ui/card";
 import {
   DocumentTypeSwitcher,
   DocumentTypeSwitcherContent,
   type DocumentTypeTabItem,
 } from "@/components/documents/document-type-switcher";
 import { DocumentCard } from "@/components/documents/document-card";
+import { DocumentsList } from "@/components/documents/documents-list";
+import { DocumentsEmptyState } from "@/components/documents/documents-empty-state";
+import { NewDocumentDialog } from "@/components/documents/new-document-dialog";
 import { cn } from "@/lib/utils";
-import { DOCUMENT_TYPES, type DocumentTypeId, type Doc } from "./document-types";
+import { getIconForDocumentType } from "@/lib/document-type-icons";
+import type { DocumentListItem, ClientWithDocCount, DocumentType } from "@/types/database";
 
-const DOCUMENT_TABS: DocumentTypeTabItem[] = [
-  { value: "All", label: "All", icon: FolderOpen, color: "var(--muted-foreground)" },
-  { value: "Proposals", label: "Proposals", icon: DOCUMENT_TYPES.doc.icon, color: DOCUMENT_TYPES.doc.color },
-  { value: "Reports", label: "Reports", icon: DOCUMENT_TYPES.sheet.icon, color: DOCUMENT_TYPES.sheet.color },
-  { value: "Sheets", label: "Sheets", icon: DOCUMENT_TYPES.sheet.icon, color: DOCUMENT_TYPES.sheet.color },
-  { value: "Contracts", label: "Contracts", icon: DOCUMENT_TYPES.contract.icon, color: DOCUMENT_TYPES.contract.color },
-  { value: "Decks", label: "Decks", icon: DOCUMENT_TYPES.presentation.icon, color: DOCUMENT_TYPES.presentation.color },
-  { value: "SOWs", label: "SOWs", icon: DOCUMENT_TYPES.contract.icon, color: DOCUMENT_TYPES.contract.color },
-  { value: "Briefs", label: "Briefs", icon: DOCUMENT_TYPES.doc.icon, color: DOCUMENT_TYPES.doc.color },
-];
-
-const CLIENTS = ["All", "Maharaja", "Peninsula", "WBT"];
-const STATUS_OPTIONS = ["Draft", "Sent", "Open"];
-
-const DUMMY_DOCS: Doc[] = [
-  { id: "1", title: "Maharaja Proposal", status: "Sent", time: "2d ago", type: "doc" },
-  { id: "2", title: "Peninsula Report", status: "Draft", time: "5d ago", type: "sheet" },
-  { id: "3", title: "WBT Contract", status: "Open", time: "1d ago", type: "contract" },
-  { id: "4", title: "Q4 Deck", status: "Draft", time: "3d ago", type: "presentation" },
-  { id: "5", title: "Agency Brief", status: "Sent", time: "1w ago", type: "doc" },
-  { id: "6", title: "Budget Tracker", status: "Open", time: "2d ago", type: "sheet" },
-];
-
-/** "Xd ago" = within this week; "Xw ago" = older */
-function isThisWeek(time: string): boolean {
-  return /^\d+d\s*ago$/i.test(time.trim());
+function buildDocumentTabs(documentTypes: DocumentType[]): DocumentTypeTabItem[] {
+  const allTab: DocumentTypeTabItem = {
+    value: "all",
+    label: "All",
+    icon: getIconForDocumentType("FileText"),
+    color: "var(--muted-foreground)",
+  };
+  const typeTabs: DocumentTypeTabItem[] = documentTypes.map((dt) => ({
+    value: dt.slug,
+    label: dt.name,
+    icon: getIconForDocumentType(dt.icon),
+    color: dt.color ?? "var(--muted-foreground)",
+  }));
+  return [allTab, ...typeTabs];
 }
 
-function documentsSubheading(docs: Doc[]): string {
-  const drafts = docs.filter((d) => d.status === "Draft").length;
-  const sentThisWeek = docs.filter((d) => d.status === "Sent" && isThisWeek(d.time)).length;
+const STATUS_OPTIONS = ["draft", "sent", "open", "accepted", "declined"] as const;
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft", sent: "Sent", open: "Open", accepted: "Accepted", declined: "Declined",
+};
+
+function documentsSubheading(docs: DocumentListItem[]): string {
+  const drafts = docs.filter((d) => d.status === "draft").length;
+  const oneWeekAgo = Date.now() - 7 * 86400000;
+  const sentThisWeek = docs.filter(
+    (d) => d.status === "sent" && new Date(d.updated_at).getTime() > oneWeekAgo
+  ).length;
   const parts: string[] = [];
   if (drafts > 0) parts.push(`${drafts} draft${drafts === 1 ? "" : "s"}`);
   if (sentThisWeek > 0) parts.push(`${sentThisWeek} sent this week`);
-  if (parts.length === 0) return "Here are your documents.";
-  return parts.join(", ");
+  return parts.length ? parts.join(", ") : "Here are your documents.";
 }
 
 const RECENT_DOCS_COUNT = 6;
-function RecentlyUsedSection({ docs }: { docs: Doc[] }) {
+function RecentlyUsedSection({ docs }: { docs: DocumentListItem[] }) {
   const recent = docs.slice(0, RECENT_DOCS_COUNT);
   if (recent.length === 0) return null;
   return (
@@ -95,53 +91,33 @@ function RecentlyUsedSection({ docs }: { docs: Doc[] }) {
   );
 }
 
-function DocumentsList({
-  layout,
-  docs,
-}: {
-  layout: "grid" | "list";
-  docs: Doc[];
-}) {
-  if (layout === "grid") {
-    return (
-      <ul className="grid min-w-0 grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-        {docs.map((doc) => (
-          <DocumentCard key={doc.id} doc={doc} variant="grid" />
-        ))}
-      </ul>
-    );
-  }
-  return (
-    <Card className="overflow-hidden">
-      <ul className="divide-y divide-border">
-        {docs.map((doc) => (
-          <DocumentCard key={doc.id} doc={doc} variant="list" />
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
 function FilterBar({
   searchQuery,
   onSearchChange,
-  client,
+  clientId,
   onClientChange,
   statusFilters,
   onStatusFiltersChange,
   layout,
   onLayoutChange,
+  clients,
 }: {
   searchQuery: string;
   onSearchChange: (v: string) => void;
-  client: string;
+  clientId: string;
   onClientChange: (v: string) => void;
   statusFilters: string[];
   onStatusFiltersChange: (v: string[]) => void;
   layout: "grid" | "list";
   onLayoutChange: (v: "grid" | "list") => void;
+  clients: ClientWithDocCount[];
 }) {
   const [clientOpen, setClientOpen] = useState(false);
+
+  const selectedClientLabel =
+    clientId === "all"
+      ? "All clients"
+      : clients.find((c) => c.id === clientId)?.name ?? "All clients";
 
   const toggleStatus = (status: string, checked: boolean) => {
     if (checked) {
@@ -153,7 +129,7 @@ function FilterBar({
 
   return (
     <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-4">
-      {/* Row 1: Search + view toggle */}
+      {/* Search + view toggle */}
       <div className="flex min-w-0 gap-2 md:min-w-[200px] md:max-w-sm md:flex-1">
         <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -189,106 +165,150 @@ function FilterBar({
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
-      {/* Row 2: Client + Status */}
+
+      {/* Client + Status */}
       <div className="grid grid-cols-[auto_1fr_auto_1fr] items-center gap-x-2 gap-y-1 md:flex md:flex-wrap md:gap-3 md:shrink-0">
         <span className="text-sm text-muted-foreground whitespace-nowrap">Client</span>
         <DropdownMenu open={clientOpen} onOpenChange={setClientOpen}>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="w-full min-w-0 justify-between font-normal md:w-[140px]">
-                {client}
-                <ChevronDown className="size-4 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)] p-0" onCloseAutoFocus={(e) => e.preventDefault()}>
-              <Command className="rounded-lg border-0">
-                <CommandInput placeholder="Search clients..." className="h-9" />
-                <CommandList>
-                  <CommandEmpty>No client found.</CommandEmpty>
-                  <CommandGroup>
-                    {CLIENTS.map((c) => (
-                      <CommandItem
-                        key={c}
-                        value={c}
-                        onSelect={() => {
-                          onClientChange(c);
-                          setClientOpen(false);
-                        }}
-                      >
-                        {c}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <Button variant="outline" size="sm" className="w-full min-w-0 justify-between font-normal md:w-[160px]">
+              <span className="truncate">{selectedClientLabel}</span>
+              <ChevronDown className="size-4 shrink-0 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)] p-0" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <Command className="rounded-lg border-0">
+              <CommandInput placeholder="Search clients..." className="h-9" />
+              <CommandList>
+                <CommandEmpty>No client found.</CommandEmpty>
+                <CommandGroup>
+                  <CommandItem
+                    value="all"
+                    onSelect={() => { onClientChange("all"); setClientOpen(false); }}
+                  >
+                    All clients
+                  </CommandItem>
+                  {clients.map((c) => (
+                    <CommandItem
+                      key={c.id}
+                      value={c.name}
+                      onSelect={() => { onClientChange(c.id); setClientOpen(false); }}
+                    >
+                      {c.name}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
-          {/* Mobile: dropdown */}
-          <div className="md:hidden">
-            <Select
-              value={statusFilters.length === 0 ? "All" : statusFilters[0]}
-              onValueChange={(v) => onStatusFiltersChange(v === "All" ? [] : [v])}
-            >
-              <SelectTrigger size="sm" className="min-w-0 w-full font-normal md:w-[120px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All">All</SelectItem>
-                {STATUS_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Mobile: dropdown */}
+        <div className="md:hidden">
+          <Select
+            value={statusFilters.length === 0 ? "all" : statusFilters[0]}
+            onValueChange={(v) => onStatusFiltersChange(v === "all" ? [] : [v])}
+          >
+            <SelectTrigger size="sm" className="min-w-0 w-full font-normal md:w-[120px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              {STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {/* Desktop: toggle buttons */}
         <div className="hidden h-9 flex-wrap items-center gap-0 rounded-lg bg-muted-hover p-0.5 md:flex">
-            {STATUS_OPTIONS.map((s) => {
-              const selected = statusFilters.includes(s);
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => toggleStatus(s, !selected)}
-                  className={cn(
-                    "flex h-full min-h-8 items-center rounded-md px-3 text-sm font-medium transition-colors",
-                    selected
-                      ? "bg-muted-active text-foreground"
-                      : "bg-transparent text-muted-foreground hover:bg-muted-hover/80 hover:text-foreground"
-                  )}
-                >
-                  {s}
-                </button>
-              );
-            })}
+          {STATUS_OPTIONS.map((s) => {
+            const selected = statusFilters.includes(s);
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => toggleStatus(s, !selected)}
+                className={cn(
+                  "flex h-full min-h-8 items-center rounded-md px-3 text-sm font-medium transition-colors",
+                  selected
+                    ? "bg-muted-active text-foreground"
+                    : "bg-transparent text-muted-foreground hover:bg-muted-hover/80 hover:text-foreground"
+                )}
+              >
+                {STATUS_LABELS[s]}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
   );
 }
 
-export function DocumentsView({ firstName }: { firstName?: string }) {
+export function DocumentsView({
+  firstName,
+  workspaceId,
+  isEmpty,
+  documents = [],
+  clients = [],
+  documentTypes = [],
+}: {
+  firstName?: string;
+  workspaceId: string | null;
+  isEmpty: boolean;
+  documents?: DocumentListItem[];
+  clients?: ClientWithDocCount[];
+  documentTypes?: DocumentType[];
+}) {
   const { user } = useAuth();
   const [layout, setLayout] = useState<"grid" | "list">("grid");
-  const [documentTab, setDocumentTab] = useState("All");
-  const [client, setClient] = useState("All");
+  const [documentTab, setDocumentTab] = useState("all");
+  const [clientId, setClientId] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
+
+  const documentTabs = useMemo(() => buildDocumentTabs(documentTypes), [documentTypes]);
 
   const displayName =
     firstName ?? user?.name ?? user?.email?.split("@")[0] ?? "there";
   const greeting = `Hello, ${displayName}!`;
-  const subheading = documentsSubheading(DUMMY_DOCS);
+  const subheading = documentsSubheading(documents);
 
   const filteredDocs = useMemo(() => {
-    return DUMMY_DOCS.filter((doc) => {
-      const matchesSearch = !searchQuery.trim() || doc.title.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesClient = client === "All" || doc.title.toLowerCase().includes(client.toLowerCase());
-      const matchesStatus = statusFilters.length === 0 || statusFilters.includes(doc.status);
-      return matchesSearch && matchesClient && matchesStatus;
+    const tabSlug = documentTab !== "all" ? documentTab : null;
+    return documents.filter((doc) => {
+      const matchesSearch =
+        !searchQuery.trim() ||
+        doc.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesClient = clientId === "all" || doc.client_id === clientId;
+      const matchesStatus =
+        statusFilters.length === 0 || statusFilters.includes(doc.status);
+      const matchesTab = !tabSlug || doc.document_type?.slug === tabSlug;
+      return matchesSearch && matchesClient && matchesStatus && matchesTab;
     });
-  }, [searchQuery, client, statusFilters]);
+  }, [documents, searchQuery, clientId, statusFilters, documentTab]);
+
+  if (isEmpty) {
+    return (
+      <div className="min-w-0 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="font-[family-name:var(--font-playfair)] text-2xl font-bold tracking-[-0.02em]">
+              {greeting}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Let&apos;s get you started.
+            </p>
+          </div>
+        </div>
+        <DocumentsEmptyState workspaceId={workspaceId} clients={clients} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-w-0 space-y-6">
@@ -297,64 +317,45 @@ export function DocumentsView({ firstName }: { firstName?: string }) {
           <h1 className="font-[family-name:var(--font-playfair)] text-2xl font-bold tracking-[-0.02em]">
             {greeting}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {subheading}
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{subheading}</p>
         </div>
-        <Button variant="main" size="default" asChild>
-          <Link href="/dashboard/documents" className="gap-2">
-            <Plus className="size-4" />
-            New Doc
-          </Link>
-        </Button>
+        {workspaceId && (
+          <NewDocumentDialog
+            workspaceId={workspaceId}
+            clients={clients}
+            documentTypes={documentTypes}
+          />
+        )}
       </div>
 
       <DocumentTypeSwitcher
         value={documentTab}
         onValueChange={setDocumentTab}
-        items={DOCUMENT_TABS}
+        items={documentTabs}
       >
-        <DocumentTypeSwitcherContent value="All" className="mt-6">
-          <RecentlyUsedSection docs={DUMMY_DOCS} />
-          <Separator className="my-6" />
-          <FilterBar
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            client={client}
-            onClientChange={setClient}
-            statusFilters={statusFilters}
-            onStatusFiltersChange={setStatusFilters}
-            layout={layout}
-            onLayoutChange={setLayout}
-          />
-          <h2 className="font-ui mb-3 mt-6 text-sm font-semibold tracking-[-0.01em] text-foreground">
-            All documents
-          </h2>
-          <div className="mt-1">
-            <DocumentsList layout={layout} docs={filteredDocs} />
-          </div>
-        </DocumentTypeSwitcherContent>
-
-        {DOCUMENT_TABS.filter((t) => t.value !== "All").map((tab) => (
+        {documentTabs.map((tab) => (
           <DocumentTypeSwitcherContent key={tab.value} value={tab.value} className="mt-6">
-            <RecentlyUsedSection docs={DUMMY_DOCS} />
-            <Separator className="my-6" />
+            <RecentlyUsedSection docs={filteredDocs} />
+            {filteredDocs.length > 0 && <Separator className="my-6" />}
             <FilterBar
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
-              client={client}
-              onClientChange={setClient}
+              clientId={clientId}
+              onClientChange={setClientId}
               statusFilters={statusFilters}
               onStatusFiltersChange={setStatusFilters}
               layout={layout}
               onLayoutChange={setLayout}
+              clients={clients}
             />
             <h2 className="font-ui mb-3 mt-6 text-sm font-semibold tracking-[-0.01em] text-foreground">
               All documents
             </h2>
-            <div className="mt-1">
-              <DocumentsList layout={layout} docs={filteredDocs} />
-            </div>
+            <DocumentsList
+              layout={layout}
+              docs={filteredDocs}
+              emptyMessage="No documents found."
+            />
           </DocumentTypeSwitcherContent>
         ))}
       </DocumentTypeSwitcher>

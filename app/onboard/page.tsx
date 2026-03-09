@@ -5,12 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import { ArrowRight, ArrowLeft, User, Plus } from "lucide-react";
-import {
-  FileText,
-  Table,
-  Presentation,
-  Signature,
-} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +31,8 @@ import {
   sendWorkspaceInvites,
   updateOnboardingPreferences,
 } from "@/lib/actions/onboarding";
+import { getDocumentTypes } from "@/lib/actions/documents";
+import { getIconForDocumentType } from "@/lib/document-type-icons";
 import {
   uploadAvatar,
   uploadWorkspaceLogo,
@@ -44,6 +40,7 @@ import {
   removeWorkspaceLogo,
 } from "@/lib/storage/upload";
 import { toast } from "sonner";
+import type { DocumentType } from "@/types/database";
 
 const TOTAL_STEPS = 5; // Profile → Workspace → Preferences → Team → Hear about us (then dashboard)
 
@@ -97,16 +94,14 @@ const TEAM_SIZE_OPTIONS = [
   { value: "20+", label: "20+" },
 ];
 
-// All document types matching the document-type-switcher tabs
-const ALL_DOC_TYPES = [
-  { id: "proposals",  label: "Proposals",  icon: FileText,     color: "#4285F4", bgColor: "#E8F0FE" },
-  { id: "reports",    label: "Reports",    icon: Table,        color: "#0F9D58", bgColor: "#E6F4EA" },
-  { id: "sheets",     label: "Sheets",     icon: Table,        color: "#0F9D58", bgColor: "#E6F4EA" },
-  { id: "contracts",  label: "Contracts",  icon: Signature,    color: "#A142F4", bgColor: "#F3E8FD" },
-  { id: "decks",      label: "Decks",      icon: Presentation, color: "#F4B400", bgColor: "#FEF7E0" },
-  { id: "sows",       label: "SOWs",       icon: Signature,    color: "#A142F4", bgColor: "#F3E8FD" },
-  { id: "briefs",     label: "Briefs",     icon: FileText,     color: "#4285F4", bgColor: "#E8F0FE" },
-];
+/** Normalize legacy preferred_doc_types (e.g. "proposals") to slugs ("proposal") */
+function normalizePreferredDocTypes(ids: string[]): string[] {
+  const legacy: Record<string, string> = {
+    proposals: "proposal", reports: "report", sheets: "sheet",
+    contracts: "contract", decks: "deck", sows: "sow", briefs: "brief", documents: "document",
+  };
+  return ids.map((id) => legacy[id] ?? id);
+}
 
 const COUNTRIES = [
   "United States of America",
@@ -176,11 +171,11 @@ function OnboardContent() {
           if (profile.subscribed_to_updates != null) setNewsletter(profile.subscribed_to_updates);
           if (profile.theme === "dark" || profile.theme === "light") setTheme(profile.theme);
           if (profile.team_size != null) setTeamSize(profile.team_size);
-          if (Array.isArray(profile.preferred_doc_types)) setSelectedDocTypes(profile.preferred_doc_types);
+          if (Array.isArray(profile.preferred_doc_types)) setSelectedDocTypes(normalizePreferredDocTypes(profile.preferred_doc_types));
           else if (profile.preferred_doc_types != null && typeof profile.preferred_doc_types === "string") {
             try {
               const parsed = JSON.parse(profile.preferred_doc_types) as string[];
-              if (Array.isArray(parsed)) setSelectedDocTypes(parsed);
+              if (Array.isArray(parsed)) setSelectedDocTypes(normalizePreferredDocTypes(parsed));
             } catch {
               setSelectedDocTypes([]);
             }
@@ -214,6 +209,14 @@ function OnboardContent() {
     };
   }, [authLoading, user?.id, loadDone, setTheme]);
 
+  useEffect(() => {
+    let cancelled = false;
+    getDocumentTypes().then(({ types }) => {
+      if (!cancelled && types?.length) setDocumentTypes(types);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   // Step 1 — Workspace
   const [companyName, setCompanyName] = useState("");
   const [workspaceHandle, setWorkspaceHandle] = useState("");
@@ -227,7 +230,8 @@ function OnboardContent() {
   const [lastCreatedInvites, setLastCreatedInvites] = useState<{ email: string; token: string }[] | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
-  // Step 2 — Preferences
+  // Step 2 — Preferences (document types from DB)
+  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
   const [teamSize, setTeamSize] = useState("");
   const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>([]);
 
@@ -717,14 +721,16 @@ function OnboardContent() {
                     <div className="space-y-5 mb-5">
                       <Label>What do you mainly send clients?</Label>
                       <div className="flex flex-wrap gap-2">
-                        {ALL_DOC_TYPES.map((dt) => {
-                          const Icon = dt.icon;
-                          const selected = selectedDocTypes.includes(dt.id);
+                        {documentTypes.map((dt) => {
+                          const Icon = getIconForDocumentType(dt.icon);
+                          const selected = selectedDocTypes.includes(dt.slug);
+                          const color = dt.color ?? "#6b7280";
+                          const bgColor = dt.bg_color ?? "#f3f4f6";
                           return (
                             <button
                               key={dt.id}
                               type="button"
-                              onClick={() => toggleDocType(dt.id)}
+                              onClick={() => toggleDocType(dt.slug)}
                               className={cn(
                                 "flex items-center gap-2 rounded-full border px-3 py-1.5 font-[family-name:var(--font-dm-sans)] text-sm font-medium transition-colors",
                                 selected
@@ -737,14 +743,14 @@ function OnboardContent() {
                                   "flex size-5 shrink-0 items-center justify-center rounded",
                                   selected && "bg-foreground/20 text-foreground dark:bg-foreground/25 dark:text-foreground"
                                 )}
-                                style={selected ? undefined : { backgroundColor: dt.bgColor, color: dt.color }}
+                                style={selected ? undefined : { backgroundColor: bgColor, color }}
                               >
                                 <Icon
                                   weight="fill"
                                   className="size-3.5 [color:inherit]"
                                 />
                               </span>
-                              {dt.label}
+                              {dt.name}
                             </button>
                           );
                         })}

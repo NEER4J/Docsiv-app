@@ -6,18 +6,14 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 
-export type DocumentTypeId = "doc" | "sheet" | "presentation" | "contract";
+export type DocumentBaseTypeId = "doc" | "sheet" | "presentation" | "contract";
 
-export type Doc = {
-  id: string;
-  title: string;
-  status: string;
-  time: string;
-  type: DocumentTypeId;
-};
-
-export const DOCUMENT_TYPES: Record<
-  DocumentTypeId,
+/**
+ * Fallback when a document has no document_type_id (legacy or unspecific).
+ * Used by DocumentCard and any flow that needs base_type display.
+ */
+export const BASE_TYPE_FALLBACK: Record<
+  DocumentBaseTypeId,
   { label: string; icon: Icon; color: string; bgColor: string }
 > = {
   doc: {

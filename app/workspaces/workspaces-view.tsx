@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { setWorkspaceCookie, type WorkspaceOption } from "@/lib/actions/onboarding";
 import { cn } from "@/lib/utils";
+import { LoaderIcon } from "lucide-react";
 
 export function WorkspacesView({
   initialWorkspaces,
@@ -30,6 +31,7 @@ export function WorkspacesView({
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState<string | null>(null);
 
   const filteredAndSorted = useMemo(() => {
     let list = [...initialWorkspaces];
@@ -46,13 +48,25 @@ export function WorkspacesView({
   }, [initialWorkspaces, search]);
 
   const handleSwitch = async (ws: WorkspaceOption) => {
+    setSwitchingWorkspaceId(ws.id);
     const { error } = await setWorkspaceCookie(ws.id);
     if (error) {
+      setSwitchingWorkspaceId(null);
       toast.error("Could not switch workspace", { description: error });
       return;
     }
-    router.refresh();
-    router.push("/dashboard/documents");
+    window.location.assign("/dashboard/documents");
+  };
+
+  const handleOpenSettings = async (ws: WorkspaceOption) => {
+    setSwitchingWorkspaceId(ws.id);
+    const { error } = await setWorkspaceCookie(ws.id);
+    if (error) {
+      setSwitchingWorkspaceId(null);
+      toast.error("Could not switch workspace", { description: error });
+      return;
+    }
+    window.location.assign("/dashboard/settings/workspace");
   };
 
   const planLabel = (plan: string | null | undefined) => {
@@ -139,12 +153,22 @@ export function WorkspacesView({
         </div>
       ) : viewMode === "grid" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredAndSorted.map((ws) => (
+          {filteredAndSorted.map((ws) => {
+            const isLoading = switchingWorkspaceId === ws.id;
+            return (
             <div
               key={ws.id}
-              className="group relative flex flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-foreground/20"
+              className={cn(
+                "group relative flex flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-foreground/20",
+                isLoading && "pointer-events-none opacity-70"
+              )}
             >
               <div className="absolute right-2 top-2">
+                {isLoading ? (
+                  <div className="p-1">
+                    <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -159,22 +183,18 @@ export function WorkspacesView({
                     <DropdownMenuItem onClick={() => handleSwitch(ws)}>
                       Switch to this workspace
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={async () => {
-                        await setWorkspaceCookie(ws.id);
-                        router.refresh();
-                        router.push("/dashboard/settings/workspace");
-                      }}
-                    >
+                    <DropdownMenuItem onClick={() => handleOpenSettings(ws)}>
                       Workspace settings
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                )}
               </div>
               <button
                 type="button"
                 onClick={() => handleSwitch(ws)}
                 className="text-left"
+                disabled={isLoading}
               >
                 <h3 className="font-ui font-semibold text-foreground pr-8">
                   {ws.name}
@@ -194,19 +214,26 @@ export function WorkspacesView({
                 </div>
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <ul className="rounded-lg border border-border">
-          {filteredAndSorted.map((ws) => (
+          {filteredAndSorted.map((ws) => {
+            const isLoading = switchingWorkspaceId === ws.id;
+            return (
             <li
               key={ws.id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3 last:border-b-0"
+              className={cn(
+                "flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3 last:border-b-0",
+                isLoading && "opacity-70"
+              )}
             >
               <button
                 type="button"
                 onClick={() => handleSwitch(ws)}
                 className="min-w-0 flex-1 text-left"
+                disabled={isLoading}
               >
                 <span className="font-ui font-medium text-foreground">{ws.name}</span>
                 {ws.handle && (
@@ -219,6 +246,11 @@ export function WorkspacesView({
                 <span className="rounded border border-border bg-muted/20 px-2 py-0.5 font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">
                   {planLabel(ws.plan)}
                 </span>
+                {isLoading ? (
+                  <div className="flex size-8 items-center justify-center">
+                    <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="size-8">
@@ -229,20 +261,16 @@ export function WorkspacesView({
                     <DropdownMenuItem onClick={() => handleSwitch(ws)}>
                       Switch to this workspace
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={async () => {
-                        await setWorkspaceCookie(ws.id);
-                        router.refresh();
-                        router.push("/dashboard/settings/workspace");
-                      }}
-                    >
+                    <DropdownMenuItem onClick={() => handleOpenSettings(ws)}>
                       Workspace settings
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                )}
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

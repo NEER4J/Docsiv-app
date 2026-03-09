@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ChevronDown, Check, Settings, LayoutGrid } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { ChevronDown, Check, Settings, LayoutGrid, Loader2 } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -23,26 +24,41 @@ export function WorkspaceSwitcher({
   currentWorkspaceId: string | null;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState<string | null>(null);
   const current = workspaces.find((w) => w.id === currentWorkspaceId) ?? workspaces[0];
   const displayName = current?.name ?? "Select workspace";
+  const isSwitching = switchingWorkspaceId !== null;
 
   const handleSelect = async (ws: WorkspaceOption) => {
     if (ws.id === currentWorkspaceId) return;
+    setSwitchingWorkspaceId(ws.id);
     const { error } = await setWorkspaceCookie(ws.id);
-    if (error) return;
-    router.refresh();
+    if (error) {
+      setSwitchingWorkspaceId(null);
+      return;
+    }
+    // Force the current page to re-render with the new workspace data.
+    // window.location.assign keeps it a soft reload (no full refresh) but
+    // ensures server components re-run with the new cookie.
+    window.location.assign(pathname || "/dashboard/documents");
   };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        disabled={isSwitching}
         className={cn(
-          "font-ui flex w-full items-center justify-between gap-1 rounded-md px-3 py-2 text-left text-[0.8125rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted-hover hover:text-foreground border border-border",
+          "font-ui flex w-full items-center justify-between gap-1 rounded-md px-3 py-2 text-left text-[0.8125rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted-hover hover:text-foreground border border-border disabled:opacity-70 disabled:pointer-events-none",
           "group-data-[collapsible=icon]:hidden"
         )}
       >
         <span className="truncate">{displayName}</span>
-        <ChevronDown className="size-3.5 shrink-0 opacity-50" />
+        {isSwitching ? (
+          <Loader2 className="size-3.5 shrink-0 animate-spin opacity-70" />
+        ) : (
+          <ChevronDown className="size-3.5 shrink-0 opacity-50" />
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent
         className="min-w-[var(--radix-dropdown-menu-trigger-width)]"
@@ -70,14 +86,17 @@ export function WorkspaceSwitcher({
                   onClick={async (e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    setSwitchingWorkspaceId(ws.id);
                     const { error } = await setWorkspaceCookie(ws.id);
                     if (!error) {
-                      router.refresh();
-                      router.push("/dashboard/settings/workspace");
+                      window.location.assign("/dashboard/settings/workspace");
+                    } else {
+                      setSwitchingWorkspaceId(null);
                     }
                   }}
-                  className="rounded p-1 text-muted-foreground hover:bg-muted-hover hover:text-foreground"
+                  className="rounded p-1 text-muted-foreground hover:bg-muted-hover hover:text-foreground disabled:opacity-50"
                   aria-label={`${ws.name} settings`}
+                  disabled={isSwitching}
                 >
                   <Settings className="size-4" />
                 </button>
