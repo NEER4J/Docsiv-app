@@ -46,18 +46,52 @@ export async function updateSession(request: NextRequest) {
   // with the Supabase client, your users may be randomly logged out.
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
+  const pathname = request.nextUrl.pathname;
 
   if (
-    request.nextUrl.pathname !== "/" &&
+    pathname !== "/" &&
     !user &&
-    !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth") &&
-    !request.nextUrl.pathname.startsWith("/vision")
+    !pathname.startsWith("/login") &&
+    !pathname.startsWith("/auth") &&
+    !pathname.startsWith("/vision") &&
+    !pathname.startsWith("/invite")
   ) {
-    // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
-    return NextResponse.redirect(url);
+    const res = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c.name, c.value, c));
+    return res;
+  }
+
+  // Onboarding gate: dashboard requires profile + onboarding_completed; else send to /onboard
+  const userId = user?.sub as string | undefined;
+  if (userId && pathname.startsWith("/dashboard")) {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("onboarding_completed")
+      .eq("id", userId)
+      .single();
+    if (!profile || profile.onboarding_completed !== true) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/onboard";
+      const res = NextResponse.redirect(url);
+      supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c.name, c.value, c));
+      return res;
+    }
+  }
+  if (userId && pathname.startsWith("/onboard")) {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("onboarding_completed")
+      .eq("id", userId)
+      .single();
+    if (profile?.onboarding_completed === true) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/dashboard";
+      const res = NextResponse.redirect(url);
+      supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c.name, c.value, c));
+      return res;
+    }
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.

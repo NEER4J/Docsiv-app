@@ -6,6 +6,8 @@ const SEGMENT_LABELS: Record<string, string> = {
   "": "Documents",
   documents: "Documents",
   clients: "Clients",
+  teams: "Team",
+  workspaces: "Workspaces",
   templates: "Templates",
   analytics: "Analytics",
   integrations: "Integrations",
@@ -67,7 +69,7 @@ export function getDashboardBreadcrumbs(
   }
 
   const second = segments[1];
-  const isIdSegment = second && (first === "documents" || first === "clients") && !(first === "settings" && second in SEGMENT_LABELS);
+  const isIdSegment = second && (first === "documents" || first === "clients");
 
   if (first === "settings") {
     const subLabel = SEGMENT_LABELS[second] ?? second;

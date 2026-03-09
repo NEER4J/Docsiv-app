@@ -1,6 +1,7 @@
 import {
   FileText,
   Users,
+  UsersRound,
   FolderOpen,
   BarChart3,
   Plug,
@@ -40,6 +41,7 @@ export const sidebarItems: NavGroup[] = [
     items: [
       { title: "Documents", url: "/dashboard/documents", icon: FileText },
       { title: "Clients", url: "/dashboard/clients", icon: Users },
+      { title: "Team", url: "/dashboard/teams", icon: UsersRound },
       { title: "Templates", url: "/dashboard/templates", icon: FolderOpen },
       { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3, pro: true },
       { title: "Integrations", url: "/dashboard/integrations", icon: Plug },

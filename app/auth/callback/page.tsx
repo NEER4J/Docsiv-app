@@ -9,44 +9,35 @@ export default async function AuthCallback({
   const supabase = await createClient()
   const params = await searchParams
 
-  console.log('OAuth callback received params:', params)
-
   const code = Array.isArray(params.code) ? params.code[0] : params.code
-  const next = Array.isArray(params.next) ? params.next[0] : params.next ?? '/dashboard/documents'
-
-  console.log('Code:', code, 'Next:', next)
+  const rawNext = Array.isArray(params.next) ? params.next[0] : params.next
+  const next = typeof rawNext === 'string' && rawNext.startsWith('/') ? rawNext : '/dashboard/documents'
 
   if (code) {
-    console.log('Exchanging code for session...')
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-    
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
-      console.error('OAuth callback error:', error)
-      redirect('/auth/login?error=callback_error')
+      const loginUrl = next !== '/dashboard/documents'
+        ? `/auth/login?error=callback_error&next=${encodeURIComponent(next)}`
+        : '/auth/login?error=callback_error'
+      redirect(loginUrl)
     }
-    
-    console.log('Session exchange successful:', data)
   } else {
-    console.log('No code provided, checking existing session...')
-    // No code provided, check if user is already authenticated
     const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
     if (userError || !user) {
-      console.error('No code provided and no existing session:', userError)
-      redirect('/auth/login?error=no_code')
+      const loginUrl = next !== '/dashboard/documents'
+        ? `/auth/login?error=no_code&next=${encodeURIComponent(next)}`
+        : '/auth/login?error=no_code'
+      redirect(loginUrl)
     }
-    
-    console.log('Existing user found:', user)
   }
 
-  // Get the user after the session exchange
   const { data: { user }, error: userError } = await supabase.auth.getUser()
-  
   if (userError || !user) {
-    console.error('User fetch error:', userError)
-    redirect('/auth/login?error=session_missing')
+    const loginUrl = next !== '/dashboard/documents'
+      ? `/auth/login?error=session_missing&next=${encodeURIComponent(next)}`
+      : '/auth/login?error=session_missing'
+    redirect(loginUrl)
   }
 
-  console.log('Redirecting to:', next)
-  redirect(next as string)
+  redirect(next)
 }

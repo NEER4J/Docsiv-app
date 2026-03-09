@@ -10,39 +10,62 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/server";
 import { SearchDialog } from "@/components/sidebar/search-dialog";
+import { getMyWorkspaces, getCurrentUserProfile } from "@/lib/actions/onboarding";
+
+const WORKSPACE_ID_COOKIE = "workspace_id";
 
 export default async function Layout({ children }: Readonly<{ children: ReactNode }>) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  
+
   if (!user) {
-    // Redirect to login if not authenticated
     return null;
   }
-  
-  const cookieStore = await cookies();
-  // Open by default on first visit; only collapse if user explicitly closed it
-  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
 
-  // Transform user data for the sidebar
+  const { profile } = await getCurrentUserProfile();
+  const profileName = profile
+    ? [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim() || null
+    : null;
+  const metaName =
+    (user.user_metadata?.full_name as string | undefined) ??
+    (user.user_metadata?.name as string | undefined);
+  const emailPart = user.email ? user.email.split("@")[0] : null;
+  const displayName = profileName ?? metaName ?? emailPart ?? "User";
+  const avatar =
+    profile?.avatar_url ??
+    (user.user_metadata?.avatar_url as string | undefined) ??
+    "";
+
+  const cookieStore = await cookies();
+  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
+  const savedWorkspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value;
+
+  const { workspaces } = await getMyWorkspaces();
+  const currentWorkspaceId =
+    savedWorkspaceId && workspaces.some((w) => w.id === savedWorkspaceId)
+      ? savedWorkspaceId
+      : workspaces[0]?.id ?? null;
+
   const userData = {
     id: user.id,
-    name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-    email: user.email || '',
-    avatar: user.user_metadata?.avatar_url || '',
-    role: user.user_metadata?.role || 'user'
+    name: displayName,
+    email: user.email || "",
+    avatar,
+    role: user.user_metadata?.role || "user",
   };
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
-      <AppSidebar 
-        variant="sidebar" 
+      <AppSidebar
+        variant="sidebar"
         collapsible="icon"
         user={{
           name: userData.name,
           email: userData.email,
           avatar: userData.avatar,
         }}
+        workspaces={workspaces}
+        currentWorkspaceId={currentWorkspaceId}
       />
       <SidebarInset className={cn("min-w-0 max-w-full flex flex-col overflow-hidden")}>
         <AiAssistantProvider>

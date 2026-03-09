@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -20,10 +20,22 @@ const FormSchema = z.object({
   remember: z.boolean().optional(),
 });
 
-export function LoginForm() {
+const ERROR_MESSAGES: Record<string, string> = {
+  callback_error: "Sign-in was interrupted. Please try again.",
+  no_code: "Sign-in link was invalid or expired. Please try again.",
+  session_missing: "Session could not be restored. Please sign in again.",
+};
+
+export function LoginForm({ redirectNext, errorFromUrl }: { redirectNext?: string; errorFromUrl?: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const { signIn } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    if (errorFromUrl) {
+      toast.error(ERROR_MESSAGES[errorFromUrl] ?? "Something went wrong. Please try again.");
+    }
+  }, [errorFromUrl]);
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
@@ -45,9 +57,9 @@ export function LoginForm() {
       });
     } else {
       toast.success("Login successful", {
-        description: "Redirecting to documents...",
+        description: redirectNext ? "Redirecting..." : "Redirecting to documents...",
       });
-      router.push("/dashboard/documents");
+      router.push(redirectNext ?? "/dashboard/documents");
     }
     
     setIsLoading(false);
@@ -109,7 +121,7 @@ export function LoginForm() {
         />
         <div className="flex items-center justify-between">
           <Link 
-            href="/auth/forgot-password" 
+            href={redirectNext ? `/auth/forgot-password?next=${encodeURIComponent(redirectNext)}` : "/auth/forgot-password"}
             className="text-sm text-muted-foreground hover:text-foreground"
           >
             Forgot password?

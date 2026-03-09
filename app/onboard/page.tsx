@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import { ArrowRight, ArrowLeft, User, Plus } from "lucide-react";
 import {
@@ -25,6 +26,24 @@ import {
 import { APP_CONFIG } from "@/config/app-config";
 import { useAuth } from "@/lib/auth/use-auth";
 import { cn } from "@/lib/utils";
+import {
+  getCurrentUserProfile,
+  getCurrentUserFirstWorkspace,
+  upsertUserProfile,
+  createWorkspace,
+  updateWorkspaceLogo,
+  checkWorkspaceHandleAvailable,
+  completeOnboarding,
+  sendWorkspaceInvites,
+  updateOnboardingPreferences,
+} from "@/lib/actions/onboarding";
+import {
+  uploadAvatar,
+  uploadWorkspaceLogo,
+  removeAvatar,
+  removeWorkspaceLogo,
+} from "@/lib/storage/upload";
+import { toast } from "sonner";
 
 const TOTAL_STEPS = 5; // Profile → Workspace → Preferences → Team → Hear about us (then dashboard)
 
@@ -108,20 +127,28 @@ const COUNTRIES = [
   "Other",
 ];
 
-export default function OnboardPage() {
+function OnboardContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromInvite = searchParams.get("fromInvite") === "1";
   const { theme, setTheme } = useTheme();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState(0);
   const [visible, setVisible] = useState(true);
 
-  // Step 0 — Profile (email from Supabase; avatar is display-only)
+  // Step 0 — Profile
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [newsletter, setNewsletter] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [step0Loading, setStep0Loading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
+  // Prefill from auth user (Google/email)
   useEffect(() => {
     if (user?.email) setEmail(user.email);
+    if (user?.avatar) setAvatarUrl(user.avatar);
     if (user?.name) {
       const parts = user.name.trim().split(/\s+/);
       if (parts.length >= 2) {
@@ -131,12 +158,74 @@ export default function OnboardPage() {
         setFirstName(parts[0]);
       }
     }
-  }, [user?.email, user?.name]);
+  }, [user?.email, user?.name, user?.avatar]);
 
-  // Step 1 — Workspace (logo is display-only / showcase)
+  // Load profile and workspace from DB on mount (e.g. after reload) so we show saved data
+  const [loadDone, setLoadDone] = useState(false);
+  useEffect(() => {
+    if (authLoading || !user?.id || loadDone) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { profile } = await getCurrentUserProfile();
+        if (cancelled) return;
+        if (profile) {
+          if (profile.first_name != null) setFirstName(profile.first_name);
+          if (profile.last_name != null) setLastName(profile.last_name);
+          if (profile.avatar_url != null) setAvatarUrl(profile.avatar_url);
+          if (profile.subscribed_to_updates != null) setNewsletter(profile.subscribed_to_updates);
+          if (profile.theme === "dark" || profile.theme === "light") setTheme(profile.theme);
+          if (profile.team_size != null) setTeamSize(profile.team_size);
+          if (Array.isArray(profile.preferred_doc_types)) setSelectedDocTypes(profile.preferred_doc_types);
+          else if (profile.preferred_doc_types != null && typeof profile.preferred_doc_types === "string") {
+            try {
+              const parsed = JSON.parse(profile.preferred_doc_types) as string[];
+              if (Array.isArray(parsed)) setSelectedDocTypes(parsed);
+            } catch {
+              setSelectedDocTypes([]);
+            }
+          }
+          if (profile.hear_about_us != null) setHearAbout(profile.hear_about_us);
+        }
+      } catch (e) {
+        console.error("[onboard] Failed to load profile:", e);
+      }
+
+      if (cancelled) return;
+
+      try {
+        const { workspace } = await getCurrentUserFirstWorkspace();
+        if (cancelled) return;
+        if (workspace) {
+          setCompanyName(workspace.name ?? "");
+          setWorkspaceHandle(workspace.handle ?? "");
+          setBillingCountry(workspace.billing_country ?? "");
+          setWorkspaceId(workspace.id);
+          if (workspace.logo_url) setLogoUrl(workspace.logo_url);
+        }
+      } catch (e) {
+        console.error("[onboard] Failed to load workspace:", e);
+      }
+
+      if (!cancelled) setLoadDone(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user?.id, loadDone, setTheme]);
+
+  // Step 1 — Workspace
   const [companyName, setCompanyName] = useState("");
   const [workspaceHandle, setWorkspaceHandle] = useState("");
   const [billingCountry, setBillingCountry] = useState("");
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [handleError, setHandleError] = useState<string | null>(null);
+  const [step1Loading, setStep1Loading] = useState(false);
+  const [step3Loading, setStep3Loading] = useState(false);
+  const [lastCreatedInvites, setLastCreatedInvites] = useState<{ email: string; token: string }[] | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2 — Preferences
   const [teamSize, setTeamSize] = useState("");
@@ -158,7 +247,7 @@ export default function OnboardPage() {
 
   const canProceed = () => {
     if (step === 0) return firstName.trim() && lastName.trim();
-    if (step === 1) return companyName.trim();
+    if (step === 1) return fromInvite || !!companyName.trim();
     return true;
   };
 
@@ -171,7 +260,120 @@ export default function OnboardPage() {
     }, 220);
   };
 
-  const next = () => navigate(step + 1);
+  const handleNext = async () => {
+    if (step === 0) {
+      setStep0Loading(true);
+      const err = await upsertUserProfile({
+        first_name: firstName.trim() || null,
+        last_name: lastName.trim() || null,
+        avatar_url: avatarUrl || null,
+        theme: theme === "dark" ? "dark" : "light",
+        subscribed_to_updates: newsletter,
+        onboarding_completed: false,
+      });
+      setStep0Loading(false);
+      if (err.error) {
+        toast.error("Could not save profile", { description: err.error });
+        return;
+      }
+      navigate(step + 1);
+      return;
+    }
+    if (step === 1) {
+      if (fromInvite) {
+        navigate(step + 1);
+        return;
+      }
+
+      // Workspace already exists — update it, then move on
+      if (workspaceId) {
+        setStep1Loading(true);
+        if (logoFile) {
+          const uploadResult = await uploadWorkspaceLogo(workspaceId, logoFile);
+          if ("error" in uploadResult) {
+            setStep1Loading(false);
+            toast.error("Could not upload logo", { description: uploadResult.error });
+            return;
+          }
+          const updateErr = await updateWorkspaceLogo(workspaceId, uploadResult.url);
+          if (updateErr?.error) {
+            setStep1Loading(false);
+            toast.error("Logo uploaded but could not save", { description: updateErr.error });
+            return;
+          }
+          setLogoUrl(uploadResult.url);
+          setLogoFile(null);
+        }
+        setStep1Loading(false);
+        navigate(step + 1);
+        return;
+      }
+
+      // No workspace yet — create one
+      setHandleError(null);
+      const handle = workspaceHandle.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+      if (!handle) {
+        setHandleError("Workspace handle is required");
+        return;
+      }
+      const { available, error: checkErr } = await checkWorkspaceHandleAvailable(handle);
+      if (checkErr) {
+        toast.error("Could not check handle", { description: checkErr });
+        return;
+      }
+      if (!available) {
+        setHandleError("This handle is already taken");
+        toast.error("Handle unavailable", {
+          description: "This workspace handle is already taken. Choose a different one (e.g. my-company, acme-inc).",
+        });
+        return;
+      }
+      setStep1Loading(true);
+      const result = await createWorkspace({
+        name: companyName.trim(),
+        handle,
+        billing_country: billingCountry || null,
+        logo_url: logoFile ? null : (logoUrl || null),
+      });
+      if (result.error) {
+        setStep1Loading(false);
+        toast.error("Could not create workspace", { description: result.error });
+        return;
+      }
+      if (result.workspaceId) setWorkspaceId(result.workspaceId);
+      if (logoFile && result.workspaceId) {
+        const uploadResult = await uploadWorkspaceLogo(result.workspaceId, logoFile);
+        if ("error" in uploadResult) {
+          setStep1Loading(false);
+          toast.error("Could not upload logo", { description: uploadResult.error });
+          return;
+        }
+        const updateErr = await updateWorkspaceLogo(result.workspaceId, uploadResult.url);
+        if (updateErr?.error) {
+          setStep1Loading(false);
+          toast.error("Logo uploaded but could not save", { description: updateErr.error });
+          return;
+        }
+        setLogoUrl(uploadResult.url);
+        setLogoFile(null);
+      }
+      setStep1Loading(false);
+      navigate(step + 1);
+      return;
+    }
+    if (step === 2) {
+      const err = await updateOnboardingPreferences(teamSize || null, selectedDocTypes);
+      if (err?.error) {
+        toast.error("Could not save preferences", { description: err.error });
+        return;
+      }
+      navigate(step + 1);
+      return;
+    }
+    navigate(step + 1);
+  };
+
+  const next = () => void handleNext();
   const back = () => navigate(step - 1);
 
   const panelTransition = {
@@ -208,6 +410,11 @@ export default function OnboardPage() {
             </h1>
           )}
           <Card className="my-4 w-full overflow-hidden border-border bg-background sm:my-0 sm:max-h-[90vh]">
+          {(authLoading || !loadDone) ? (
+            <div className="flex min-h-[380px] items-center justify-center md:min-h-[560px]">
+              <p className="font-[family-name:var(--font-dm-sans)] text-sm text-muted-foreground">Loading your details…</p>
+            </div>
+          ) : (
           <div className="grid min-h-[380px] grid-cols-1 md:min-h-[560px] md:grid-cols-[5fr_7fr]">
 
             {/* ── Left: info panel (same bg as right) ── */}
@@ -259,19 +466,60 @@ export default function OnboardPage() {
                 {/* ── Step 0: Profile ── */}
                 {step === 0 && (
                   <>
-                    {/* Profile picture — display only (from Supabase auth if available) */}
-                    <div className="flex items-center gap-4">
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !user?.id) return;
+                        e.target.value = "";
+                        const result = await uploadAvatar(user.id, file);
+                        if ("error" in result) {
+                          toast.error(result.error);
+                          return;
+                        }
+                        setAvatarUrl(result.url);
+                      }}
+                    />
+                    <div className="flex flex-wrap items-center gap-4">
                       <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted/30">
-                        {user?.avatar ? (
-                          <img src={user.avatar} alt="" className="h-full w-full object-cover" />
+                        {avatarUrl ? (
+                          <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
                         ) : (
                           <User className="size-7 text-muted-foreground" />
                         )}
                       </div>
-                      <div>
+                      <div className="flex flex-col gap-2">
                         <p className="font-ui text-sm font-semibold text-foreground">Profile picture</p>
-                        <p className="mt-0.5 font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">
-                          From your account. Change it in Settings.
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => avatarInputRef.current?.click()}
+                            className="border-border"
+                          >
+                            {avatarUrl ? "Replace image" : "Upload image"}
+                          </Button>
+                          {avatarUrl && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                if (user?.id) await removeAvatar(user.id, avatarUrl);
+                                setAvatarUrl(null);
+                              }}
+                              className="border-border"
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                        <p className="font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">
+                          *.png, *.jpeg files up to 10MB, at least 400×400px recommended.
                         </p>
                       </div>
                     </div>
@@ -312,18 +560,85 @@ export default function OnboardPage() {
                   </>
                 )}
 
-                {/* ── Step 1: Workspace ── */}
-                {step === 1 && (
+                {/* ── Step 1: Workspace (or "You've joined" for invitees) ── */}
+                {step === 1 && fromInvite && (
+                  <div className="space-y-4">
+                    <p className="font-[family-name:var(--font-dm-sans)] text-sm text-muted-foreground">
+                      You've joined <span className="font-medium text-foreground">{companyName || "the workspace"}</span>. Complete your profile below, then you're all set.
+                    </p>
+                  </div>
+                )}
+                {step === 1 && !fromInvite && (
                   <>
-                    {/* Company logo — display only (showcase) */}
-                    <div className="flex items-center gap-4">
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        e.target.value = "";
+                        if (workspaceId) {
+                          const result = await uploadWorkspaceLogo(workspaceId, file);
+                          if ("error" in result) {
+                            toast.error("Could not upload logo", { description: result.error });
+                            return;
+                          }
+                          const updateErr = await updateWorkspaceLogo(workspaceId, result.url);
+                          if (updateErr?.error) {
+                            toast.error("Logo uploaded but could not save", { description: updateErr.error });
+                            return;
+                          }
+                          setLogoUrl(result.url);
+                        } else {
+                          setLogoFile(file);
+                          setLogoUrl(URL.createObjectURL(file));
+                        }
+                      }}
+                    />
+                    <div className="flex flex-wrap items-center gap-4">
                       <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/30">
-                        <span className="font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">Logo</span>
+                        {logoUrl ? (
+                          <img src={logoUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">Logo</span>
+                        )}
                       </div>
-                      <div>
+                      <div className="flex flex-col gap-2">
                         <p className="font-ui text-sm font-semibold text-foreground">Company logo</p>
-                        <p className="mt-0.5 font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">
-                          Add or change your logo in Settings → Workspace.
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => logoInputRef.current?.click()}
+                            className="border-border"
+                          >
+                            {logoUrl ? "Replace image" : "Upload image"}
+                          </Button>
+                          {logoUrl && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                if (workspaceId && !logoUrl.startsWith("blob:")) {
+                                  await removeWorkspaceLogo(workspaceId, logoUrl);
+                                  await updateWorkspaceLogo(workspaceId, null);
+                                }
+                                if (logoUrl?.startsWith("blob:")) URL.revokeObjectURL(logoUrl);
+                                setLogoFile(null);
+                                setLogoUrl(null);
+                              }}
+                              className="border-border"
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                        <p className="font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">
+                          *.png, *.jpeg files up to 10MB, at least 400×400px recommended.
                         </p>
                       </div>
                     </div>
@@ -336,7 +651,10 @@ export default function OnboardPage() {
 
                     <div className="space-y-2">
                       <Label htmlFor="workspaceHandle">Workspace handle</Label>
-                      <div className="flex overflow-hidden rounded-lg border border-border transition-colors focus-within:border-foreground/30">
+                      <div className={cn(
+                        "flex overflow-hidden rounded-lg border transition-colors focus-within:border-foreground/30",
+                        handleError ? "border-destructive" : "border-border"
+                      )}>
                         <span className="flex items-center border-r border-border bg-muted/50 px-3 font-[family-name:var(--font-dm-sans)] text-sm text-muted-foreground whitespace-nowrap">
                           app.docsiv.com/
                         </span>
@@ -345,9 +663,15 @@ export default function OnboardPage() {
                           className="flex-1 bg-transparent px-3 py-2 font-[family-name:var(--font-dm-sans)] text-sm text-foreground outline-none placeholder:text-muted-foreground"
                           placeholder="my-workspace"
                           value={workspaceHandle}
-                          onChange={(e) => setWorkspaceHandle(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                          onChange={(e) => {
+                            setWorkspaceHandle(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""));
+                            setHandleError(null);
+                          }}
                         />
                       </div>
+                      {handleError && (
+                        <p className="font-[family-name:var(--font-dm-sans)] text-xs text-destructive">{handleError}</p>
+                      )}
                     </div>
 
                     <div className="space-y-2">
@@ -429,8 +753,15 @@ export default function OnboardPage() {
                   </>
                 )}
 
-                {/* ── Step 3: Invite team ── */}
-                {step === 3 && (
+                {/* ── Step 3: Invite team (or skip for invitees) ── */}
+                {step === 3 && fromInvite && (
+                  <div className="space-y-4">
+                    <p className="font-[family-name:var(--font-dm-sans)] text-sm text-muted-foreground">
+                      You can invite teammates later from workspace settings. Click Continue to finish setup.
+                    </p>
+                  </div>
+                )}
+                {step === 3 && !fromInvite && (
                   <div className="space-y-5 mb-10">
                     <Label>Invite people to collaborate in {APP_CONFIG.name}</Label>
                     <div className="space-y-2">
@@ -476,6 +807,34 @@ export default function OnboardPage() {
                       <Plus className="size-4" />
                       Add another
                     </button>
+
+                    {lastCreatedInvites && lastCreatedInvites.length > 0 && (
+                      <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                        <p className="font-ui text-sm font-medium text-foreground">Invite links created — copy and share</p>
+                        {lastCreatedInvites.map((inv) => {
+                          const link = typeof window !== "undefined" ? `${window.location.origin}/invite/accept?token=${inv.token}` : "";
+                          return (
+                            <div key={inv.token} className="flex flex-wrap items-center gap-2 rounded border border-border bg-background px-3 py-2">
+                              <span className="font-[family-name:var(--font-dm-sans)] text-sm text-muted-foreground truncate min-w-0">{inv.email}</span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0 border-border"
+                                onClick={() => {
+                                  if (typeof navigator !== "undefined" && link) {
+                                    navigator.clipboard.writeText(link);
+                                    toast.success("Link copied");
+                                  }
+                                }}
+                              >
+                                Copy link
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -527,16 +886,16 @@ export default function OnboardPage() {
                       size="default"
                       className={step > 0 ? "min-w-0 flex-1 md:w-full" : "w-full"}
                       onClick={next}
-                      disabled={!canProceed()}
+                      disabled={!canProceed() || step0Loading || step1Loading}
                     >
-                      Continue
+                      {(step0Loading || step1Loading) ? "Saving…" : "Continue"}
                       <ArrowRight className="size-4" />
                     </Button>
                   </div>
                 )}
                 {step === 3 && (
                   <>
-                    <div className="flex w-full gap-2">
+                    <div className="flex w-full flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={back}
@@ -546,35 +905,105 @@ export default function OnboardPage() {
                         <ArrowLeft className="size-4" />
                         Back
                       </button>
-                      <Button variant="main" size="default" className="min-w-0 flex-1 md:w-full" onClick={next}>
-                        Send invites
-                        <ArrowRight className="size-4" />
-                      </Button>
+                      {!fromInvite && invites.some((i) => i.email.trim()) && (
+                        <Button
+                          variant="main"
+                          size="default"
+                          className="min-w-0 flex-1 md:flex-initial"
+                          disabled={step3Loading}
+                          onClick={async () => {
+                            const withEmail = invites.filter((i) => i.email.trim());
+                            const alreadySent = (lastCreatedInvites ?? []).map((x) => x.email.toLowerCase());
+                            const toSend = withEmail.filter((i) => !alreadySent.includes(i.email.trim().toLowerCase()));
+                            if (workspaceId && toSend.length > 0) {
+                              setStep3Loading(true);
+                              const result = await sendWorkspaceInvites(workspaceId, toSend.map((i) => ({ email: i.email.trim(), role: i.role })));
+                              setStep3Loading(false);
+                              if (result.error) {
+                                toast.error("Could not send invites", { description: result.error });
+                                return;
+                              }
+                              if (result.created?.length) {
+                                setLastCreatedInvites((prev) => [
+                                  ...(prev ?? []),
+                                  ...(result.created as { email: string; token: string }[]),
+                                ]);
+                              }
+                              return;
+                            }
+                            if (workspaceId && withEmail.length > 0 && toSend.length === 0) {
+                              toast.info("All entered emails have already been sent an invite.");
+                              return;
+                            }
+                            next();
+                          }}
+                        >
+                          {step3Loading ? "Sending…" : "Send invites"}
+                          <ArrowRight className="size-4" />
+                        </Button>
+                      )}
+                      {((lastCreatedInvites && lastCreatedInvites.length > 0) || fromInvite) && (
+                        <Button
+                          variant="main"
+                          size="default"
+                          className="min-w-0 flex-1 md:flex-initial"
+                          onClick={() => next()}
+                        >
+                          Continue
+                          <ArrowRight className="size-4" />
+                        </Button>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={next}
-                      className="font-[family-name:var(--font-dm-sans)] text-center text-sm text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      Skip for now
-                    </button>
+                    {!fromInvite && !(lastCreatedInvites && lastCreatedInvites.length > 0) && (
+                      <button
+                        type="button"
+                        onClick={next}
+                        disabled={step3Loading}
+                        className="font-[family-name:var(--font-dm-sans)] text-center text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                      >
+                        Skip for now
+                      </button>
+                    )}
                   </>
                 )}
                 {step === 4 && (
-                  <Button variant="main" size="default" className="w-full" asChild>
-                    <Link href="/dashboard">
-                      Go to dashboard
-                      <ArrowRight className="size-4" />
-                    </Link>
+                  <Button
+                    variant="main"
+                    size="default"
+                    className="w-full"
+                    onClick={async () => {
+                      const err = await completeOnboarding(hearAbout || null);
+                      if (err.error) {
+                        toast.error("Could not complete setup", { description: err.error });
+                        return;
+                      }
+                      router.push("/dashboard");
+                    }}
+                  >
+                    Go to dashboard
+                    <ArrowRight className="size-4" />
                   </Button>
                 )}
               </div>
             </div>
 
           </div>
+          )}
         </Card>
         </div>
       </main>
     </div>
+  );
+}
+
+export default function OnboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-[var(--muted-hover)]">
+        <p className="font-[family-name:var(--font-dm-sans)] text-sm text-muted-foreground">Loading…</p>
+      </div>
+    }>
+      <OnboardContent />
+    </Suspense>
   );
 }

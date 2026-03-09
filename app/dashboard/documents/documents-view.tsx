@@ -268,7 +268,7 @@ function FilterBar({
   );
 }
 
-export function DocumentsView() {
+export function DocumentsView({ firstName }: { firstName?: string }) {
   const { user } = useAuth();
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [documentTab, setDocumentTab] = useState("All");
@@ -276,7 +276,8 @@ export function DocumentsView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
 
-  const displayName = user?.name || user?.email?.split("@")[0] || "there";
+  const displayName =
+    firstName ?? user?.name ?? user?.email?.split("@")[0] ?? "there";
   const greeting = `Hello, ${displayName}!`;
   const subheading = documentsSubheading(DUMMY_DOCS);
 

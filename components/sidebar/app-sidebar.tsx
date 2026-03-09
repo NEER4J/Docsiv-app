@@ -23,8 +23,12 @@ import { NavUser } from "./nav-user";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import { UpgradeCard } from "./upgrade-card";
 
+export type WorkspaceOption = { id: string; name: string };
+
 export function AppSidebar({
   user,
+  workspaces = [],
+  currentWorkspaceId = null,
   showUpgrade = true,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
@@ -33,6 +37,8 @@ export function AppSidebar({
     readonly email: string;
     readonly avatar: string;
   };
+  readonly workspaces?: readonly WorkspaceOption[];
+  readonly currentWorkspaceId?: string | null;
   readonly showUpgrade?: boolean;
 }) {
   const { state } = useSidebar();
@@ -68,7 +74,10 @@ export function AppSidebar({
         {!isCollapsed && (
           <>
             <div className="my-1"></div>
-            <WorkspaceSwitcher />
+            <WorkspaceSwitcher
+              workspaces={workspaces}
+              currentWorkspaceId={currentWorkspaceId}
+            />
           </>
         )}
       </SidebarHeader>

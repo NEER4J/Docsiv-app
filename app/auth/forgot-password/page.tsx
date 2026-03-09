@@ -4,8 +4,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -16,7 +17,10 @@ const FormSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email address." }),
 });
 
-export default function ForgotPasswordPage() {
+function ForgotPasswordContent() {
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") ?? undefined;
+  const loginHref = next ? `/auth/login?next=${encodeURIComponent(next)}` : "/auth/login";
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const { resetPassword } = useAuth();
@@ -57,7 +61,7 @@ export default function ForgotPasswordPage() {
           </p>
         </div>
         <div className="space-y-4">
-          <Link href="/auth/login">
+          <Link href={loginHref}>
             <Button className="w-full" variant="outline">
               Back to Login
             </Button>
@@ -103,12 +107,26 @@ export default function ForgotPasswordPage() {
       </Form>
       <div className="text-center">
         <Link 
-          href="/auth/login" 
+          href={loginHref}
           className="text-sm text-muted-foreground hover:text-foreground"
         >
           Back to Login
         </Link>
       </div>
     </div>
+  );
+}
+
+export default function ForgotPasswordPage() {
+  return (
+    <Suspense fallback={
+      <div className="mx-auto flex w-full flex-col justify-center space-y-8 sm:w-[350px]">
+        <div className="space-y-2 text-center">
+          <h1 className="text-3xl font-medium">Loading...</h1>
+        </div>
+      </div>
+    }>
+      <ForgotPasswordContent />
+    </Suspense>
   );
 }

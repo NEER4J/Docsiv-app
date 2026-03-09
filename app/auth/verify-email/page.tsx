@@ -15,33 +15,39 @@ function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const redirectNext = searchParams.get('next') ?? undefined;
+
   useEffect(() => {
-    // Check if we have verification tokens in the URL
-    const accessToken = searchParams.get('access_token');
-    const refreshToken = searchParams.get('refresh_token');
-    const type = searchParams.get('type');
+    // Check verification tokens in query (or in hash — Supabase sometimes redirects with fragment)
+    let accessToken = searchParams.get('access_token');
+    let refreshToken = searchParams.get('refresh_token');
+    let type = searchParams.get('type');
+    if ((!accessToken || !refreshToken) && typeof window !== 'undefined' && window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.slice(1));
+      accessToken = accessToken || hashParams.get('access_token');
+      refreshToken = refreshToken || hashParams.get('refresh_token');
+      type = type || hashParams.get('type');
+    }
 
     if (accessToken && refreshToken && type === 'signup') {
       setIsVerifying(true);
-      // The middleware will handle the actual verification
-      // We just need to show the appropriate UI
       setTimeout(() => {
         setVerificationStatus('success');
         setIsVerifying(false);
-        // Redirect to documents after successful verification
+        const target = redirectNext || '/dashboard/documents';
         setTimeout(() => {
-          router.push('/dashboard/documents');
+          router.push(target);
         }, 2000);
       }, 1000);
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, redirectNext]);
 
-  // If user is already verified and logged in, redirect to documents
+  // If user is already verified and logged in, redirect
   useEffect(() => {
     if (user && verificationStatus === 'pending') {
-      router.push('/dashboard/documents');
+      router.push(redirectNext || '/dashboard/documents');
     }
-  }, [user, router, verificationStatus]);
+  }, [user, router, verificationStatus, redirectNext]);
 
   if (isVerifying) {
     return (
@@ -68,7 +74,7 @@ function VerifyEmailContent() {
           </div>
           <h1 className="text-3xl font-medium">Email verified!</h1>
           <p className="text-muted-foreground text-sm">
-            Your email has been successfully verified. Redirecting to documents...
+            Your email has been successfully verified. Redirecting...
           </p>
         </div>
       </div>

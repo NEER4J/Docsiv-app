@@ -23,7 +23,7 @@ const FormSchema = z
     path: ["confirmPassword"],
   });
 
-export function RegisterForm() {
+export function RegisterForm({ redirectNext }: { redirectNext?: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const { signUp } = useAuth();
   const router = useRouter();
@@ -40,7 +40,7 @@ export function RegisterForm() {
   const onSubmit = async (data: z.infer<typeof FormSchema>) => {
     setIsLoading(true);
     
-    const { error } = await signUp(data.email, data.password);
+    const { error } = await signUp(data.email, data.password, redirectNext);
     
     if (error) {
       toast.error("Registration failed", {
@@ -50,7 +50,8 @@ export function RegisterForm() {
       toast.success("Registration successful", {
         description: "Please check your email to verify your account.",
       });
-      router.push("/auth/verify-email");
+      const verifyUrl = redirectNext ? `/auth/verify-email?next=${encodeURIComponent(redirectNext)}` : "/auth/verify-email";
+      router.push(verifyUrl);
     }
     
     setIsLoading(false);

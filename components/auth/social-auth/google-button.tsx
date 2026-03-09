@@ -2,21 +2,18 @@
 
 import { siGoogle } from "simple-icons";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-
 import { SimpleIcon } from "@/components/simple-icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/use-auth";
 
-export function GoogleButton({ className, ...props }: React.ComponentProps<typeof Button>) {
+export function GoogleButton({ redirectNext, className, ...props }: React.ComponentProps<typeof Button> & { redirectNext?: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const { signInWithGoogle } = useAuth();
-  const router = useRouter();
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
-    const { error } = await signInWithGoogle();
+    const { error } = await signInWithGoogle(redirectNext);
     
     if (error) {
       console.error("Google sign-in error:", error);

@@ -65,13 +65,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, emailRedirectNext?: string) => {
     try {
       setError(null)
       const supabase = createClient()
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      const verifyPath = '/auth/verify-email'
+      const emailRedirectTo = emailRedirectNext
+        ? `${origin}${verifyPath}?next=${encodeURIComponent(emailRedirectNext)}`
+        : `${origin}${verifyPath}`
       const { error } = await supabase.auth.signUp({
         email,
         password,
+        options: { emailRedirectTo },
       })
       return { error: error?.message || null }
     } catch (err) {
@@ -79,14 +85,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (redirectNext?: string) => {
     try {
       setError(null)
       const supabase = createClient()
+      const base = `${window.location.origin}/auth/callback`
+      const redirectTo = redirectNext ? `${base}?next=${encodeURIComponent(redirectNext)}` : base
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`
+          redirectTo,
         }
       })
       return { error: error?.message || null }
@@ -146,7 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // During SSR, don't access any uncached data
   if (!mounted) {
-    return <AuthContext.Provider value={{ user: null, loading: true, error: null, signIn: async () => ({ error: null }), signUp: async () => ({ error: null }), signInWithGoogle: async () => ({ error: null }), signOut: async () => ({ error: null }), resetPassword: async () => ({ error: null }), updatePassword: async () => ({ error: null }) }}>{children}</AuthContext.Provider>
+    return <AuthContext.Provider value={{ user: null, loading: true, error: null, signIn: async () => ({ error: null }), signUp: async (_email, _password, _emailRedirectNext?) => ({ error: null }), signInWithGoogle: async (_redirectNext?: string) => ({ error: null }), signOut: async () => ({ error: null }), resetPassword: async () => ({ error: null }), updatePassword: async () => ({ error: null }) }}>{children}</AuthContext.Provider>
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
