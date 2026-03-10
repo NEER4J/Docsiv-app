@@ -698,6 +698,11 @@ function SidebarMenuSubButton({
   )
 }
 
+/** Safe version of useSidebar that returns null when used outside SidebarProvider. */
+function useOptionalSidebar() {
+  return React.useContext(SidebarContext)
+}
+
 export {
   Sidebar,
   SidebarContent,
@@ -723,4 +728,5 @@ export {
   SidebarSeparator,
   SidebarTrigger,
   useSidebar,
+  useOptionalSidebar,
 }

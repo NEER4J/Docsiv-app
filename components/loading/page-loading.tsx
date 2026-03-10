@@ -1,5 +1,15 @@
+"use client";
+
 import { LoaderIcon } from "lucide-react";
+import React from "react";
 import { cn } from "@/lib/utils";
+import { useOptionalSidebar } from "@/components/ui/sidebar";
+import { useOptionalAiAssistant } from "@/components/sidebar/ai-assistant-sidebar";
+import { useIsMobile } from "@/hooks/use-mobile";
+
+const SIDEBAR_WIDTH_EXPANDED = "16rem";
+const SIDEBAR_WIDTH_COLLAPSED = "3.5rem";
+const AI_PANEL_WIDTH = "24rem";
 
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
   return (
@@ -15,20 +25,29 @@ function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
 export function PageLoading({
   className,
   message,
-  /** When true, overlay only covers main content area (right of sidebar) so spinner is centered there. */
-  contentAreaOnly,
 }: {
   className?: string;
   message?: string;
-  contentAreaOnly?: boolean;
 }) {
+  const sidebar = useOptionalSidebar();
+  const aiAssistant = useOptionalAiAssistant();
+  const isMobile = useIsMobile();
+
+  const left = isMobile || !sidebar
+    ? 0
+    : sidebar.state === "expanded"
+    ? SIDEBAR_WIDTH_EXPANDED
+    : SIDEBAR_WIDTH_COLLAPSED;
+
+  const right = isMobile || !aiAssistant || !aiAssistant.open ? 0 : AI_PANEL_WIDTH;
+
   return (
     <div
       className={cn(
         "fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background/80",
-        contentAreaOnly && "md:left-[var(--sidebar-width,16rem)]",
         className
       )}
+      style={{ left, right }}
       aria-busy="true"
     >
       <Spinner className="size-8 text-muted-foreground" />

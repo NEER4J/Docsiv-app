@@ -28,6 +28,11 @@ function useAiAssistant() {
   return ctx;
 }
 
+/** Safe version that returns null when used outside AiAssistantProvider. */
+export function useOptionalAiAssistant() {
+  return React.useContext(AiAssistantContext);
+}
+
 /** Renders dashboard content + right AI panel; use once in dashboard layout. */
 export function AiAssistantProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
