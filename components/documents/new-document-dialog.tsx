@@ -128,7 +128,7 @@ export function NewDocumentDialog({
         return;
       }
       handleOpenChange(false);
-      router.push(`/dashboard/documents/${documentId}`);
+      router.push(`/d/${documentId}`);
     });
   }
 

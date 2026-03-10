@@ -79,7 +79,7 @@ export function DocumentEditDialog({
 
   function handleCopyLink() {
     if (typeof window === "undefined" || !doc) return;
-    const url = `${window.location.origin}/dashboard/documents/${doc.id}`;
+    const url = `${window.location.origin}/d/${doc.id}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       toast.success("Link copied to clipboard");

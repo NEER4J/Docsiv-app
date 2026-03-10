@@ -1,0 +1,62 @@
+'use client';
+
+import * as React from 'react';
+import type { Value } from 'platejs';
+import { Plate, usePlateEditor } from 'platejs/react';
+import { Editor, EditorContainer } from '@/components/platejs/ui/editor';
+import { EditorKit, ViewerKit, CommenterKit } from '@/components/platejs/editor/editor-kit';
+import { DocumentCommentsHydrator } from '@/components/platejs/editors/document-comments-hydrator';
+import { SelectAllKeyHandler } from '@/components/platejs/editors/select-all-key-handler';
+import { cn } from '@/lib/utils';
+
+const EMPTY_VALUE: Value = [
+  {
+    type: 'p',
+    children: [{ text: '' }],
+  },
+];
+
+export interface PlateDocumentEditorProps {
+  initialValue?: Value | null;
+  value?: Value | null;
+  onChange?: (value: Value) => void;
+  placeholder?: string;
+  readOnly?: boolean;
+  canComment?: boolean;
+  className?: string;
+}
+
+export function PlateDocumentEditor({
+  initialValue,
+  value,
+  onChange,
+  placeholder = 'Start writing...',
+  readOnly = false,
+  canComment = false,
+  className,
+}: PlateDocumentEditorProps) {
+  const plugins = readOnly
+    ? (canComment ? CommenterKit : ViewerKit)
+    : EditorKit;
+
+  const editor = usePlateEditor({
+    plugins,
+    value: value ?? initialValue ?? EMPTY_VALUE,
+  });
+
+  return (
+    <div className={cn('flex flex-col min-h-0', className)}>
+      <Plate
+        editor={editor}
+        onChange={onChange ? ({ value: v }) => onChange(v) : undefined}
+      >
+        <SelectAllKeyHandler>
+          <DocumentCommentsHydrator />
+          <EditorContainer variant="default">
+            <Editor placeholder={readOnly ? '' : placeholder} readOnly={readOnly} />
+          </EditorContainer>
+        </SelectAllKeyHandler>
+      </Plate>
+    </div>
+  );
+}

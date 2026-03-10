@@ -2,7 +2,9 @@ import { createClient } from "@/lib/supabase/client";
 
 const AVATARS_BUCKET = "avatars";
 const WORKSPACE_LOGOS_BUCKET = "workspace-logos";
+const DOCUMENT_ATTACHMENTS_BUCKET = "document-attachments";
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const DOCUMENT_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024; // 50MB for video/large files
 const ALLOWED_TYPES = ["image/png", "image/jpeg"];
 
 function getExtension(mime: string): string {
@@ -88,4 +90,39 @@ export async function removeWorkspaceLogo(
   } catch {
     return { error: "Failed to remove file" };
   }
+}
+
+/** Sanitize filename for storage path: remove path segments, limit length */
+function sanitizeAttachmentFilename(name: string): string {
+  const base = name.replace(/^.*[/\\]/, "").slice(0, 120) || "file";
+  return base;
+}
+
+export type DocumentAttachmentResult = { url: string; name: string } | { error: string };
+
+export async function uploadDocumentAttachment(
+  workspaceId: string,
+  documentId: string,
+  file: File
+): Promise<DocumentAttachmentResult> {
+  if (file.size > DOCUMENT_ATTACHMENT_MAX_BYTES)
+    return { error: "File must be under 50MB" };
+
+  const supabase = createClient();
+  const safeName = sanitizeAttachmentFilename(file.name);
+  const path = `${workspaceId}/${documentId}/${crypto.randomUUID()}-${safeName}`;
+
+  const { error } = await supabase.storage
+    .from(DOCUMENT_ATTACHMENTS_BUCKET)
+    .upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+    });
+
+  if (error) return { error: error.message };
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(DOCUMENT_ATTACHMENTS_BUCKET).getPublicUrl(path);
+  return { url: publicUrl, name: file.name };
 }

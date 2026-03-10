@@ -1,4 +1,8 @@
 @tailwind base;
+
+@plugin "tailwind-scrollbar-hide";
+
+@custom-variant dark (&:is(.dark *));
 @tailwind components;
 @tailwind utilities;
 
@@ -98,4 +102,56 @@
     border: 1px solid var(--border) !important;
     border-radius: var(--radius) !important;
   }
+}
+
+:root {
+  --highlight: oklch(0.852 0.199 91.936);
+  --brand: oklch(0.623 0.214 259.815);
+}
+
+.dark {
+  --highlight: oklch(0.852 0.199 91.936);
+  --brand: oklch(0.707 0.165 254.624);
+}
+
+@theme inline {
+  --color-highlight: var(--highlight);
+  --color-brand: var(--brand);
+}
+
+/* Editor selection: ensure Ctrl+A and text selection are always visible (Plate/Slate) */
+[data-slate-editor],
+[data-slate-editor] * {
+  caret-color: var(--brand);
+}
+
+/* Native text-level selection (Ctrl+A, shift+arrow, mouse drag) */
+[data-slate-editor] ::selection {
+  background: oklch(0.623 0.214 259.815 / 0.35) !important;
+  color: inherit;
+}
+[data-slate-editor]::selection {
+  background: oklch(0.623 0.214 259.815 / 0.35) !important;
+  color: inherit;
+}
+
+.dark [data-slate-editor] ::selection {
+  background: oklch(0.707 0.165 254.624 / 0.4) !important;
+  color: inherit;
+}
+.dark [data-slate-editor]::selection {
+  background: oklch(0.707 0.165 254.624 / 0.4) !important;
+  color: inherit;
+}
+
+/* Slate leaf-level selection spans */
+[data-slate-editor] [data-slate-leaf] ::selection,
+[data-slate-editor] [data-slate-string]::selection,
+[data-slate-editor] [data-slate-zero-width]::selection {
+  background: oklch(0.623 0.214 259.815 / 0.35) !important;
+}
+.dark [data-slate-editor] [data-slate-leaf] ::selection,
+.dark [data-slate-editor] [data-slate-string]::selection,
+.dark [data-slate-editor] [data-slate-zero-width]::selection {
+  background: oklch(0.707 0.165 254.624 / 0.4) !important;
 }

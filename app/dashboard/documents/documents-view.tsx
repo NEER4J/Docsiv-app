@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { LayoutGrid, List, ChevronDown, Search } from "lucide-react";
+import { Trash } from "@phosphor-icons/react";
 import { useAuth } from "@/lib/auth/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +37,8 @@ import {
 } from "@/components/documents/document-type-switcher";
 import { DocumentCard } from "@/components/documents/document-card";
 import { DocumentsList } from "@/components/documents/documents-list";
+import { softDeleteDocument, restoreDocument } from "@/lib/actions/documents";
+import { toast } from "sonner";
 import { DocumentsEmptyState } from "@/components/documents/documents-empty-state";
 import { NewDocumentDialog } from "@/components/documents/new-document-dialog";
 import { cn } from "@/lib/utils";
@@ -256,6 +261,7 @@ export function DocumentsView({
   documents = [],
   clients = [],
   documentTypes = [],
+  showTrash = false,
 }: {
   firstName?: string;
   workspaceId: string | null;
@@ -263,15 +269,31 @@ export function DocumentsView({
   documents?: DocumentListItem[];
   clients?: ClientWithDocCount[];
   documentTypes?: DocumentType[];
+  showTrash?: boolean;
 }) {
+  const router = useRouter();
   const { user } = useAuth();
   const [layout, setLayout] = useState<"grid" | "list">("grid");
-  const [documentTab, setDocumentTab] = useState("all");
+  const [documentTab, setDocumentTab] = useState(showTrash ? "trash" : "all");
   const [clientId, setClientId] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
 
-  const documentTabs = useMemo(() => buildDocumentTabs(documentTypes), [documentTypes]);
+  const documentTabs = useMemo(() => {
+    const tabs = buildDocumentTabs(documentTypes);
+    return [...tabs, { value: "trash", label: "Trash", icon: Trash, color: "var(--muted-foreground)" }];
+  }, [documentTypes]);
+
+  const onMoveToTrash = async (docId: string) => {
+    const { error } = await softDeleteDocument(docId);
+    if (error) toast.error(error);
+    else { toast.success("Moved to trash"); router.refresh(); }
+  };
+  const onRestore = async (docId: string) => {
+    const { error } = await restoreDocument(docId);
+    if (error) toast.error(error);
+    else { toast.success("Restored"); router.refresh(); }
+  };
 
   const displayName =
     firstName ?? user?.name ?? user?.email?.split("@")[0] ?? "there";
@@ -329,14 +351,21 @@ export function DocumentsView({
       </div>
 
       <DocumentTypeSwitcher
-        value={documentTab}
-        onValueChange={setDocumentTab}
+        value={showTrash ? "trash" : documentTab}
+        onValueChange={(v) => {
+          if (v === "trash") {
+            router.push("/dashboard/documents?trash=1");
+          } else {
+            setDocumentTab(v);
+            router.push("/dashboard/documents");
+          }
+        }}
         items={documentTabs}
       >
         {documentTabs.map((tab) => (
           <DocumentTypeSwitcherContent key={tab.value} value={tab.value} className="mt-6">
-            <RecentlyUsedSection docs={filteredDocs} />
-            {filteredDocs.length > 0 && <Separator className="my-6" />}
+            {tab.value !== "trash" && <RecentlyUsedSection docs={filteredDocs} />}
+            {tab.value !== "trash" && filteredDocs.length > 0 && <Separator className="my-6" />}
             <FilterBar
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
@@ -349,12 +378,15 @@ export function DocumentsView({
               clients={clients}
             />
             <h2 className="font-ui mb-3 mt-6 text-sm font-semibold tracking-[-0.01em] text-foreground">
-              All documents
+              {tab.value === "trash" ? "Trash" : "All documents"}
             </h2>
             <DocumentsList
               layout={layout}
-              docs={filteredDocs}
-              emptyMessage="No documents found."
+              docs={tab.value === "trash" ? documents : filteredDocs}
+              emptyMessage={tab.value === "trash" ? "No items in trash." : "No documents found."}
+              showTrash={tab.value === "trash"}
+              onMoveToTrash={onMoveToTrash}
+              onRestore={onRestore}
             />
           </DocumentTypeSwitcherContent>
         ))}

@@ -4,14 +4,25 @@ import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { getDashboardBreadcrumbs } from "@/navigation/dashboard-routes";
+import { useDocumentBreadcrumbTitle } from "@/lib/stores/document-breadcrumb-store";
 import { cn } from "@/lib/utils";
 
 export function DashboardNavbar() {
   const pathname = usePathname();
   const params = useParams();
+  const documentTitle = useDocumentBreadcrumbTitle();
   const breadcrumbs = getDashboardBreadcrumbs(pathname ?? "", params as Record<string, string | string[] | undefined>);
 
   if (breadcrumbs.length === 0) return null;
+
+  // Override the last breadcrumb label with the actual document title
+  const isDocumentPage = pathname?.match(/^\/dashboard\/documents\/[^/]+$/);
+  if (isDocumentPage && documentTitle && breadcrumbs.length > 1) {
+    breadcrumbs[breadcrumbs.length - 1] = {
+      ...breadcrumbs[breadcrumbs.length - 1],
+      label: documentTitle,
+    };
+  }
 
   return (
     <nav
@@ -21,7 +32,7 @@ export function DashboardNavbar() {
       {breadcrumbs.map((item, i) => {
         const isLast = i === breadcrumbs.length - 1;
         return (
-          <span key={i} className="flex items-center gap-1.5">
+          <span key={i} className="flex items-center gap-1.5 min-w-0">
             {i > 0 && (
               <ChevronRight
                 className="size-4 shrink-0 text-muted-foreground"

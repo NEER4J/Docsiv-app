@@ -7,14 +7,10 @@ export async function updateSession(request: NextRequest) {
     request,
   });
 
-  // If the env vars are not set, skip proxy check. You can remove this
-  // once you setup the project.
   if (!hasEnvVars) {
     return supabaseResponse;
   }
 
-  // With Fluid compute, don't put this client in a global environment
-  // variable. Always create a new one on each request.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
@@ -41,21 +37,47 @@ export async function updateSession(request: NextRequest) {
   // Do not run code between createServerClient and
   // supabase.auth.getClaims(). A simple mistake could make it very hard to debug
   // issues with users being randomly logged out.
-
-  // IMPORTANT: If you remove getClaims() and you use server-side rendering
-  // with the Supabase client, your users may be randomly logged out.
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
   const pathname = request.nextUrl.pathname;
 
-  if (
-    pathname !== "/" &&
-    !user &&
-    !pathname.startsWith("/login") &&
-    !pathname.startsWith("/auth") &&
-    !pathname.startsWith("/vision") &&
-    !pathname.startsWith("/invite")
-  ) {
+  // ── Auth gate ─────────────────────────────────────────────────────────
+  // Public paths that don't require authentication
+  const hasShareParam = request.nextUrl.searchParams.has("share");
+  const isPublicPath =
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/vision") ||
+    pathname.startsWith("/invite") ||
+    pathname.startsWith("/p/") ||
+    // /d/{id}?share={token} is public — anonymous users can view shared docs
+    (pathname.startsWith("/d/") && hasShareParam);
+
+  // ── Auto-discover public link for /d/{id} without ?share= ──
+  // Like Coda: if doc has an active public link, auto-append ?share={token}.
+  // Works for both anonymous and logged-in users. The page's handleSharedAccess
+  // will try full editor access first (so owners/collaborators get the editor),
+  // then fall back to shared view for others.
+  if (!hasShareParam && pathname.startsWith("/d/")) {
+    const docId = pathname.replace("/d/", "").split("/")[0];
+    if (docId) {
+      // Use SECURITY DEFINER RPC to bypass RLS — works for both anon and authenticated
+      const { data: linkResult } = await supabase.rpc("find_active_document_link", {
+        p_document_id: docId,
+      });
+      const token = typeof linkResult === "object" && linkResult !== null ? linkResult.token : null;
+      if (token) {
+        const url = request.nextUrl.clone();
+        url.searchParams.set("share", token);
+        const res = NextResponse.redirect(url);
+        supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c.name, c.value, c));
+        return res;
+      }
+    }
+  }
+
+  if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
     const res = NextResponse.redirect(url);
@@ -63,7 +85,8 @@ export async function updateSession(request: NextRequest) {
     return res;
   }
 
-  // Onboarding gate: dashboard requires profile + onboarding_completed; else send to /onboard
+  // Onboarding gate: /dashboard requires profile + onboarding_completed
+  // /d/ paths skip onboarding gate entirely — page handles access checks + public link fallback
   const userId = user?.sub as string | undefined;
   if (userId && pathname.startsWith("/dashboard")) {
     const { data: profile } = await supabase
@@ -94,18 +117,26 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // IMPORTANT: You *must* return the supabaseResponse object as it is.
-  // If you're creating a new response object with NextResponse.next() make sure to:
-  // 1. Pass the request in it, like so:
-  //    const myNewResponse = NextResponse.next({ request })
-  // 2. Copy over the cookies, like so:
-  //    myNewResponse.cookies.setAll(supabaseResponse.cookies.getAll())
-  // 3. Change the myNewResponse object to fit your needs, but avoid changing
-  //    the cookies!
-  // 4. Finally:
-  //    return myNewResponse
-  // If this is not done, you may be causing the browser and server to go out
-  // of sync and terminate the user's session prematurely!
+  // ── /view/{token} backward-compat redirect → /d/{docId}?share={token} ──
+  if (pathname.startsWith("/view/")) {
+    const token = pathname.replace("/view/", "").split("/")[0];
+    if (token) {
+      const { data: link } = await supabase
+        .from("document_links")
+        .select("document_id")
+        .eq("token", token)
+                .single();
+      if (link?.document_id) {
+        const url = request.nextUrl.clone();
+        url.pathname = `/d/${link.document_id}`;
+        url.searchParams.set("share", token);
+        const res = NextResponse.redirect(url);
+        supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c.name, c.value, c));
+        return res;
+      }
+    }
+  }
 
+  // IMPORTANT: You *must* return the supabaseResponse object as it is.
   return supabaseResponse;
 }

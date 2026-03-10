@@ -97,6 +97,8 @@ export type DocumentStatus =
   | "open"
   | "accepted"
   | "declined"
+  | "commented"
+  | "signed"
   | "archived";
 
 export interface Document {
@@ -130,6 +132,7 @@ export interface DocumentListItem {
   thumbnail_url: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 export interface DocumentDetail extends DocumentListItem {

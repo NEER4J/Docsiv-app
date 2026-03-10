@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Playfair_Display, Plus_Jakarta_Sans, DM_Sans } from "next/font/google";
 
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { APP_CONFIG } from "@/config/app-config";
 import { AuthProvider } from "@/lib/auth/auth-context";
 import { ThemeProvider } from "next-themes";
@@ -62,8 +63,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           disableTransitionOnChange
         >
           <AuthProvider>
-            {children}
-            <Toaster />
+            <TooltipProvider>
+              {children}
+              <Toaster />
+            </TooltipProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

@@ -37,10 +37,18 @@ function capitalize(s: string): string {
 
 function DocumentCardActions({
   doc,
+  docHref,
   onEditClick,
+  showTrash,
+  onMoveToTrash,
+  onRestore,
 }: {
   doc: DocumentListItem;
+  docHref: string;
   onEditClick: () => void;
+  showTrash?: boolean;
+  onMoveToTrash?: (docId: string) => void;
+  onRestore?: (docId: string) => void;
 }) {
   return (
     <DropdownMenu>
@@ -59,44 +67,74 @@ function DocumentCardActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            onEditClick();
-          }}
-        >
-          <Pencil className="size-4" />
-          Edit
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <a
-            href={`/dashboard/documents/${doc.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center"
+        {!showTrash && (
+          <>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                onEditClick();
+              }}
+            >
+              <Pencil className="size-4" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <a
+                href={docHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center"
+              >
+                <ExternalLink className="size-4" />
+                Open in new tab
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={(e) => {
+                e.preventDefault();
+                onMoveToTrash?.(doc.id);
+              }}
+            >
+              <Trash2 className="size-4" />
+              Move to trash
+            </DropdownMenuItem>
+          </>
+        )}
+        {showTrash && (
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              onRestore?.(doc.id);
+            }}
           >
-            <ExternalLink className="size-4" />
-            Open in new tab
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={(e) => e.preventDefault()}>
-          <Trash2 className="size-4" />
-          Move to trash
-        </DropdownMenuItem>
+            Restore
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function getDocumentHref(doc: DocumentListItem): string {
+  return `/d/${doc.id}`;
 }
 
 export function DocumentCard({
   doc,
   variant = "grid",
   className,
+  showTrash = false,
+  onMoveToTrash,
+  onRestore,
 }: {
   doc: DocumentListItem;
   variant?: DocumentCardVariant;
   className?: string;
+  showTrash?: boolean;
+  onMoveToTrash?: (docId: string) => void;
+  onRestore?: (docId: string) => void;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const typeConfig = doc.document_type
@@ -105,12 +143,13 @@ export function DocumentCard({
   const Icon = typeConfig.icon;
   const timeAgo = formatRelativeTime(doc.updated_at);
   const statusLabel = capitalize(doc.status);
+  const docHref = getDocumentHref(doc);
 
   if (variant === "list") {
     return (
       <li>
         <Link
-          href={`/dashboard/documents/${doc.id}`}
+          href={docHref}
           className="group flex flex-wrap items-center gap-3 bg-muted px-4 py-3 text-sm transition-colors hover:bg-muted-hover"
         >
           <Badge variant="secondary" className="shrink-0 border-0 !bg-muted-hover !text-foreground text-[0.7rem] font-normal">
@@ -125,7 +164,7 @@ export function DocumentCard({
           )}
           <span className="text-muted-foreground">{timeAgo}</span>
           <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} className="shrink-0">
-            <DocumentCardActions doc={doc} onEditClick={() => setEditOpen(true)} />
+            <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} />
           </div>
         </Link>
         <DocumentEditDialog doc={doc} open={editOpen} onOpenChange={setEditOpen} />
@@ -137,7 +176,7 @@ export function DocumentCard({
     return (
       <div className="relative block w-full max-w-[140px] min-w-0 sm:max-w-[160px] md:max-w-[180px]">
         <Link
-          href={`/dashboard/documents/${doc.id}`}
+          href={docHref}
           className="group relative block w-full"
         >
           <Card className="overflow-hidden transition-colors">
@@ -160,7 +199,7 @@ export function DocumentCard({
                     e.stopPropagation();
                   }}
                 >
-                  <DocumentCardActions doc={doc} onEditClick={() => setEditOpen(true)} />
+                  <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} />
                 </div>
               </div>
             </CardContent>
@@ -174,7 +213,7 @@ export function DocumentCard({
   // grid
   return (
     <li>
-      <Link href={`/dashboard/documents/${doc.id}`} className="group block">
+      <Link href={docHref} className="group block">
         <Card className="overflow-hidden transition-colors">
           <div className="relative flex aspect-[4/3] items-center justify-center border-b border-border bg-zinc-200 transition-colors dark:bg-muted-hover dark:group-hover:bg-muted-active group-hover:bg-zinc-300">
             <Badge variant="secondary" className="absolute left-2.5 top-2.5 z-10 border-0 !bg-muted-hover !text-foreground text-[0.7rem] font-normal">
@@ -202,7 +241,7 @@ export function DocumentCard({
                   e.stopPropagation();
                 }}
               >
-                <DocumentCardActions doc={doc} onEditClick={() => setEditOpen(true)} />
+                <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} />
               </div>
             </div>
           </CardContent>
