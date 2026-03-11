@@ -444,6 +444,31 @@ export type CollaboratorDocumentDetail = {
   role: string;
 };
 
+export type SharedDocumentItem = {
+  id: string;
+  title: string;
+  status: string;
+  base_type: string;
+  document_type_id: string | null;
+  document_type: { name: string; slug: string; color: string; bg_color: string; icon: string } | null;
+  client_id: string | null;
+  client_name: string | null;
+  thumbnail_url: string | null;
+  created_at: string;
+  updated_at: string;
+  workspace_name: string;
+  workspace_handle: string;
+  role: string;
+};
+
+export async function getSharedDocuments(): Promise<{ documents: SharedDocumentItem[]; error?: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_shared_documents");
+  if (error) return { documents: [], error: error.message };
+  const list = Array.isArray(data) ? data : data != null ? [data] : [];
+  return { documents: list as SharedDocumentItem[] };
+}
+
 export async function getDocumentForCollaborator(
   documentId: string
 ): Promise<{ document: CollaboratorDocumentDetail | null; error?: string }> {
@@ -530,6 +555,26 @@ export async function getAccessRequests(
   return { requests: (data as AccessRequestItem[]) ?? [] };
 }
 
+/** Single call to load all share dialog data (links, collaborators, access requests) in parallel on the server. */
+export async function getShareDialogData(documentId: string): Promise<{
+  links: DocumentLinkItem[];
+  collaborators: DocumentCollaboratorItem[];
+  requests: AccessRequestItem[];
+  error?: string;
+}> {
+  const [linksRes, collabRes, requestsRes] = await Promise.all([
+    getDocumentLinks(documentId),
+    getDocumentCollaborators(documentId),
+    getAccessRequests(documentId),
+  ]);
+  return {
+    links: linksRes.links ?? [],
+    collaborators: collabRes.collaborators ?? [],
+    requests: requestsRes.requests ?? [],
+    error: linksRes.error ?? collabRes.error,
+  };
+}
+
 export async function resolveAccessRequest(
   requestId: string,
   action: "approve" | "deny"
@@ -542,6 +587,21 @@ export async function resolveAccessRequest(
   if (error) return { error: error.message };
   const result = data as { ok?: boolean; error?: string };
   if (result.error) return { error: result.error };
+  return {};
+}
+
+// ---- Workspace access ----
+
+export async function updateDocumentWorkspaceAccess(
+  documentId: string,
+  access: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("update_document_workspace_access", {
+    p_document_id: documentId,
+    p_access: access,
+  });
+  if (error) return { error: error.message };
   return {};
 }
 

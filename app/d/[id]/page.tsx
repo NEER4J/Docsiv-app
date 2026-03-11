@@ -23,9 +23,6 @@ import type { DocumentDetail } from '@/types/database';
 
 const WORKSPACE_ID_COOKIE = 'workspace_id';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const LIVEBLOCKS_ENABLED =
-  typeof process.env.LIVEBLOCKS_SECRET_KEY === 'string' &&
-  process.env.LIVEBLOCKS_SECRET_KEY.startsWith('sk_');
 
 export default async function DocumentEditorPage({
   params,
@@ -64,13 +61,15 @@ export default async function DocumentEditorPage({
       if (data) {
         recordDocumentView(activeLink.token).catch(() => {});
         return (
-          <SharedDocumentView
-            document={data.document}
-            role={data.role}
-            documentId={id}
-            shareToken={activeLink.token}
-            workspaceName={data.workspace_name}
-          />
+          <DocumentRoomProvider documentId={id} enabled>
+            <SharedDocumentView
+              document={data.document}
+              role={data.role}
+              documentId={id}
+              shareToken={activeLink.token}
+              workspaceName={data.workspace_name}
+            />
+          </DocumentRoomProvider>
         );
       }
     }
@@ -95,14 +94,16 @@ export default async function DocumentEditorPage({
     if (data) {
       recordDocumentView(activeLink.token).catch(() => {});
       return (
-        <SharedDocumentView
-          document={data.document}
-          role={data.role}
-          documentId={id}
-          shareToken={activeLink.token}
-          workspaceName={data.workspace_name}
-          isAuthenticated
-        />
+        <DocumentRoomProvider documentId={id} enabled>
+          <SharedDocumentView
+            document={data.document}
+            role={data.role}
+            documentId={id}
+            shareToken={activeLink.token}
+            workspaceName={data.workspace_name}
+            isAuthenticated
+          />
+        </DocumentRoomProvider>
       );
     }
   }
@@ -143,14 +144,16 @@ async function handleSharedAccess(
     const data = await getDocumentByToken(token);
     if (!data) notFound();
     return (
-      <SharedDocumentView
-        document={data.document}
-        role={data.role}
-        documentId={documentId}
-        shareToken={token}
-        workspaceName={data.workspace_name}
-        isAuthenticated
-      />
+      <DocumentRoomProvider documentId={documentId} enabled>
+        <SharedDocumentView
+          document={data.document}
+          role={data.role}
+          documentId={documentId}
+          shareToken={token}
+          workspaceName={data.workspace_name}
+          isAuthenticated
+        />
+      </DocumentRoomProvider>
     );
   }
 
@@ -171,20 +174,22 @@ async function handleSharedAccess(
     }
   }
 
-  // Anonymous user — show read-only shared view
+  // Anonymous user — show read-only shared view (they join presence as "Anonymous")
   const data = await getDocumentByToken(token);
   if (!data) notFound();
 
   recordDocumentView(token).catch(() => {});
 
   return (
-    <SharedDocumentView
-      document={data.document}
-      role={data.role}
-      documentId={documentId}
-      shareToken={token}
-      workspaceName={data.workspace_name}
-    />
+    <DocumentRoomProvider documentId={documentId} enabled>
+      <SharedDocumentView
+        document={data.document}
+        role={data.role}
+        documentId={documentId}
+        shareToken={token}
+        workspaceName={data.workspace_name}
+      />
+    </DocumentRoomProvider>
   );
 }
 
@@ -219,7 +224,12 @@ async function handleAuthenticatedAccess(
         : undefined;
 
       return (
-        <DocumentRoomProvider documentId={document.id} enabled={LIVEBLOCKS_ENABLED}>
+        <DocumentRoomProvider
+          documentId={document.id}
+          currentUserId={currentUserId}
+          currentUserDisplay={currentUserDisplay}
+          enabled
+        >
           <DocumentEditorView
             document={document}
             workspaceId={workspaceId}
@@ -277,7 +287,12 @@ async function handleAuthenticatedAccess(
   const readOnly = role !== 'edit';
 
   return (
-    <DocumentRoomProvider documentId={document.id} enabled={LIVEBLOCKS_ENABLED}>
+    <DocumentRoomProvider
+      documentId={document.id}
+      currentUserId={currentUserId}
+      currentUserDisplay={currentUserDisplay}
+      enabled
+    >
       <DocumentEditorView
         document={document}
         workspaceId={access.workspaceId ?? ''}

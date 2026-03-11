@@ -5,7 +5,7 @@ import {
   FolderOpen,
   BarChart3,
   Plug,
-  Settings,
+  Share2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,12 +40,12 @@ export const sidebarItems: NavGroup[] = [
     id: 1,
     items: [
       { title: "Documents", url: "/dashboard/documents", icon: FileText },
+      { title: "Shared with me", url: "/dashboard/shared", icon: Share2 },
       { title: "Clients", url: "/dashboard/clients", icon: Users },
       { title: "Team", url: "/dashboard/teams", icon: UsersRound },
       { title: "Templates", url: "/dashboard/templates", icon: FolderOpen },
       { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3, pro: true },
       { title: "Integrations", url: "/dashboard/integrations", icon: Plug },
-      { title: "Settings", url: "/dashboard/settings", icon: Settings },
     ],
   },
 ];

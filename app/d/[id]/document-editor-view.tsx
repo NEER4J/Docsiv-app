@@ -5,8 +5,11 @@ import { Globe, Eye, MessageSquare, Lock } from 'lucide-react';
 import { DocumentCommentsProvider } from '@/components/platejs/editors/document-comments-context';
 import { DocumentUploadProvider } from '@/components/platejs/editors/document-upload-context';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
-import { DocumentPresenceAvatars } from '@/components/platejs/editors/document-room-provider';
-import { ShareDialog } from '@/components/documents/share-dialog';
+import {
+  DocumentPresenceAvatars,
+  DocumentPresenceCursors,
+} from '@/components/platejs/editors/document-room-provider';
+import { ShareDialog, type ShareDialogData } from '@/components/documents/share-dialog';
 import { DocumentMenu } from '@/components/documents/document-menu';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +18,7 @@ import {
   updateDocumentRecord,
   requestEditAccess,
   getAccessRequests,
+  getShareDialogData,
 } from '@/lib/actions/documents';
 import { toast } from 'sonner';
 import {
@@ -84,6 +88,19 @@ export function DocumentEditorView({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [shareOpen, setShareOpen] = useState(false);
   const [editRequested, setEditRequested] = useState(false);
+  const [prefetchedShareData, setPrefetchedShareData] = useState<ShareDialogData | null>(null);
+
+  // Prefetch share dialog data when editor loads so the dialog opens instantly
+  useEffect(() => {
+    if (!canShare || !document.id) return;
+    getShareDialogData(document.id).then((res) => {
+      setPrefetchedShareData({
+        links: res.links ?? [],
+        collaborators: res.collaborators ?? [],
+        requests: res.requests ?? [],
+      });
+    });
+  }, [document.id, canShare]);
 
   // Check if user already has a pending request
   useEffect(() => {
@@ -240,6 +257,9 @@ export function DocumentEditorView({
         </div>
       </div>
 
+      {/* Live collaboration cursors (Supabase Realtime) */}
+      <DocumentPresenceCursors />
+
       {/* Editor */}
       {isDocOrContract ? (
         <div className="min-h-0 flex-1 flex flex-col">
@@ -288,6 +308,8 @@ export function DocumentEditorView({
         clientName={document.client_name}
         currentUserName={currentUserDisplay?.name}
         currentUserEmail={currentUserDisplay?.email}
+        initialData={prefetchedShareData}
+        onDataLoaded={setPrefetchedShareData}
       />
     </div>
   );

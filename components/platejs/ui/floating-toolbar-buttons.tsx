@@ -18,7 +18,6 @@ import { CommentToolbarButton } from './comment-toolbar-button';
 import { InlineEquationToolbarButton } from './equation-toolbar-button';
 import { LinkToolbarButton } from './link-toolbar-button';
 import { MarkToolbarButton } from './mark-toolbar-button';
-import { ModeToolbarButton } from './mode-toolbar-button';
 import { MoreToolbarButton } from './more-toolbar-button';
 import { SuggestionToolbarButton } from './suggestion-toolbar-button';
 import { ToolbarGroup } from './toolbar';
@@ -77,7 +76,6 @@ export function FloatingToolbarButtons() {
       <ToolbarGroup>
         <CommentToolbarButton showLabel />
         <SuggestionToolbarButton />
-        <ModeToolbarButton />
 
         {!readOnly && <MoreToolbarButton />}
       </ToolbarGroup>

@@ -7,7 +7,6 @@ import type { TElement } from 'platejs';
 
 import { DropdownMenuItemIndicator } from '@radix-ui/react-dropdown-menu';
 import {
-  CheckIcon,
   ChevronRightIcon,
   Code2,
   Columns3Icon,
@@ -23,6 +22,7 @@ import {
   PilcrowIcon,
   QuoteIcon,
   SquareIcon,
+  TypeIcon,
 } from 'lucide-react';
 import { KEYS } from 'platejs';
 import { useEditorRef, useSelectionFragmentProp } from 'platejs/react';
@@ -147,23 +147,17 @@ export function TurnIntoToolbarButton(props: DropdownMenuProps) {
     defaultValue: KEYS.p,
     getProp: (node) => getBlockType(node as TElement),
   });
-  const selectedItem = React.useMemo(
-    () =>
-      turnIntoItems.find((item) => item.value === (value ?? KEYS.p)) ??
-      turnIntoItems[0],
-    [value]
-  );
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false} {...props}>
       <DropdownMenuTrigger asChild>
         <ToolbarButton
-          className="min-w-[125px]"
           pressed={open}
           tooltip="Turn into"
           isDropdown
         >
-          {selectedItem.label}
+          <TypeIcon />
+          <span className="hidden sm:inline">Turn into</span>
         </ToolbarButton>
       </DropdownMenuTrigger>
 
@@ -190,7 +184,7 @@ export function TurnIntoToolbarButton(props: DropdownMenuProps) {
             >
               <span className="pointer-events-none absolute right-2 flex size-3.5 items-center justify-center">
                 <DropdownMenuItemIndicator>
-                  <CheckIcon />
+                  <span className="size-2 rounded-full bg-current" />
                 </DropdownMenuItemIndicator>
               </span>
               {icon}

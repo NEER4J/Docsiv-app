@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { requestEditAccess } from '@/lib/actions/documents';
 import { toast } from 'sonner';
+import { DocumentPresenceAvatars } from '@/components/platejs/editors/document-room-provider';
 import type { Value } from 'platejs';
 
 type Doc = {
@@ -106,8 +107,9 @@ export function SharedDocumentView({
           </nav>
         </div>
 
-        {/* Right: Role badge + actions */}
+        {/* Right: Viewing count + role badge + actions */}
         <div className="ml-auto flex items-center gap-2">
+          <DocumentPresenceAvatars />
           <div className="flex items-center gap-1.5 rounded-full border border-border bg-muted/50 pl-3 pr-1 py-0.5">
             <span className="text-sm font-medium whitespace-nowrap">
               {canEdit ? 'Edit' : canComment ? 'Comment only' : 'View only'}

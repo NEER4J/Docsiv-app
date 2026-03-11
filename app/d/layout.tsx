@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { cookies } from "next/headers";
-import { AppSidebar } from "@/components/sidebar/app-sidebar";
+import { EditorSidebar } from "@/components/sidebar/editor-sidebar";
 import { SidebarCloseOnNavigate } from "@/components/sidebar/sidebar-close-on-navigate";
 import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
 import { DashboardNavbar } from "@/components/dashboard/dashboard-navbar";
@@ -49,7 +49,7 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <SidebarCloseOnNavigate />
-      <AppSidebar
+      <EditorSidebar
         variant="sidebar"
         collapsible="icon"
         user={{

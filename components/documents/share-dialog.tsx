@@ -11,16 +11,15 @@ import {
 } from 'lucide-react';
 import {
   createDocumentLink,
-  getDocumentLinks,
+  getShareDialogData,
   revokeDocumentLink,
   updateDocumentLinkRole,
   setDocumentLinkPassword,
-  getDocumentCollaborators,
   addDocumentCollaborator,
   removeDocumentCollaborator,
   updateDocumentCollaboratorRole,
-  getAccessRequests,
   resolveAccessRequest,
+  updateDocumentWorkspaceAccess,
   type DocumentLinkItem,
   type DocumentCollaboratorItem,
   type AccessRequestItem,
@@ -44,6 +43,12 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
 
+export type ShareDialogData = {
+  links: DocumentLinkItem[];
+  collaborators: DocumentCollaboratorItem[];
+  requests: AccessRequestItem[];
+};
+
 interface ShareDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,6 +58,11 @@ interface ShareDialogProps {
   clientName?: string | null;
   currentUserName?: string;
   currentUserEmail?: string;
+  workspaceAccess?: string;
+  /** Prefetched data so the dialog can show immediately when opened */
+  initialData?: ShareDialogData | null;
+  /** Called when data is loaded/refreshed so the parent can update its cache */
+  onDataLoaded?: (data: ShareDialogData) => void;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -123,6 +133,26 @@ function RoleDropdown({
   );
 }
 
+function applyShareData(
+  res: { links: DocumentLinkItem[]; collaborators: DocumentCollaboratorItem[]; requests: AccessRequestItem[] },
+  setLinks: (v: DocumentLinkItem[]) => void,
+  setCollaborators: (v: DocumentCollaboratorItem[]) => void,
+  setAccessRequests: (v: AccessRequestItem[]) => void,
+  setLinkRole: (v: string) => void,
+  setLinkHasPassword: (v: boolean) => void
+) {
+  const fetchedLinks = res.links ?? [];
+  setLinks(fetchedLinks);
+  setCollaborators(res.collaborators ?? []);
+  setAccessRequests(res.requests ?? []);
+  if (fetchedLinks.length > 0) {
+    setLinkRole(fetchedLinks[0].role);
+    setLinkHasPassword(fetchedLinks[0].has_password ?? false);
+  } else {
+    setLinkHasPassword(false);
+  }
+}
+
 export function ShareDialog({
   open,
   onOpenChange,
@@ -132,6 +162,9 @@ export function ShareDialog({
   clientName,
   currentUserName,
   currentUserEmail,
+  workspaceAccess: initialWorkspaceAccess = 'edit',
+  initialData,
+  onDataLoaded,
 }: ShareDialogProps) {
   const [links, setLinks] = useState<DocumentLinkItem[]>([]);
   const [collaborators, setCollaborators] = useState<DocumentCollaboratorItem[]>([]);
@@ -141,35 +174,48 @@ export function ShareDialog({
   const [inviting, setInviting] = useState(false);
   const [linkRole, setLinkRole] = useState<string>('view');
   const [linkHasPassword, setLinkHasPassword] = useState(false);
+  const [wsAccess, setWsAccess] = useState<string>(initialWorkspaceAccess);
   const [passwordInput, setPasswordInput] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
 
   const load = useCallback(() => {
-    Promise.all([
-      getDocumentLinks(documentId),
-      getDocumentCollaborators(documentId),
-      getAccessRequests(documentId),
-    ]).then(([linksRes, collabRes, requestsRes]) => {
-      const fetchedLinks = linksRes.links ?? [];
-      setLinks(fetchedLinks);
-      setCollaborators(collabRes.collaborators ?? []);
-      setAccessRequests(requestsRes.requests ?? []);
-      if (fetchedLinks.length > 0) {
-        setLinkRole(fetchedLinks[0].role);
-        setLinkHasPassword(fetchedLinks[0].has_password);
-      } else {
-        setLinkHasPassword(false);
-      }
+    getShareDialogData(documentId).then((res) => {
+      const data: ShareDialogData = {
+        links: res.links ?? [],
+        collaborators: res.collaborators ?? [],
+        requests: res.requests ?? [],
+      };
+      applyShareData(
+        data,
+        setLinks,
+        setCollaborators,
+        setAccessRequests,
+        setLinkRole,
+        setLinkHasPassword
+      );
       setLoading(false);
+      onDataLoaded?.(data);
     });
-  }, [documentId]);
+  }, [documentId, onDataLoaded]);
 
   useEffect(() => {
     if (open) {
-      setLoading(true);
+      if (initialData) {
+        applyShareData(
+          initialData,
+          setLinks,
+          setCollaborators,
+          setAccessRequests,
+          setLinkRole,
+          setLinkHasPassword
+        );
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       load();
     }
-  }, [open, load]);
+  }, [open, load]); // initialData applied only when open; load() refetches to refresh
 
   const handleInvite = async () => {
     const email = inviteEmail.trim();
@@ -403,11 +449,17 @@ export function ShareDialog({
                     </p>
                   </div>
                   <RoleDropdown
-                    value="view"
-                    options={['view', 'comment', 'edit']}
-                    onChange={() => {
-                      // Workspace-level permissions would need a different API
-                      toast.info('Workspace-level permissions coming soon');
+                    value={wsAccess}
+                    options={['edit', 'comment', 'view', 'none']}
+                    onChange={async (newAccess) => {
+                      setWsAccess(newAccess);
+                      const { error } = await updateDocumentWorkspaceAccess(documentId, newAccess);
+                      if (error) {
+                        toast.error(error);
+                        setWsAccess(wsAccess);
+                      } else {
+                        toast.success('Workspace access updated');
+                      }
                     }}
                   />
                 </div>
