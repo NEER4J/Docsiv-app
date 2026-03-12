@@ -16,6 +16,9 @@ import { requestEditAccess } from '@/lib/actions/documents';
 import { toast } from 'sonner';
 import { DocumentPresenceAvatars } from '@/components/platejs/editors/document-room-provider';
 import type { Value } from 'platejs';
+import { Presentation } from 'lucide-react';
+import { PageBuilderPreview } from '@/components/grapesjs/page-builder-preview';
+import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 
 type Doc = {
   id: string;
@@ -49,8 +52,11 @@ export function SharedDocumentView({
 }) {
   const [editRequested, setEditRequested] = useState(false);
 
+  const isGrapesJSDoc = isGrapesJSContent(document.content);
   const isDocOrContract =
-    document.base_type === 'doc' || document.base_type === 'contract';
+    !isGrapesJSDoc && (document.base_type === 'doc' || document.base_type === 'contract');
+  const isPresentation = document.base_type === 'presentation';
+
   const initialContent: Value =
     document.content && Array.isArray(document.content)
       ? (document.content as Value)
@@ -157,13 +163,25 @@ export function SharedDocumentView({
       {/* Document content — read-only */}
       <main className="flex-1">
         <div className="mx-auto max-w-3xl px-4 py-8 md:px-8">
-          {isDocOrContract ? (
+          {isGrapesJSDoc ? (
+            <PageBuilderPreview
+              content={document.content as GrapesJSStoredContent}
+              className="min-h-[200px]"
+            />
+          ) : isDocOrContract ? (
             <PlateDocumentEditor
               initialValue={initialContent}
               readOnly
               placeholder=""
               className="min-h-[400px]"
             />
+          ) : isPresentation ? (
+            <div className="rounded-lg border border-border bg-muted/30 p-8 text-center">
+              <Presentation className="mx-auto size-10 text-muted-foreground mb-3" />
+              <p className="font-body text-muted-foreground">
+                Presentation view coming soon.
+              </p>
+            </div>
           ) : (
             <p className="font-body text-muted-foreground">
               This document type cannot be previewed here.

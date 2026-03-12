@@ -125,7 +125,7 @@ export function EditorSidebar({
           />
           <span
             className={cn(
-              "font-ui text-[1rem] font-semibold tracking-[-0.02em]",
+              "font-playfair text-[1rem] font-semibold tracking-[-0.02em]",
               isCollapsed && "hidden"
             )}
           >

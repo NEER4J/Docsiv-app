@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   const isSelecting = editor.api.isExpanded();
 
   const google = createGoogleGenerativeAI({ apiKey });
-  const defaultModel = 'gemini-2.5-flash';
+  const defaultModel = 'gemini-2.0-flash';
 
   try {
     const stream = createUIMessageStream<ChatMessage>({
@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
           const stream = streamText({
             experimental_transform: markdownJoinerTransform(),
             model: geminiModel,
+            system: 'You are a document editing assistant. Always respond in English only.',
             // Not used
             prompt: '',
             tools: {

@@ -91,6 +91,7 @@ export interface ClientWithDocCount extends Omit<Client, "notes"> {
 // ── Documents ─────────────────────────────────────────────────────────────────
 
 export type DocumentBaseType = "doc" | "sheet" | "presentation" | "contract";
+
 export type DocumentStatus =
   | "draft"
   | "sent"
@@ -139,4 +140,5 @@ export interface DocumentDetail extends DocumentListItem {
   content: Record<string, unknown> | null;
   created_by: string;
   last_modified_by: string | null;
+  require_signature?: boolean;
 }

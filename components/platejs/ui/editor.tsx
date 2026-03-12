@@ -109,8 +109,11 @@ export const Editor = ({
       }),
       className
     )}
+    autoCapitalize="off"
+    autoCorrect="off"
     disabled={disabled}
     disableDefaultStyles
+    spellCheck={false}
     {...props}
   />
 );

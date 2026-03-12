@@ -63,7 +63,7 @@ const docTypeMap = [
   { type: 'Proposals',          lib: 'Puck',         color: '#ddebf1', text: '#0b6e99', reason: 'Visual layout, premium feel for winning business' },
   { type: 'Reports',            lib: 'Puck / Plate',  color: '#ddedea', text: '#0f7b6c', reason: 'Puck for visual; Plate.js for data-dense text' },
   { type: 'Sheets',             lib: 'Custom',       color: '#ddedea', text: '#0f7b6c', reason: 'Spreadsheet-style data, budgets, trackers; structured grid or export' },
-  { type: 'Strategy Decks',     lib: 'Presenton',     color: '#eae4f2', text: '#6940a5', reason: 'Slide-native format, built for presentations' },
+  { type: 'Strategy Decks',     lib: 'Slides.com',     color: '#eae4f2', text: '#6940a5', reason: 'Full editor with shapes, animations, themes' },
   { type: 'SOWs / Contracts',   lib: 'Plate.js',      color: '#fbf3db', text: '#dfab01', reason: 'Text-heavy, structured, precise editing control' },
   { type: 'Briefs',             lib: 'Plate.js',      color: '#faebdd', text: '#d9730d', reason: 'Structured input, collaborative block editing' },
   { type: 'Onboarding Docs',    lib: 'Plate.js',      color: '#f2f2f2', text: '#64473a', reason: 'Step-by-step structure, modular blocks' },
@@ -98,7 +98,7 @@ const coreFeatures = [
 const libraries = [
   { name: 'Puck',           url: 'puckeditor.com',           badge: 'Editor',        color: '#ddebf1', text: '#0b6e99', desc: 'Visual drag-and-drop for proposals and case studies.' },
   { name: 'Plate.js',       url: 'platejs.org',              badge: 'Editor',        color: '#ddedea', text: '#0f7b6c', desc: 'Rich-text block editor for SOWs, contracts, briefs.' },
-  { name: 'Presenton',      url: 'presenton.ai',             badge: 'Presentations', color: '#eae4f2', text: '#6940a5', desc: 'Slide-native builder for strategy decks.' },
+  { name: 'Slides.com',      url: 'slides.com',             badge: 'Presentations', color: '#eae4f2', text: '#6940a5', desc: 'Full-featured deck editor with shapes, animations, and themes.' },
   { name: 'Phosphor Icons', url: 'phosphoricons.com',        badge: 'Icons',         color: '#fbf3db', text: '#dfab01', desc: 'Light weight, size 40 base. Used throughout the UI.' },
   { name: 'Tailwind CSS',   url: 'tailwindcss.com',          badge: 'Styling',       color: '#faebdd', text: '#d9730d', desc: 'v4 with @import syntax. Utility-first, no config file.' },
   { name: 'Next.js',        url: 'nextjs.org',               badge: 'Framework',     color: '#f2f2f2', text: '#37352f', desc: 'App router, server components, React framework.' },
@@ -790,7 +790,7 @@ export default function VisionPage() {
                 <ul className="font-[family-name:var(--font-dm-sans)] text-sm font-light space-y-1" style={{ color: '#dfab01' }}>
                   <li>Puck editor — proposals, case studies</li>
                   <li>Plate.js editor — SOWs, contracts, briefs, onboarding docs, reports</li>
-                  <li>Presenton — strategy decks / presentations</li>
+                  <li>Slides.com — strategy decks / presentations</li>
                 </ul>
               </div>
               <div>
@@ -868,7 +868,7 @@ export default function VisionPage() {
               <li>New document flow + AI generation</li>
               <li>Plate.js editor (text docs first — SOWs, briefs)</li>
               <li>Puck editor (proposals)</li>
-              <li>Presenton (decks)</li>
+              <li>Slides.com (decks)</li>
               <li>Share + branded portal</li>
               <li>Analytics + open tracking</li>
               <li>Templates</li>

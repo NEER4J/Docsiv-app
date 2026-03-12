@@ -1,0 +1,27 @@
+/* Page builder layout: top bar + left blocks + canvas + right styles (like reference) */
+.gjs-editor-host {
+  --gjs-primary: hsl(var(--primary));
+  --gjs-border: hsl(var(--border));
+  --gjs-muted: hsl(var(--muted-foreground));
+}
+
+/* Toolbar / panel styling to match app */
+.gjs-editor-host .gjs-pn-panel {
+  border-color: var(--gjs-border);
+}
+
+.gjs-editor-host .gjs-pn-btn {
+  border-color: var(--gjs-border);
+  color: var(--gjs-muted);
+}
+
+.gjs-editor-host .gjs-pn-btn:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+/* Export / custom buttons in toolbar */
+.gjs-editor-host .gjs-pn-btn[data-id="gjs-export-pdf"],
+.gjs-editor-host .gjs-pn-btn[data-id="gjs-print-preview"] {
+  font-size: 12px;
+}

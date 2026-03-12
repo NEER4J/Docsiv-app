@@ -91,6 +91,7 @@ export type UpdateDocumentInput = {
   status?: string;
   client_id?: string | null;
   document_type_id?: string | null;
+  require_signature?: boolean;
 };
 
 export async function updateDocumentRecord(
@@ -98,12 +99,47 @@ export async function updateDocumentRecord(
   input: UpdateDocumentInput
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const clearClient = 'client_id' in input && input.client_id === null;
   const { error } = await supabase.rpc("update_document", {
     p_document_id: documentId,
     p_title: input.title ?? null,
     p_status: input.status ?? null,
     p_client_id: input.client_id ?? null,
     p_document_type_id: input.document_type_id ?? null,
+    p_require_signature: input.require_signature ?? null,
+    p_clear_client_id: clearClient,
+  });
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function duplicateDocument(
+  documentId: string,
+  newTitle?: string,
+  targetWorkspaceId?: string | null,
+  clientId?: string | null
+): Promise<{ newDocumentId: string | null; error?: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("duplicate_document", {
+    p_document_id: documentId,
+    p_new_title: newTitle ?? null,
+    p_target_workspace_id: targetWorkspaceId ?? null,
+    p_client_id: clientId ?? null,
+  });
+  if (error) return { newDocumentId: null, error: error.message };
+  return { newDocumentId: data as string };
+}
+
+export async function moveDocument(
+  documentId: string,
+  targetWorkspaceId: string,
+  clientId?: string | null
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("move_document", {
+    p_document_id: documentId,
+    p_target_workspace_id: targetWorkspaceId,
+    p_client_id: clientId ?? null,
   });
   if (error) return { error: error.message };
   return {};

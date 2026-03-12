@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Globe, Eye, MessageSquare, Lock } from 'lucide-react';
 import { DocumentCommentsProvider } from '@/components/platejs/editors/document-comments-context';
 import { DocumentUploadProvider } from '@/components/platejs/editors/document-upload-context';
@@ -27,6 +28,9 @@ import {
 } from '@/lib/stores/document-breadcrumb-store';
 import type { DocumentDetail } from '@/types/database';
 import type { TElement, Value } from 'platejs';
+import { Presentation } from 'lucide-react';
+import { PageBuilderEditor } from '@/components/grapesjs/page-builder-editor';
+import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 const VERSION_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
@@ -78,8 +82,12 @@ export function DocumentEditorView({
   readOnly?: boolean;
   role?: string;
 }) {
+  const router = useRouter();
   const baseType = document.base_type;
-  const isDocOrContract = baseType === 'doc' || baseType === 'contract';
+  const docTypeSlug = document.document_type?.slug ?? '';
+  const isReportOrProposal = docTypeSlug === 'report' || docTypeSlug === 'proposal';
+  const isDocOrContract = (baseType === 'doc' || baseType === 'contract') && !isReportOrProposal;
+  const isPresentation = baseType === 'presentation';
   const isLocked = document.status === 'signed';
   const effectiveReadOnly = readOnly || isLocked;
   const canComment = role === 'comment' || role === 'edit';
@@ -116,6 +124,7 @@ export function DocumentEditorView({
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastVersionAtRef = useRef<number>(0);
   const lastTitleRef = useRef<string>(document.title || '');
+  const valueRef = useRef<Value | null>(null);
   const barTitle = useDocumentBreadcrumbTitle() || document.title || 'Untitled';
 
   // Determine badge to show
@@ -137,8 +146,21 @@ export function DocumentEditorView({
       : [{ type: 'p', children: [{ text: '' }] }];
   const initialContent: Value = ensureTitleBlock(rawContent, document.title || '');
 
+  const getWordCount = useCallback((): number => {
+    const val = valueRef.current;
+    if (!val) return 0;
+    const getText = (nodes: Value): string =>
+      nodes.map((n: any) => {
+        if (typeof n.text === 'string') return n.text;
+        if (Array.isArray(n.children)) return getText(n.children);
+        return '';
+      }).join(' ');
+    return getText(val).split(/\s+/).filter(Boolean).length;
+  }, []);
+
   const handleChange = useCallback(
     (value: Value) => {
+      valueRef.current = value;
       // Sync title from H1 block
       const newTitle = getTitleFromValue(value);
       if (newTitle !== null && newTitle !== lastTitleRef.current) {
@@ -226,7 +248,7 @@ export function DocumentEditorView({
             </div>
           )}
 
-          {isDocOrContract && !effectiveReadOnly && (
+          {(isDocOrContract || isReportOrProposal) && !effectiveReadOnly && (
             <span className="font-body text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {saveStatus === 'saving' && 'Saving...'}
               {saveStatus === 'saved' && 'Saved'}
@@ -250,9 +272,14 @@ export function DocumentEditorView({
           <DocumentMenu
             documentId={document.id}
             documentTitle={document.title || 'Untitled'}
+            workspaceId={workspaceId}
             documentStatus={document.status}
             clientName={document.client_name}
             clientId={document.client_id}
+            requireSignature={document.require_signature}
+            getWordCount={isPresentation || isReportOrProposal ? undefined : getWordCount}
+            baseType={baseType}
+            onOpenShare={() => setShareOpen(true)}
           />
         </div>
       </div>
@@ -261,7 +288,17 @@ export function DocumentEditorView({
       <DocumentPresenceCursors />
 
       {/* Editor */}
-      {isDocOrContract ? (
+      {isReportOrProposal ? (
+        <div className="min-h-0 flex-1 flex flex-col">
+          <PageBuilderEditor
+            documentId={document.id}
+            documentTitle={document.title ?? undefined}
+            initialContent={isGrapesJSContent(document.content) ? (document.content as GrapesJSStoredContent) : null}
+            readOnly={effectiveReadOnly}
+            className="min-h-0 flex-1"
+          />
+        </div>
+      ) : isDocOrContract ? (
         <div className="min-h-0 flex-1 flex flex-col">
           <DocumentCommentsProvider
             documentId={document.id}
@@ -284,6 +321,18 @@ export function DocumentEditorView({
             </DocumentUploadProvider>
           </DocumentCommentsProvider>
         </div>
+      ) : isPresentation ? (
+        <div className="flex min-h-[400px] flex-1 items-center justify-center bg-muted/30">
+          <div className="text-center px-4">
+            <Presentation className="mx-auto size-10 text-muted-foreground mb-3" />
+            <p className="font-body text-lg font-medium text-foreground mb-2">
+              Slide deck editor coming soon
+            </p>
+            <p className="font-body text-muted-foreground">
+              We&apos;re building a full presentation editor. You can still edit document details.
+            </p>
+          </div>
+        </div>
       ) : (
         <div className="flex min-h-[400px] flex-1 items-center justify-center bg-muted/30">
           <div className="text-center px-4">
@@ -291,8 +340,7 @@ export function DocumentEditorView({
               Editor coming soon
             </p>
             <p className="font-body text-muted-foreground">
-              The {baseType === 'sheet' ? 'Sheets' : 'Presentations'} editor is
-              currently in development. You can still fill in document details.
+              The Sheets editor is currently in development. You can still fill in document details.
             </p>
           </div>
         </div>
