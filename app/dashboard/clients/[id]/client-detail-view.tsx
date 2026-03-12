@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { User, FileText, Globe, Phone, Envelope } from "@phosphor-icons/react";
 import {
@@ -11,6 +12,10 @@ import {
 } from "@/components/documents/document-type-switcher";
 import { DocumentsFilterBar } from "@/components/documents/documents-filter-bar";
 import { DocumentsList } from "@/components/documents/documents-list";
+import { getDocumentById, uploadDocumentThumbnail } from "@/lib/actions/documents";
+import { captureHtmlAsPngBase64 } from "@/lib/capture-thumbnail";
+import { isGrapesJSContent } from "@/lib/grapesjs-content";
+import { toast } from "sonner";
 import type { ClientWithDocCount } from "@/types/database";
 import type { DocumentListItem, DocumentType } from "@/types/database";
 
@@ -119,6 +124,8 @@ function DocumentsTab({
   onLayoutChange: (v: "grid" | "list") => void;
   navigatingToDocId?: string | null;
   onNavigateStart?: (docId: string) => void;
+  onUpdateThumbnail?: (doc: DocumentListItem) => void;
+  updatingThumbnailId?: string | null;
 }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -155,6 +162,8 @@ function DocumentsTab({
         }
         navigatingToDocId={navigatingToDocId}
         onNavigateStart={onNavigateStart}
+        onUpdateThumbnail={onUpdateThumbnail}
+        updatingThumbnailId={updatingThumbnailId}
       />
     </div>
   );
@@ -171,9 +180,44 @@ export function ClientDetailView({
   documents?: DocumentListItem[];
   documentTypes?: DocumentType[];
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState("overview");
   const [navigatingToDocId, setNavigatingToDocId] = useState<string | null>(null);
+  const [updatingThumbnailId, setUpdatingThumbnailId] = useState<string | null>(null);
   const [docSearch, setDocSearch] = useState("");
+
+  const handleUpdateThumbnail = async (doc: DocumentListItem) => {
+    if (!workspaceId) return;
+    setUpdatingThumbnailId(doc.id);
+    try {
+      const { document: fullDoc, error: fetchError } = await getDocumentById(workspaceId, doc.id);
+      if (fetchError || !fullDoc?.content) {
+        toast.error("Could not load document");
+        return;
+      }
+      const content = fullDoc.content;
+      if (!isGrapesJSContent(content)) {
+        toast.info("Thumbnail can be updated from the document editor for this type.");
+        return;
+      }
+      const html = (content.html as string) ?? "";
+      const css = (content.css as string) ?? "";
+      const base64 = await captureHtmlAsPngBase64(html, css);
+      if (!base64) {
+        toast.error("Could not capture thumbnail");
+        return;
+      }
+      const { error: uploadError } = await uploadDocumentThumbnail(doc.id, workspaceId, base64);
+      if (uploadError) {
+        toast.error(uploadError);
+        return;
+      }
+      toast.success("Thumbnail updated");
+      router.refresh();
+    } finally {
+      setUpdatingThumbnailId(null);
+    }
+  };
   const [docTypeSlug, setDocTypeSlug] = useState("all");
   const [docStatus, setDocStatus] = useState("All");
   const [docLayout, setDocLayout] = useState<"grid" | "list">("grid");
@@ -224,6 +268,8 @@ export function ClientDetailView({
             onLayoutChange={setDocLayout}
             navigatingToDocId={navigatingToDocId}
             onNavigateStart={setNavigatingToDocId}
+            onUpdateThumbnail={handleUpdateThumbnail}
+            updatingThumbnailId={updatingThumbnailId}
           />
         </DocumentTypeSwitcherContent>
       </DocumentTypeSwitcher>

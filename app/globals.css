@@ -155,3 +155,39 @@
 .dark [data-slate-editor] [data-slate-zero-width]::selection {
   background: oklch(0.707 0.165 254.624 / 0.4) !important;
 }
+
+/* Force light theme for document editor/view routes (/d/*) — overrides .dark when applied on an ancestor */
+.document-editor-force-light {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --border: #e5e5e5;
+  --muted-bg: #ffffff;
+  --muted-foreground: #6b6560;
+  --muted-hover: #f5f5f5;
+  --muted-active: #ebebeb;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --notion-default-bg: #f2f2f2;
+  --notion-gray-bg: #f2f2f2;
+  --notion-brown-bg: #f2f2f2;
+  --notion-orange-bg: #faebdd;
+  --notion-yellow-bg: #fbf3db;
+  --notion-green-bg: #ddedea;
+  --notion-blue-bg: #ddebf1;
+  --notion-purple-bg: #eae4f2;
+  --notion-pink-bg: #f4dfeb;
+  --notion-red-bg: #fbe4e4;
+  --highlight: oklch(0.852 0.199 91.936);
+  --brand: oklch(0.623 0.214 259.815);
+  color-scheme: light;
+}
+.document-editor-force-light [data-slate-editor] ::selection,
+.document-editor-force-light [data-slate-editor]::selection {
+  background: oklch(0.623 0.214 259.815 / 0.35) !important;
+  color: inherit;
+}
+.document-editor-force-light [data-slate-editor] [data-slate-leaf] ::selection,
+.document-editor-force-light [data-slate-editor] [data-slate-string]::selection,
+.document-editor-force-light [data-slate-editor] [data-slate-zero-width]::selection {
+  background: oklch(0.623 0.214 259.815 / 0.35) !important;
+}

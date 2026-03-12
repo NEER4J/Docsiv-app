@@ -1,12 +1,16 @@
 /**
- * Document thumbnail capture – 1920×1920 viewport, scale 0.5 (quality not critical).
- * - Plate: editor content root via ref; output resized to THUMBNAIL_VIEWPORT.
- * - GrapesJS: HTML+CSS rendered in THUMBNAIL_VIEWPORT; output resized to same.
+ * Document thumbnail capture – 1920×1920 output, no extra padding; content fills frame (cover).
+ * - Plate: editor content root; resized with cover (top-left fills thumbnail).
+ * - GrapesJS: HTML+CSS in a full-bleed wrapper (no padding); resized with cover.
  */
 const THUMBNAIL_VIEWPORT = 1920;
 const THUMBNAIL_SCALE = 0.5;
 const GRAPESJS_HTML_LIMIT = 50000;
 
+/**
+ * Resize canvas to size×size using "cover": scale so content fills the frame from top-left, crop overflow.
+ * No letterboxing or extra white padding – the document fills the thumbnail.
+ */
 function resizeCanvasToViewport(
   source: HTMLCanvasElement,
   size: number
@@ -18,16 +22,15 @@ function resizeCanvasToViewport(
   if (!ctx) return source;
   const s = source.width;
   const h = source.height;
-  const scale = Math.min(size / s, size / h, 1);
+  if (s <= 0 || h <= 0) return source;
+  const scale = Math.max(size / s, size / h);
   const w = s * scale;
   const h2 = h * scale;
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, size, size);
-  ctx.drawImage(source, 0, 0, s, h, (size - w) / 2, (size - h2) / 2, w, h2);
+  ctx.drawImage(source, 0, 0, s, h, 0, 0, w, h2);
   return out;
 }
 
-/** Capture DOM element and return PNG base64 at THUMBNAIL_VIEWPORT×THUMBNAIL_VIEWPORT (fit, letterboxed). */
+/** Capture DOM element and return PNG base64 at THUMBNAIL_VIEWPORT×THUMBNAIL_VIEWPORT (cover, no padding). */
 async function captureElementToCanvas(element: HTMLElement): Promise<HTMLCanvasElement | null> {
   const { default: html2canvas } = await import("html2canvas-pro");
   const canvas = await html2canvas(element, {
@@ -51,7 +54,7 @@ export async function captureElementAsPngBase64(element: HTMLElement | null): Pr
 
 /**
  * Capture the Plate editor content root (editor.api.toDOMNode(editor)), same styling as export.
- * Output: 1920×1920 viewport (content fitted, letterboxed).
+ * Output: 1920×1920 (content covers frame from top-left, no letterboxing).
  */
 export async function capturePlateEditorAsPngBase64(
   getEditorRoot: () => HTMLElement | null
@@ -89,8 +92,8 @@ export async function capturePlateEditorAsPngBase64(
 }
 
 /**
- * Render saved HTML+CSS in a 1920×1920 viewport and capture as PNG.
- * Used by GrapesJS; output is 1920×1920 (content fitted, letterboxed).
+ * Render saved HTML+CSS in a full-bleed viewport (no padding) and capture as PNG.
+ * Used by GrapesJS; output is 1920×1920 with content covering the frame (no extra whitespace).
  */
 export async function captureHtmlAsPngBase64(html: string, css?: string): Promise<string | null> {
   if (typeof document === "undefined" || !html.trim()) return null;
@@ -100,10 +103,11 @@ export async function captureHtmlAsPngBase64(html: string, css?: string): Promis
     "left:-9999px",
     "top:0",
     "width:" + THUMBNAIL_VIEWPORT + "px",
-    "height:" + THUMBNAIL_VIEWPORT + "px",
+    "min-height:" + THUMBNAIL_VIEWPORT + "px",
     "overflow:hidden",
     "background:#fff",
-    "padding:24px",
+    "padding:0",
+    "margin:0",
     "boxSizing:border-box",
   ].join(";");
   wrap.innerHTML = (css ? `<style>${css}</style>` : "") + html.substring(0, GRAPESJS_HTML_LIMIT);

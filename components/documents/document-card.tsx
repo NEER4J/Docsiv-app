@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MoreVertical, Pencil, ExternalLink, Trash2, LoaderIcon } from "lucide-react";
+import { MoreVertical, Pencil, ExternalLink, Trash2, LoaderIcon, ImageIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,8 @@ function DocumentCardActions({
   showTrash,
   onMoveToTrash,
   onRestore,
+  onUpdateThumbnail,
+  updatingThumbnail,
 }: {
   doc: DocumentListItem;
   docHref: string;
@@ -51,6 +53,8 @@ function DocumentCardActions({
   showTrash?: boolean;
   onMoveToTrash?: (docId: string) => void;
   onRestore?: (docId: string) => void;
+  onUpdateThumbnail?: (doc: DocumentListItem) => void;
+  updatingThumbnail?: boolean;
 }) {
   return (
     <DropdownMenu>
@@ -77,7 +81,6 @@ function DocumentCardActions({
                 onEditClick();
               }}
             >
-            
               <Pencil className="size-4" />
               Edit
             </DropdownMenuItem>
@@ -92,6 +95,22 @@ function DocumentCardActions({
                 Open in new tab
               </a>
             </DropdownMenuItem>
+            {onUpdateThumbnail && (
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  onUpdateThumbnail(doc);
+                }}
+                disabled={updatingThumbnail}
+              >
+                {updatingThumbnail ? (
+                  <LoaderIcon className="size-4 animate-spin" />
+                ) : (
+                  <ImageIcon className="size-4" />
+                )}
+                Update thumbnail
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
@@ -152,6 +171,8 @@ export function DocumentCard({
   onRestore,
   navigatingToDocId,
   onNavigateStart,
+  onUpdateThumbnail,
+  updatingThumbnailId,
 }: {
   doc: DocumentListItem;
   variant?: DocumentCardVariant;
@@ -163,6 +184,10 @@ export function DocumentCard({
   navigatingToDocId?: string | null;
   /** Called when user clicks the card to open; use with router.push to show loading. */
   onNavigateStart?: (docId: string) => void;
+  /** Optional: trigger thumbnail capture/upload (for debugging). Shown in dropdown when provided. */
+  onUpdateThumbnail?: (doc: DocumentListItem) => void;
+  /** When set, card with this id shows loading on Update thumbnail. */
+  updatingThumbnailId?: string | null;
 }) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
@@ -211,7 +236,7 @@ export function DocumentCard({
             <span className="text-muted-foreground">{timeAgo}</span>
           )}
           <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} className="shrink-0">
-            <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} />
+            <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} onUpdateThumbnail={onUpdateThumbnail} updatingThumbnail={updatingThumbnailId === doc.id} />
           </div>
         </Link>
         <DocumentEditDialog doc={doc} open={editOpen} onOpenChange={setEditOpen} />
@@ -259,7 +284,7 @@ export function DocumentCard({
                     e.stopPropagation();
                   }}
                 >
-                  <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} />
+                  <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} onUpdateThumbnail={onUpdateThumbnail} updatingThumbnail={updatingThumbnailId === doc.id} />
                 </div>
               </div>
             </CardContent>
@@ -313,7 +338,7 @@ export function DocumentCard({
                   e.stopPropagation();
                 }}
               >
-                <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} />
+                <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} onUpdateThumbnail={onUpdateThumbnail} updatingThumbnail={updatingThumbnailId === doc.id} />
               </div>
             </div>
           </CardContent>

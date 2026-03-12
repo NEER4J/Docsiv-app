@@ -50,7 +50,6 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
   }
 
   return (
-    <DocumentEditorTheme>
     <SidebarProvider defaultOpen={defaultOpen}>
       <SidebarCloseOnNavigate />
       <EditorSidebar
@@ -82,10 +81,12 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
               </div>
             </div>
           </header>
-          <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden flex flex-col">{children}</div>
+          {/* Only the document editor content is forced to light theme; sidebar and nav follow app theme */}
+          <div className="document-editor-force-light min-h-0 min-w-0 flex-1 overflow-x-hidden flex flex-col bg-background text-foreground">
+            {children}
+          </div>
         </AiAssistantProvider>
       </SidebarInset>
     </SidebarProvider>
-    </DocumentEditorTheme>
   );
 }

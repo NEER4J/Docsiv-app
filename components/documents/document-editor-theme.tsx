@@ -1,21 +1,16 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { ThemeProvider } from 'next-themes';
 
 /**
- * Forces light theme for all document editor/view routes (/d/*).
- * Use in app/d/layout.tsx so edit, view, comment, and shared states always use light theme.
+ * Forces light theme for all document editor/view routes (/d/*) by scoping
+ * light theme CSS variables to this subtree. This overrides the root dark
+ * theme so the editor always renders in light mode.
  */
 export function DocumentEditorTheme({ children }: { children: ReactNode }) {
   return (
-    <ThemeProvider
-      forcedTheme="light"
-      attribute="class"
-      enableSystem={false}
-      disableTransitionOnChange
-    >
+    <div className="document-editor-force-light min-h-screen w-full min-w-0 flex flex-col bg-background text-foreground">
       {children}
-    </ThemeProvider>
+    </div>
   );
 }

@@ -37,7 +37,9 @@ import {
 } from "@/components/documents/document-type-switcher";
 import { DocumentCard } from "@/components/documents/document-card";
 import { DocumentsList } from "@/components/documents/documents-list";
-import { softDeleteDocument, restoreDocument } from "@/lib/actions/documents";
+import { getDocumentById, softDeleteDocument, restoreDocument, uploadDocumentThumbnail } from "@/lib/actions/documents";
+import { captureHtmlAsPngBase64 } from "@/lib/capture-thumbnail";
+import { isGrapesJSContent } from "@/lib/grapesjs-content";
 import { toast } from "sonner";
 import { DocumentsEmptyState } from "@/components/documents/documents-empty-state";
 import { NewDocumentDialog } from "@/components/documents/new-document-dialog";
@@ -83,10 +85,14 @@ function RecentlyUsedSection({
   docs,
   navigatingToDocId,
   onNavigateStart,
+  onUpdateThumbnail,
+  updatingThumbnailId,
 }: {
   docs: DocumentListItem[];
   navigatingToDocId?: string | null;
   onNavigateStart?: (docId: string) => void;
+  onUpdateThumbnail?: (doc: DocumentListItem) => void;
+  updatingThumbnailId?: string | null;
 }) {
   const recent = docs.slice(0, RECENT_DOCS_COUNT);
   if (recent.length === 0) return null;
@@ -103,6 +109,8 @@ function RecentlyUsedSection({
             variant="recent"
             navigatingToDocId={navigatingToDocId}
             onNavigateStart={onNavigateStart}
+            onUpdateThumbnail={onUpdateThumbnail}
+            updatingThumbnailId={updatingThumbnailId}
           />
         ))}
       </div>
@@ -293,6 +301,40 @@ export function DocumentsView({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [navigatingToDocId, setNavigatingToDocId] = useState<string | null>(null);
+  const [updatingThumbnailId, setUpdatingThumbnailId] = useState<string | null>(null);
+
+  const handleUpdateThumbnail = async (doc: DocumentListItem) => {
+    if (!workspaceId) return;
+    setUpdatingThumbnailId(doc.id);
+    try {
+      const { document: fullDoc, error: fetchError } = await getDocumentById(workspaceId, doc.id);
+      if (fetchError || !fullDoc?.content) {
+        toast.error("Could not load document");
+        return;
+      }
+      const content = fullDoc.content;
+      if (!isGrapesJSContent(content)) {
+        toast.info("Thumbnail can be updated from the document editor for this type.");
+        return;
+      }
+      const html = (content.html as string) ?? "";
+      const css = (content.css as string) ?? "";
+      const base64 = await captureHtmlAsPngBase64(html, css);
+      if (!base64) {
+        toast.error("Could not capture thumbnail");
+        return;
+      }
+      const { error: uploadError } = await uploadDocumentThumbnail(doc.id, workspaceId, base64);
+      if (uploadError) {
+        toast.error(uploadError);
+        return;
+      }
+      toast.success("Thumbnail updated");
+      router.refresh();
+    } finally {
+      setUpdatingThumbnailId(null);
+    }
+  };
 
   const documentTabs = useMemo(() => {
     const tabs = buildDocumentTabs(documentTypes);
@@ -384,6 +426,8 @@ export function DocumentsView({
                 docs={filteredDocs}
                 navigatingToDocId={navigatingToDocId}
                 onNavigateStart={setNavigatingToDocId}
+                onUpdateThumbnail={handleUpdateThumbnail}
+                updatingThumbnailId={updatingThumbnailId}
               />
             )}
             {tab.value !== "trash" && filteredDocs.length > 0 && <Separator className="my-6" />}
@@ -410,6 +454,8 @@ export function DocumentsView({
               onRestore={onRestore}
               navigatingToDocId={navigatingToDocId}
               onNavigateStart={setNavigatingToDocId}
+              onUpdateThumbnail={handleUpdateThumbnail}
+              updatingThumbnailId={updatingThumbnailId}
             />
           </DocumentTypeSwitcherContent>
         ))}
