@@ -48,6 +48,7 @@ import { Presentation } from 'lucide-react';
 import { PageBuilderEditor, type PageBuilderEditorHandle } from '@/components/grapesjs/page-builder-editor';
 import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 const VERSION_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
@@ -105,8 +106,11 @@ export function DocumentEditorView({
   const isReportOrProposal = docTypeSlug === 'report' || docTypeSlug === 'proposal';
   const isDocOrContract = (baseType === 'doc' || baseType === 'contract') && !isReportOrProposal;
   const isPresentation = baseType === 'presentation';
+  const isMobile = useIsMobile();
   const isLocked = document.status === 'signed';
   const effectiveReadOnly = readOnly || isLocked;
+  // GrapesJS: disable editing on mobile (view only)
+  const grapesReadOnly = effectiveReadOnly || (isReportOrProposal && isMobile);
   const canComment = role === 'comment' || role === 'edit';
   const canShare = role === 'edit';
 
@@ -290,7 +294,7 @@ export function DocumentEditorView({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {isReportOrProposal && !effectiveReadOnly && (
+          {isReportOrProposal && !grapesReadOnly && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -357,7 +361,7 @@ export function DocumentEditorView({
             workspaceId={workspaceId}
             documentTitle={document.title ?? undefined}
             initialContent={isGrapesJSContent(document.content) ? (document.content as GrapesJSStoredContent) : null}
-            readOnly={effectiveReadOnly}
+            readOnly={grapesReadOnly}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}
           />

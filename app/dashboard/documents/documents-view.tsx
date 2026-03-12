@@ -79,7 +79,15 @@ function documentsSubheading(docs: DocumentListItem[]): string {
 }
 
 const RECENT_DOCS_COUNT = 6;
-function RecentlyUsedSection({ docs }: { docs: DocumentListItem[] }) {
+function RecentlyUsedSection({
+  docs,
+  navigatingToDocId,
+  onNavigateStart,
+}: {
+  docs: DocumentListItem[];
+  navigatingToDocId?: string | null;
+  onNavigateStart?: (docId: string) => void;
+}) {
   const recent = docs.slice(0, RECENT_DOCS_COUNT);
   if (recent.length === 0) return null;
   return (
@@ -89,7 +97,13 @@ function RecentlyUsedSection({ docs }: { docs: DocumentListItem[] }) {
       </h2>
       <div className="grid min-w-0 max-w-full grid-cols-3 justify-items-start gap-2 sm:gap-3 md:w-max md:grid-cols-[repeat(6,180px)]">
         {recent.map((doc) => (
-          <DocumentCard key={doc.id} doc={doc} variant="recent" />
+          <DocumentCard
+            key={doc.id}
+            doc={doc}
+            variant="recent"
+            navigatingToDocId={navigatingToDocId}
+            onNavigateStart={onNavigateStart}
+          />
         ))}
       </div>
     </section>
@@ -278,6 +292,7 @@ export function DocumentsView({
   const [clientId, setClientId] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [navigatingToDocId, setNavigatingToDocId] = useState<string | null>(null);
 
   const documentTabs = useMemo(() => {
     const tabs = buildDocumentTabs(documentTypes);
@@ -364,7 +379,13 @@ export function DocumentsView({
       >
         {documentTabs.map((tab) => (
           <DocumentTypeSwitcherContent key={tab.value} value={tab.value} className="mt-6">
-            {tab.value !== "trash" && <RecentlyUsedSection docs={filteredDocs} />}
+            {tab.value !== "trash" && (
+              <RecentlyUsedSection
+                docs={filteredDocs}
+                navigatingToDocId={navigatingToDocId}
+                onNavigateStart={setNavigatingToDocId}
+              />
+            )}
             {tab.value !== "trash" && filteredDocs.length > 0 && <Separator className="my-6" />}
             <FilterBar
               searchQuery={searchQuery}
@@ -387,6 +408,8 @@ export function DocumentsView({
               showTrash={tab.value === "trash"}
               onMoveToTrash={onMoveToTrash}
               onRestore={onRestore}
+              navigatingToDocId={navigatingToDocId}
+              onNavigateStart={setNavigatingToDocId}
             />
           </DocumentTypeSwitcherContent>
         ))}

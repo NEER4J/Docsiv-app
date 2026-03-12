@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { cookies } from "next/headers";
+import { DocumentEditorTheme } from "@/components/documents/document-editor-theme";
 import { EditorSidebar } from "@/components/sidebar/editor-sidebar";
 import { SidebarCloseOnNavigate } from "@/components/sidebar/sidebar-close-on-navigate";
 import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
@@ -17,9 +18,9 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Anonymous users on /d/{id}?share={token} — render children without app shell
+  // Anonymous users on /d/{id}?share={token} — render children without app shell (always light theme)
   if (!user) {
-    return <>{children}</>;
+    return <DocumentEditorTheme>{children}</DocumentEditorTheme>;
   }
 
   const { profile } = await getCurrentUserProfile();
@@ -49,6 +50,7 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
   }
 
   return (
+    <DocumentEditorTheme>
     <SidebarProvider defaultOpen={defaultOpen}>
       <SidebarCloseOnNavigate />
       <EditorSidebar
@@ -84,5 +86,6 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
         </AiAssistantProvider>
       </SidebarInset>
     </SidebarProvider>
+    </DocumentEditorTheme>
   );
 }

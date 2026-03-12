@@ -247,15 +247,9 @@ async function handleAuthenticatedAccess(
     }
   }
 
-  // Path 2: Collaborator fallback
+  // Path 2: Collaborator or workspace-member fallback (e.g. when workspace cookie is missing, e.g. on mobile)
   const access = await checkDocumentAccess(id);
   if (!access.role || !access.accessType) {
-    if (options?.fallbackToNull) return null;
-    return notFound();
-  }
-
-  const { document: collabDoc, error: collabError } = await getDocumentForCollaborator(id);
-  if (collabError || !collabDoc) {
     if (options?.fallbackToNull) return null;
     return notFound();
   }
@@ -269,22 +263,47 @@ async function handleAuthenticatedAccess(
       }
     : undefined;
 
-  const document: DocumentDetail = {
-    id: collabDoc.id,
-    title: collabDoc.title,
-    status: collabDoc.status as DocumentDetail['status'],
-    base_type: collabDoc.base_type as DocumentDetail['base_type'],
-    document_type_id: collabDoc.document_type_id,
-    document_type: collabDoc.document_type,
-    client_id: collabDoc.client_id,
-    client_name: collabDoc.client_name,
-    content: collabDoc.content as DocumentDetail['content'],
-    thumbnail_url: collabDoc.thumbnail_url,
-    created_by: collabDoc.created_by,
-    last_modified_by: collabDoc.last_modified_by,
-    created_at: collabDoc.created_at,
-    updated_at: collabDoc.updated_at,
-  };
+  let document: DocumentDetail;
+  let workspaceName: string | undefined;
+  let workspaceHandle: string | undefined;
+
+  if (access.accessType === 'workspace_member' && access.workspaceId) {
+    const [{ document: wsDoc, error: wsError }, { workspace }] = await Promise.all([
+      getDocumentById(access.workspaceId, id),
+      getWorkspaceDetails(access.workspaceId),
+    ]);
+    if (wsError || !wsDoc) {
+      if (options?.fallbackToNull) return null;
+      return notFound();
+    }
+    document = wsDoc;
+    workspaceName = workspace?.name;
+    workspaceHandle = workspace?.handle;
+  } else {
+    const { document: collabDoc, error: collabError } = await getDocumentForCollaborator(id);
+    if (collabError || !collabDoc) {
+      if (options?.fallbackToNull) return null;
+      return notFound();
+    }
+    document = {
+      id: collabDoc.id,
+      title: collabDoc.title,
+      status: collabDoc.status as DocumentDetail['status'],
+      base_type: collabDoc.base_type as DocumentDetail['base_type'],
+      document_type_id: collabDoc.document_type_id,
+      document_type: collabDoc.document_type,
+      client_id: collabDoc.client_id,
+      client_name: collabDoc.client_name,
+      content: collabDoc.content as DocumentDetail['content'],
+      thumbnail_url: collabDoc.thumbnail_url,
+      created_by: collabDoc.created_by,
+      last_modified_by: collabDoc.last_modified_by,
+      created_at: collabDoc.created_at,
+      updated_at: collabDoc.updated_at,
+    };
+    workspaceName = collabDoc.workspace_name;
+    workspaceHandle = collabDoc.workspace_handle;
+  }
 
   const role = access.role ?? 'view';
   const readOnly = role !== 'edit';
@@ -305,8 +324,8 @@ async function handleAuthenticatedAccess(
       <DocumentEditorView
         document={document}
         workspaceId={docWorkspaceId}
-        workspaceName={collabDoc.workspace_name}
-        workspaceHandle={collabDoc.workspace_handle}
+        workspaceName={workspaceName}
+        workspaceHandle={workspaceHandle}
         currentUserId={currentUserId}
         currentUserDisplay={currentUserDisplay}
         readOnly={readOnly}

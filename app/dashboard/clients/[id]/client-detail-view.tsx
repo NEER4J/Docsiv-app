@@ -104,6 +104,8 @@ function DocumentsTab({
   onStatusChange,
   layout,
   onLayoutChange,
+  navigatingToDocId,
+  onNavigateStart,
 }: {
   documents: DocumentListItem[];
   documentTypes: DocumentType[];
@@ -115,6 +117,8 @@ function DocumentsTab({
   onStatusChange: (v: string) => void;
   layout: "grid" | "list";
   onLayoutChange: (v: "grid" | "list") => void;
+  navigatingToDocId?: string | null;
+  onNavigateStart?: (docId: string) => void;
 }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -149,6 +153,8 @@ function DocumentsTab({
             ? "No documents for this client yet."
             : "No documents match your filters."
         }
+        navigatingToDocId={navigatingToDocId}
+        onNavigateStart={onNavigateStart}
       />
     </div>
   );
@@ -166,6 +172,7 @@ export function ClientDetailView({
   documentTypes?: DocumentType[];
 }) {
   const [tab, setTab] = useState("overview");
+  const [navigatingToDocId, setNavigatingToDocId] = useState<string | null>(null);
   const [docSearch, setDocSearch] = useState("");
   const [docTypeSlug, setDocTypeSlug] = useState("all");
   const [docStatus, setDocStatus] = useState("All");
@@ -215,6 +222,8 @@ export function ClientDetailView({
             onStatusChange={setDocStatus}
             layout={docLayout}
             onLayoutChange={setDocLayout}
+            navigatingToDocId={navigatingToDocId}
+            onNavigateStart={setNavigatingToDocId}
           />
         </DocumentTypeSwitcherContent>
       </DocumentTypeSwitcher>

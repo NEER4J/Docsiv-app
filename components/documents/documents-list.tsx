@@ -11,6 +11,8 @@ type DocumentsListProps = {
   showTrash?: boolean;
   onMoveToTrash?: (docId: string) => void;
   onRestore?: (docId: string) => void;
+  navigatingToDocId?: string | null;
+  onNavigateStart?: (docId: string) => void;
 };
 
 /** Shared document list/grid used on documents page and client detail page. Grid shows 6 per row on xl. */
@@ -21,6 +23,8 @@ export function DocumentsList({
   showTrash = false,
   onMoveToTrash,
   onRestore,
+  navigatingToDocId,
+  onNavigateStart,
 }: DocumentsListProps) {
   if (docs.length === 0) {
     return (
@@ -29,7 +33,7 @@ export function DocumentsList({
       </p>
     );
   }
-  const cardProps = { showTrash, onMoveToTrash, onRestore };
+  const cardProps = { showTrash, onMoveToTrash, onRestore, navigatingToDocId, onNavigateStart };
   if (layout === "grid") {
     return (
       <ul className="grid min-w-0 grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">

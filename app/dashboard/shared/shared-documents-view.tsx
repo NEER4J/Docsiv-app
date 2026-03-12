@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { LayoutGrid, List, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LayoutGrid, List, Search, LoaderIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Badge } from "@/components/ui/badge";
@@ -37,8 +38,10 @@ function toDocumentListItem(doc: SharedDocumentItem): DocumentListItem {
 type Props = { documents: SharedDocumentItem[] };
 
 export function SharedDocumentsView({ documents }: Props) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
+  const [navigatingToDocId, setNavigatingToDocId] = useState<string | null>(null);
 
   const filtered = documents.filter((d) =>
     d.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -95,7 +98,12 @@ export function SharedDocumentsView({ documents }: Props) {
                 <ul className="list-none grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                   {docs.map((doc) => (
                     <div key={doc.id} className="relative">
-                      <DocumentCard doc={toDocumentListItem(doc)} variant="grid" />
+                      <DocumentCard
+                        doc={toDocumentListItem(doc)}
+                        variant="grid"
+                        navigatingToDocId={navigatingToDocId}
+                        onNavigateStart={setNavigatingToDocId}
+                      />
                       <Badge
                         variant="secondary"
                         className="absolute bottom-2 right-2 text-[0.65rem] pointer-events-none"
@@ -107,17 +115,36 @@ export function SharedDocumentsView({ documents }: Props) {
                 </ul>
               ) : (
                 <div className="rounded-md border divide-y">
-                  {docs.map((doc) => (
-                    <div key={doc.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50">
-                      <Link href={`/d/${doc.id}`} className="flex-1 min-w-0">
-                        <p className="truncate text-sm font-medium">{doc.title || "Untitled"}</p>
-                        <p className="text-xs text-muted-foreground capitalize">{doc.base_type}</p>
-                      </Link>
-                      <Badge variant="secondary" className="text-[0.65rem] shrink-0">
-                        {ROLE_LABELS[doc.role] ?? doc.role}
-                      </Badge>
-                    </div>
-                  ))}
+                  {docs.map((doc) => {
+                    const isNavigating = navigatingToDocId === doc.id;
+                    return (
+                      <div
+                        key={doc.id}
+                        className={`flex items-center gap-3 px-4 py-3 hover:bg-muted/50 ${isNavigating ? "pointer-events-none opacity-70" : ""}`}
+                      >
+                        <Link
+                          href={`/d/${doc.id}`}
+                          className="flex-1 min-w-0 flex items-center gap-2"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setNavigatingToDocId(doc.id);
+                            router.push(`/d/${doc.id}`);
+                          }}
+                        >
+                          {isNavigating ? (
+                            <LoaderIcon className="size-4 shrink-0 animate-spin text-muted-foreground" aria-label="Loading" />
+                          ) : null}
+                          <span className="min-w-0">
+                            <p className="truncate text-sm font-medium">{doc.title || "Untitled"}</p>
+                            <p className="text-xs text-muted-foreground capitalize">{doc.base_type}</p>
+                          </span>
+                        </Link>
+                        <Badge variant="secondary" className="text-[0.65rem] shrink-0">
+                          {ROLE_LABELS[doc.role] ?? doc.role}
+                        </Badge>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>

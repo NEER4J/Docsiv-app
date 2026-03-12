@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { MoreVertical, Pencil, ExternalLink, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { MoreVertical, Pencil, ExternalLink, Trash2, LoaderIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import {
 import { DocumentEditDialog } from "@/components/documents/document-edit-dialog";
 import { getDisplayForDocumentType } from "@/lib/document-type-icons";
 import { BASE_TYPE_FALLBACK } from "@/app/dashboard/documents/document-types";
+import { cn } from "@/lib/utils";
 import type { DocumentListItem } from "@/types/database";
 
 type DocumentCardVariant = "grid" | "list" | "recent";
@@ -148,6 +150,8 @@ export function DocumentCard({
   showTrash = false,
   onMoveToTrash,
   onRestore,
+  navigatingToDocId,
+  onNavigateStart,
 }: {
   doc: DocumentListItem;
   variant?: DocumentCardVariant;
@@ -155,8 +159,23 @@ export function DocumentCard({
   showTrash?: boolean;
   onMoveToTrash?: (docId: string) => void;
   onRestore?: (docId: string) => void;
+  /** When set, card with this id shows loading spinner (like workspace cards). */
+  navigatingToDocId?: string | null;
+  /** Called when user clicks the card to open; use with router.push to show loading. */
+  onNavigateStart?: (docId: string) => void;
 }) {
+  const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
+  const isNavigating = navigatingToDocId === doc.id;
+  const handleOpen = (e: React.MouseEvent) => {
+    if (isNavigating) {
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    onNavigateStart?.(doc.id);
+    router.push(getDocumentHref(doc));
+  };
   const typeConfig = doc.document_type
     ? getDisplayForDocumentType(doc.document_type)
     : BASE_TYPE_FALLBACK[doc.base_type];
@@ -170,7 +189,11 @@ export function DocumentCard({
       <li>
         <Link
           href={docHref}
-          className="group flex flex-wrap items-center gap-3 bg-muted px-4 py-3 text-sm transition-colors hover:bg-muted-hover"
+          onClick={handleOpen}
+          className={cn(
+            "group flex flex-wrap items-center gap-3 bg-muted px-4 py-3 text-sm transition-colors hover:bg-muted-hover",
+            isNavigating && "pointer-events-none opacity-70"
+          )}
         >
           <Badge variant="secondary" className="shrink-0 border-0 !bg-muted-hover !text-foreground text-[0.7rem] font-normal">
             {statusLabel}
@@ -182,7 +205,11 @@ export function DocumentCard({
           {doc.client_name && (
             <span className="text-muted-foreground text-xs">{doc.client_name}</span>
           )}
-          <span className="text-muted-foreground">{timeAgo}</span>
+          {isNavigating ? (
+            <LoaderIcon className="size-4 shrink-0 animate-spin text-muted-foreground" aria-label="Loading" />
+          ) : (
+            <span className="text-muted-foreground">{timeAgo}</span>
+          )}
           <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} className="shrink-0">
             <DocumentCardActions doc={doc} docHref={docHref} onEditClick={() => setEditOpen(true)} showTrash={showTrash} onMoveToTrash={onMoveToTrash} onRestore={onRestore} />
           </div>
@@ -196,9 +223,10 @@ export function DocumentCard({
     const thumbnailUrl = doc.thumbnail_url?.trim();
     const showPreviewHtml = !thumbnailUrl && doc.preview_html?.trim();
     return (
-      <div className="relative block w-full max-w-[140px] min-w-0 sm:max-w-[160px] md:max-w-[180px]">
+      <div className={cn("relative block w-full max-w-[140px] min-w-0 sm:max-w-[160px] md:max-w-[180px]", isNavigating && "pointer-events-none opacity-70")}>
         <Link
           href={docHref}
+          onClick={handleOpen}
           className="group relative block w-full"
         >
           <Card className="overflow-hidden transition-colors">
@@ -219,7 +247,11 @@ export function DocumentCard({
             <CardContent className="flex flex-col gap-1.5 bg-muted p-2 transition-colors group-hover:bg-muted-hover sm:gap-2 sm:p-2.5">
               <p className="min-w-0 truncate text-[0.7rem] font-medium sm:text-xs">{doc.title}</p>
               <div className="flex items-center justify-between gap-1 sm:gap-1.5">
-                <span className="text-[0.65rem] text-muted-foreground sm:text-[0.7rem]">{timeAgo}</span>
+                {isNavigating ? (
+                  <LoaderIcon className="size-3.5 shrink-0 animate-spin text-muted-foreground sm:size-4" aria-label="Loading" />
+                ) : (
+                  <span className="text-[0.65rem] text-muted-foreground sm:text-[0.7rem]">{timeAgo}</span>
+                )}
                 <div
                   className="shrink-0"
                   onClick={(e) => {
@@ -242,8 +274,8 @@ export function DocumentCard({
   const thumbnailUrl = doc.thumbnail_url?.trim();
   const showPreviewHtml = !thumbnailUrl && doc.preview_html?.trim();
   return (
-    <li>
-      <Link href={docHref} className="group block">
+    <li className={cn(isNavigating && "pointer-events-none opacity-70")}>
+      <Link href={docHref} onClick={handleOpen} className="group block">
         <Card className="overflow-hidden transition-colors">
           <div className="relative flex aspect-[4/3] min-h-0 items-center justify-center overflow-hidden border-b border-border bg-zinc-200 transition-colors dark:bg-muted-hover dark:group-hover:bg-muted-active group-hover:bg-zinc-300">
             <Badge variant="secondary" className="absolute left-2.5 top-2.5 z-10 border-0 !bg-muted-hover !text-foreground text-[0.7rem] font-normal">
@@ -269,7 +301,11 @@ export function DocumentCard({
               <p className="min-w-0 flex-1 truncate text-sm font-medium">{doc.title}</p>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-1.5">
-              <span className="text-xs text-muted-foreground">{timeAgo}</span>
+              {isNavigating ? (
+                <LoaderIcon className="size-3.5 shrink-0 animate-spin text-muted-foreground" aria-label="Loading" />
+              ) : (
+                <span className="text-xs text-muted-foreground">{timeAgo}</span>
+              )}
               <div
                 className="shrink-0"
                 onClick={(e) => {
