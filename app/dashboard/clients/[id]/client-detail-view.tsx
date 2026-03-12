@@ -98,20 +98,7 @@ function OverviewTab({ client }: { client: ClientWithDocCount }) {
   );
 }
 
-function DocumentsTab({
-  documents,
-  documentTypes,
-  search,
-  onSearchChange,
-  documentTypeSlug,
-  onDocumentTypeChange,
-  status,
-  onStatusChange,
-  layout,
-  onLayoutChange,
-  navigatingToDocId,
-  onNavigateStart,
-}: {
+type DocumentsTabProps = {
   documents: DocumentListItem[];
   documentTypes: DocumentType[];
   search: string;
@@ -126,7 +113,25 @@ function DocumentsTab({
   onNavigateStart?: (docId: string) => void;
   onUpdateThumbnail?: (doc: DocumentListItem) => void;
   updatingThumbnailId?: string | null;
-}) {
+};
+
+function DocumentsTab(props: DocumentsTabProps) {
+  const {
+    documents,
+    documentTypes,
+    search,
+    onSearchChange,
+    documentTypeSlug,
+    onDocumentTypeChange,
+    status,
+    onStatusChange,
+    layout,
+    onLayoutChange,
+    navigatingToDocId,
+    onNavigateStart,
+    onUpdateThumbnail,
+    updatingThumbnailId,
+  } = props;
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const statusLower = status.toLowerCase();
@@ -197,7 +202,7 @@ export function ClientDetailView({
       }
       const content = fullDoc.content;
       if (!isGrapesJSContent(content)) {
-        toast.info("Thumbnail can be updated from the document editor for this type.");
+        toast.info("This document uses the rich-text editor. Open it and save to update the thumbnail.");
         return;
       }
       const html = (content.html as string) ?? "";

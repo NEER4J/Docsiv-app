@@ -314,7 +314,7 @@ export function DocumentsView({
       }
       const content = fullDoc.content;
       if (!isGrapesJSContent(content)) {
-        toast.info("Thumbnail can be updated from the document editor for this type.");
+        toast.info("This document uses the rich-text editor. Open it and save to update the thumbnail.");
         return;
       }
       const html = (content.html as string) ?? "";

@@ -74,6 +74,7 @@ export function EditorSidebar({
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [loading, setLoading] = useState(!!currentWorkspaceId);
   const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
+  const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
 
   // Clear loading indicator when we've navigated to the document
   useEffect(() => {
@@ -81,6 +82,13 @@ export function EditorSidebar({
       setLoadingDocId(null);
     }
   }, [loadingDocId, currentDocId]);
+
+  // Clear loading for sidebar nav links when pathname matches
+  useEffect(() => {
+    if (navigatingTo && pathname.startsWith(navigatingTo)) {
+      setNavigatingTo(null);
+    }
+  }, [navigatingTo, pathname]);
 
   const fetchDocsAndClients = useCallback(async () => {
     if (!currentWorkspaceId) return;
@@ -157,8 +165,17 @@ export function EditorSidebar({
                       "h-9 gap-3 text-[0.8125rem] font-medium",
                       "flex items-center"
                     )}
+                    onClick={() => setNavigatingTo("/dashboard/documents")}
                   >
-                    <FolderOpen className="size-[1.0625rem] shrink-0 opacity-80" />
+                    {navigatingTo === "/dashboard/documents" ? (
+                      <LoaderIcon
+                        role="status"
+                        aria-label="Loading"
+                        className="size-[1.0625rem] shrink-0 animate-spin text-muted-foreground"
+                      />
+                    ) : (
+                      <FolderOpen className="size-[1.0625rem] shrink-0 opacity-80" />
+                    )}
                     <span className={isCollapsed ? "hidden" : ""}>
                       All Documents
                     </span>
@@ -311,9 +328,18 @@ export function EditorSidebar({
                 <SidebarMenuButton asChild tooltip="Templates">
                   <Link
                     href="/dashboard/templates"
-                    className="h-9 gap-3 text-[0.8125rem]"
+                    className="h-9 gap-3 text-[0.8125rem] flex items-center"
+                    onClick={() => setNavigatingTo("/dashboard/templates")}
                   >
-                    <ClipboardList className="size-[1.0625rem] shrink-0 opacity-70" />
+                    {navigatingTo === "/dashboard/templates" ? (
+                      <LoaderIcon
+                        role="status"
+                        aria-label="Loading"
+                        className="size-[1.0625rem] shrink-0 animate-spin text-muted-foreground"
+                      />
+                    ) : (
+                      <ClipboardList className="size-[1.0625rem] shrink-0 opacity-70" />
+                    )}
                     <span className={isCollapsed ? "hidden" : ""}>Templates</span>
                   </Link>
                 </SidebarMenuButton>
