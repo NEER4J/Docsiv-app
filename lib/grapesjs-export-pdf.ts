@@ -1,61 +1,87 @@
-import { DOCUMENT_PAGE_WIDTH_PX } from '@/lib/grapesjs-content';
+import {
+  DOCUMENT_PAGE_HEIGHT_PX,
+  DOCUMENT_PAGE_WIDTH_PX,
+  type GrapesJSPage,
+} from '@/lib/grapesjs-content';
+
+const FONTS_LINK =
+  '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&display=swap" />';
 
 /**
- * Export GrapesJS page builder content (HTML + CSS) to PDF.
- * Renders content in a temporary container, captures with html2canvas, then builds PDF with pdf-lib.
+ * Export a single page (HTML + CSS) to PDF.
  */
 export async function exportGrapesJSToPdf(
   html: string,
   css: string,
   filename: string = 'document.pdf'
 ): Promise<void> {
+  return exportGrapesJSPagesToPdf([{ html, css }], filename);
+}
+
+/**
+ * Export multiple GrapesJS pages to a single PDF (one PDF page per document page).
+ */
+export async function exportGrapesJSPagesToPdf(
+  pages: GrapesJSPage[],
+  filename: string = 'document.pdf'
+): Promise<void> {
+  if (pages.length === 0) return;
   const [{ default: html2canvas }, { PDFDocument }] = await Promise.all([
     import('html2canvas-pro'),
     import('pdf-lib'),
   ]);
 
-  const container = document.createElement('div');
-  container.style.cssText = [
-    'position:fixed',
-    'left:-9999px',
-    'top:0',
-    `width:${DOCUMENT_PAGE_WIDTH_PX}px`,
-    'minHeight:1123px',
-    'padding:40px',
-    'boxSizing:border-box',
-    'background:#fff',
-    'fontFamily:"Inter",sans-serif',
-  ].join(';');
-  container.innerHTML = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&display=swap" /><style>${css}</style><div class="gjs-captured">${html}</div>`;
-  document.body.appendChild(container);
+  const pdfDoc = await PDFDocument.create();
+  const scale = 2;
 
-  try {
-    const canvas = await html2canvas(container, {
-      useCORS: true,
-      allowTaint: true,
-      scale: 2,
-      logging: false,
-      backgroundColor: '#ffffff',
-    });
-    const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([canvas.width / 2, canvas.height / 2]);
-    const pngDataUri = canvas.toDataURL('image/png');
-    const imageBytes = await fetch(pngDataUri).then((r) => r.arrayBuffer());
-    const image = await pdfDoc.embedPng(imageBytes);
-    const { width, height } = image.scale(1);
-    page.drawImage(image, { x: 0, y: 0, width, height });
-    const pdfBytes = await pdfDoc.save();
-    const buffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer;
-    const blob = new Blob([buffer], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename.replace(/\.pdf$/i, '') + '.pdf';
-    a.click();
-    URL.revokeObjectURL(url);
-  } finally {
-    container.remove();
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const html = page?.html ?? '';
+    const css = page?.css ?? '';
+
+    const container = document.createElement('div');
+    container.style.cssText = [
+      'position:fixed',
+      'left:-9999px',
+      'top:0',
+      `width:${DOCUMENT_PAGE_WIDTH_PX}px`,
+      `minHeight:${DOCUMENT_PAGE_HEIGHT_PX}px`,
+      'padding:40px',
+      'boxSizing:border-box',
+      'background:#fff',
+      'fontFamily:"Inter",sans-serif',
+    ].join(';');
+    container.innerHTML = `${FONTS_LINK}<style>${css}</style><div class="gjs-captured">${html || '<div></div>'}</div>`;
+    document.body.appendChild(container);
+
+    try {
+      const canvas = await html2canvas(container, {
+        useCORS: true,
+        allowTaint: true,
+        scale,
+        logging: false,
+        backgroundColor: '#ffffff',
+      });
+      const pdfPage = pdfDoc.addPage([canvas.width / scale, canvas.height / scale]);
+      const pngDataUri = canvas.toDataURL('image/png');
+      const imageBytes = await fetch(pngDataUri).then((r) => r.arrayBuffer());
+      const image = await pdfDoc.embedPng(imageBytes);
+      const { width, height } = image.scale(1);
+      pdfPage.drawImage(image, { x: 0, y: 0, width, height });
+    } finally {
+      container.remove();
+    }
   }
+
+  const pdfBytes = await pdfDoc.save();
+  const buffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer;
+  const blob = new Blob([buffer], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.replace(/\.pdf$/i, '') + '.pdf';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /**

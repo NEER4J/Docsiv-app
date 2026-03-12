@@ -39,7 +39,7 @@ import { DocumentCard } from "@/components/documents/document-card";
 import { DocumentsList } from "@/components/documents/documents-list";
 import { getDocumentById, softDeleteDocument, restoreDocument, uploadDocumentThumbnail } from "@/lib/actions/documents";
 import { captureHtmlAsPngBase64 } from "@/lib/capture-thumbnail";
-import { isGrapesJSContent } from "@/lib/grapesjs-content";
+import { getFirstPageContent, isGrapesJSContent } from "@/lib/grapesjs-content";
 import { toast } from "sonner";
 import { DocumentsEmptyState } from "@/components/documents/documents-empty-state";
 import { NewDocumentDialog } from "@/components/documents/new-document-dialog";
@@ -317,8 +317,7 @@ export function DocumentsView({
         toast.info("This document uses the rich-text editor. Open it and save to update the thumbnail.");
         return;
       }
-      const html = (content.html as string) ?? "";
-      const css = (content.css as string) ?? "";
+      const { html, css } = getFirstPageContent(content);
       const base64 = await captureHtmlAsPngBase64(html, css);
       if (!base64) {
         toast.error("Could not capture thumbnail");

@@ -119,6 +119,37 @@
   --color-brand: var(--brand);
 }
 
+/* Figma-style dot pattern behind document/canvas so the page stands out from the background.
+   !important ensures it wins over Tailwind utilities and parent bg-background. */
+.canvas-dot-pattern {
+  background-color: #e5e5e5 !important;
+  background-image: radial-gradient(circle, #a3a3a3 1px, transparent 1px) !important;
+  background-size: 16px 16px !important;
+  background-position: 0 0 !important;
+}
+
+/* Plate document editor: content area 900px centered (toolbar stays full width) */
+.plate-doc-content-area {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  background-color: white;
+}
+
+
+
+/* Plate document editor: sticky toolbar (sticks to top of document area when scrolling) */
+.plate-doc-toolbar-full [data-sticky-toolbar] {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--background);
+  width: 100%;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
 /* Editor selection: ensure Ctrl+A and text selection are always visible (Plate/Slate) */
 [data-slate-editor],
 [data-slate-editor] * {

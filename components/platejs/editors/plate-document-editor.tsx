@@ -25,6 +25,8 @@ export interface PlateDocumentEditorProps {
   readOnly?: boolean;
   canComment?: boolean;
   className?: string;
+  /** Applied to the editor content container (for width/layout). */
+  contentClassName?: string;
 }
 
 export interface PlateDocumentEditorHandle {
@@ -56,6 +58,7 @@ export const PlateDocumentEditor = React.forwardRef<
     readOnly = false,
     canComment = false,
     className,
+    contentClassName,
   },
   ref
 ) {
@@ -77,8 +80,8 @@ export const PlateDocumentEditor = React.forwardRef<
         <ThumbnailRefBridge editorRef={ref} />
         <SelectAllKeyHandler>
           <DocumentCommentsHydrator />
-          <EditorContainer variant="default">
-            <Editor placeholder={readOnly ? '' : placeholder} readOnly={readOnly} />
+          <EditorContainer variant="document">
+            <Editor variant="document" placeholder={readOnly ? '' : placeholder} readOnly={readOnly} className={contentClassName} />
           </EditorContainer>
         </SelectAllKeyHandler>
       </Plate>

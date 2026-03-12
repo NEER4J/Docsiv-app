@@ -3,10 +3,20 @@
 import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { DOCUMENT_PAGE_WIDTH_PX, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
+import {
+  DOCUMENT_PAGE_HEIGHT_PX,
+  DOCUMENT_PAGE_WIDTH_PX,
+  normalizeToPages,
+  type GrapesJSPage,
+  type GrapesJSStoredContent,
+} from '@/lib/grapesjs-content';
+
+const THUMB_SCALE = 120 / DOCUMENT_PAGE_WIDTH_PX;
+const THUMB_WIDTH = 120;
+const THUMB_HEIGHT = Math.round(DOCUMENT_PAGE_HEIGHT_PX * THUMB_SCALE);
 import { updateDocumentContent, createDocumentVersion, uploadDocumentThumbnail } from '@/lib/actions/documents';
 import { captureHtmlAsPngBase64 } from '@/lib/capture-thumbnail';
-import { exportGrapesJSToPdf } from '@/lib/grapesjs-export-pdf';
+import { exportGrapesJSPagesToPdf } from '@/lib/grapesjs-export-pdf';
 import { registerBuilderBlocks } from '@/components/grapesjs/builder-blocks';
 import {
   Rows,
@@ -25,6 +35,11 @@ import {
   Columns,
   Table,
   CreditCard,
+  CaretLeft,
+  CaretRight,
+  Plus,
+  Copy,
+  Trash,
 } from '@phosphor-icons/react';
 import 'grapesjs/dist/css/grapes.min.css';
 import './page-builder-editor.css';
@@ -119,15 +134,32 @@ ref: React.Ref<PageBuilderEditorHandle>
   documentTitleRef.current = documentTitle;
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
+  const pagesRef = useRef<GrapesJSPage[]>([]);
+  const currentPageIndexRef = useRef(0);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [pageCount, setPageCount] = useState(1);
+  currentPageIndexRef.current = currentPageIndex;
+
+  const persistCurrentPage = useCallback(() => {
+    const editor = editorRef.current;
+    const idx = currentPageIndex;
+    if (!editor || idx < 0 || idx >= pagesRef.current.length) return;
+    const projectData = editor.getProjectData();
+    const html = editor.getHtml();
+    const css = editor.getCss();
+    pagesRef.current[idx] = { projectData, html, css };
+  }, [currentPageIndex]);
+
   const saveContent = useCallback(
     async (versionLabel?: string | null) => {
       const editor = editorRef.current;
       if (!editor || readOnly) return;
       try {
-        const projectData = editor.getProjectData();
-        const html = editor.getHtml();
-        const css = editor.getCss();
-        const payload: GrapesJSStoredContent = { projectData, html, css };
+        persistCurrentPage();
+        const pages = [...pagesRef.current];
+        const payload: GrapesJSStoredContent = { pages };
+        const first = pages[0];
+        const html = first?.html ?? '';
         const previewHtml = html.trim().length > 0 ? html.substring(0, 3000) : null;
         setSaveStatus('saving');
         onSaveStatus?.('saving');
@@ -141,8 +173,7 @@ ref: React.Ref<PageBuilderEditorHandle>
             setSaveStatus('idle');
             onSaveStatus?.('idle');
           }, 2000);
-          // Screenshot thumbnail for document cards (fire-and-forget)
-          captureHtmlAsPngBase64(html, css).then((base64) => {
+          captureHtmlAsPngBase64(html, first?.css ?? '').then((base64) => {
             if (base64) uploadDocumentThumbnail(documentId, workspaceId, base64).catch(() => {});
           });
         }
@@ -151,13 +182,93 @@ ref: React.Ref<PageBuilderEditorHandle>
         onSaveStatus?.('idle');
       }
     },
-    [documentId, readOnly, onSaveStatus]
+    [documentId, readOnly, onSaveStatus, persistCurrentPage]
   );
 
   const saveWithLabel = useCallback(
     (label: string) => saveContent(label.trim() || undefined),
     [saveContent]
   );
+
+  const goToPage = useCallback((index: number) => {
+    const editor = editorRef.current;
+    const pages = pagesRef.current;
+    if (index < 0 || index >= pages.length || !editor) return;
+    persistCurrentPage();
+    setCurrentPageIndex(index);
+    const page = pages[index];
+    const pd = page?.projectData;
+    if (pd && typeof pd === 'object' && Object.keys(pd).length > 0) {
+      editor.loadProjectData(pd as Record<string, unknown>);
+    } else {
+      editor.loadProjectData({ components: [], styles: [] } as Record<string, unknown>);
+      editor.addComponents(
+        '<div style="padding:2rem;font-family:Inter,sans-serif;"><p style="color:#71717a;">Empty page. Drag blocks from the left.</p></div>'
+      );
+    }
+  }, [persistCurrentPage]);
+
+  const addPage = useCallback(() => {
+    persistCurrentPage();
+    const newPage: GrapesJSPage = { projectData: { components: [], styles: [] }, html: '', css: '' };
+    pagesRef.current = [...pagesRef.current, newPage];
+    setPageCount(pagesRef.current.length);
+    setCurrentPageIndex(pagesRef.current.length - 1);
+    const editor = editorRef.current;
+    if (editor) {
+      editor.loadProjectData({ components: [], styles: [] } as Record<string, unknown>);
+      editor.addComponents(
+        '<div style="padding:2rem;font-family:Inter,sans-serif;"><p style="color:#71717a;">Empty page. Drag blocks from the left.</p></div>'
+      );
+    }
+  }, [persistCurrentPage]);
+
+  const duplicatePage = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    persistCurrentPage();
+    const current = pagesRef.current[currentPageIndex];
+    const copy: GrapesJSPage = {
+      projectData: current?.projectData ? JSON.parse(JSON.stringify(current.projectData)) : undefined,
+      html: current?.html ?? '',
+      css: current?.css ?? '',
+    };
+    pagesRef.current = [
+      ...pagesRef.current.slice(0, currentPageIndex + 1),
+      copy,
+      ...pagesRef.current.slice(currentPageIndex + 1),
+    ];
+    setPageCount(pagesRef.current.length);
+    setCurrentPageIndex(currentPageIndex + 1);
+    const pd = copy.projectData;
+    if (pd && typeof pd === 'object' && Object.keys(pd).length > 0) {
+      editor.loadProjectData(pd as Record<string, unknown>);
+    } else {
+      editor.loadProjectData({ components: [], styles: [] } as Record<string, unknown>);
+      editor.addComponents(copy.html || '<div></div>');
+    }
+  }, [currentPageIndex, persistCurrentPage]);
+
+  const deletePage = useCallback(() => {
+    if (pagesRef.current.length <= 1) return;
+    persistCurrentPage();
+    const nextIndex = currentPageIndex >= pagesRef.current.length - 1 ? currentPageIndex - 1 : currentPageIndex;
+    pagesRef.current = pagesRef.current.filter((_, i) => i !== currentPageIndex);
+    const newIndex = Math.max(0, nextIndex);
+    setPageCount(pagesRef.current.length);
+    setCurrentPageIndex(newIndex);
+    const editor = editorRef.current;
+    const page = pagesRef.current[newIndex];
+    if (editor && page) {
+      const pd = page.projectData;
+      if (pd && typeof pd === 'object' && Object.keys(pd).length > 0) {
+        editor.loadProjectData(pd as Record<string, unknown>);
+      } else {
+        editor.loadProjectData({ components: [], styles: [] } as Record<string, unknown>);
+        editor.addComponents(page.html || '<div></div>');
+      }
+    }
+  }, [currentPageIndex, persistCurrentPage]);
 
   useImperativeHandle(
     ref,
@@ -201,8 +312,8 @@ ref: React.Ref<PageBuilderEditorHandle>
           styles: [
             'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
             'https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..700;1,400..700&display=swap',
-            // Outline empty column cells so they are visible and droppable in the editor
             'data:text/css;charset=utf-8,.gjs-columns-wrap%20%3E%20div%7Bmin-height:80px;border:1px%20dashed%20%23e4e4e7;box-sizing:border-box%7D',
+            `data:text/css;charset=utf-8,body%7Bmin-height:${DOCUMENT_PAGE_HEIGHT_PX}px%3Bbox-sizing:border-box%7D`,
           ],
           scripts: [],
         },
@@ -232,9 +343,15 @@ ref: React.Ref<PageBuilderEditorHandle>
       if (editorApi.Commands) {
         editorApi.Commands.add('gjs-export-pdf', {
           run: () => {
-            const html = editorApi.getHtml();
-            const css = editorApi.getCss();
-            exportGrapesJSToPdf(html, css, `${safeName}.pdf`).catch(() => {});
+            const idx = currentPageIndexRef.current;
+            if (idx >= 0 && idx < pagesRef.current.length) {
+              pagesRef.current[idx] = {
+                projectData: editor.getProjectData(),
+                html: editor.getHtml(),
+                css: editor.getCss(),
+              };
+            }
+            exportGrapesJSPagesToPdf([...pagesRef.current], `${safeName}.pdf`).catch(() => {});
           },
         });
       }
@@ -250,15 +367,19 @@ ref: React.Ref<PageBuilderEditorHandle>
       editorRef.current = editor as unknown as typeof editorRef.current;
 
       const content = initialContentRef.current;
-      const projectData = content?.projectData;
-      if (projectData && typeof projectData === 'object' && Object.keys(projectData).length > 0) {
-        editor.loadProjectData(projectData as Record<string, unknown>);
+      pagesRef.current = normalizeToPages(content);
+      setPageCount(pagesRef.current.length);
+      if (pagesRef.current.length === 0) pagesRef.current = [{}];
+      const first = pagesRef.current[0];
+      const pd = first?.projectData;
+      if (pd && typeof pd === 'object' && Object.keys(pd).length > 0) {
+        editor.loadProjectData(pd as Record<string, unknown>);
       } else {
+        editor.loadProjectData({ components: [], styles: [] } as Record<string, unknown>);
         editor.addComponents(
           '<div style="padding: 2rem; font-family: Inter, sans-serif;"><h1 style="margin-bottom: 0.5rem;">Untitled</h1><p style="color: #71717a;">Start building your page. Drag blocks from the left.</p></div>'
         );
       }
-
     };
 
     init();
@@ -271,9 +392,118 @@ ref: React.Ref<PageBuilderEditorHandle>
     };
   }, [readOnly]); // initialContent read via ref
 
+  const pages = Array.from({ length: pageCount }, (_, i) => pagesRef.current[i] ?? {});
+
   return (
-    <div className={`flex flex-col min-h-0 flex-1 ${className}`}>
-      <div ref={containerRef} className="min-h-[400px] flex-1 gjs-editor-host" />
+    <div className={`flex min-h-0 flex-1 ${className}`}>
+      {!readOnly && (
+        <aside className="flex w-[168px] shrink-0 flex-col border-r border-border bg-muted/20">
+          <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&display=swap"
+          />
+          <div className="flex shrink-0 flex-col items-center gap-1 border-b border-border px-2 py-2">
+            <span className="font-body text-xs text-muted-foreground">
+              {currentPageIndex + 1} / {pageCount}
+            </span>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => goToPage(currentPageIndex - 1)}
+                disabled={currentPageIndex <= 0}
+                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                aria-label="Previous page"
+              >
+                <CaretLeft className="size-4" weight="bold" />
+              </button>
+              <button
+                type="button"
+                onClick={() => goToPage(currentPageIndex + 1)}
+                disabled={currentPageIndex >= pageCount - 1}
+                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                aria-label="Next page"
+              >
+                <CaretRight className="size-4" weight="bold" />
+              </button>
+            </div>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={addPage}
+                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Add page"
+                title="Add page"
+              >
+                <Plus className="size-4" weight="bold" />
+              </button>
+              <button
+                type="button"
+                onClick={duplicatePage}
+                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Duplicate page"
+                title="Duplicate page"
+              >
+                <Copy className="size-4" weight="bold" />
+              </button>
+              <button
+                type="button"
+                onClick={deletePage}
+                disabled={pageCount <= 1}
+                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                aria-label="Delete page"
+                title="Delete page"
+              >
+                <Trash className="size-4" weight="bold" />
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            <div className="flex flex-col gap-3">
+              {pages.map((page, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => goToPage(i)}
+                  className={`flex flex-col items-center gap-1 rounded border-2 text-left transition-colors hover:border-foreground/30 ${
+                    i === currentPageIndex
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border bg-background hover:bg-muted/50'
+                  }`}
+                >
+                  <span className="font-body text-[10px] font-medium text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <div
+                    className="relative shrink-0 overflow-hidden rounded-sm bg-white"
+                    style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
+                  >
+                    <div
+                      className="absolute left-0 top-0 bg-white"
+                      style={{
+                        width: DOCUMENT_PAGE_WIDTH_PX,
+                        minHeight: DOCUMENT_PAGE_HEIGHT_PX,
+                        transform: `scale(${THUMB_SCALE})`,
+                        transformOrigin: 'top left',
+                      }}
+                    >
+                      {page?.css ? <style dangerouslySetInnerHTML={{ __html: page.css }} /> : null}
+                      <div
+                        className="min-w-0"
+                        dangerouslySetInnerHTML={{
+                          __html: page?.html || '<div style="padding:1rem;color:#71717a;font-size:10px;">Empty page</div>',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+      )}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div ref={containerRef} className="min-h-[400px] flex-1 gjs-editor-host" />
+      </div>
     </div>
   );
 };

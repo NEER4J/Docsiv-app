@@ -19,6 +19,7 @@ import type { Value } from 'platejs';
 import { Presentation } from 'lucide-react';
 import { PageBuilderPreview } from '@/components/grapesjs/page-builder-preview';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
+import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 
 type Doc = {
   id: string;
@@ -57,10 +58,9 @@ export function SharedDocumentView({
     !isGrapesJSDoc && (document.base_type === 'doc' || document.base_type === 'contract');
   const isPresentation = document.base_type === 'presentation';
 
+  const platePages: Value[] = getPlatePages(document.content);
   const initialContent: Value =
-    document.content && Array.isArray(document.content)
-      ? (document.content as Value)
-      : EMPTY_PLATE_VALUE;
+    platePages.length > 0 ? mergePlatePagesToSingle(platePages) : EMPTY_PLATE_VALUE;
 
   const canEdit = role === 'edit';
   const canComment = role === 'comment';
@@ -160,17 +160,25 @@ export function SharedDocumentView({
         </div>
       </header>
 
-      {/* Document content — read-only */}
-      <main className="flex-1">
+      {/* Document content — read-only. Dot pattern on main so document stands out (Figma-style). */}
+      <main
+        className="canvas-dot-pattern flex-1 min-h-0 flex flex-col"
+        style={{
+          backgroundColor: '#e5e5e5',
+          backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)',
+          backgroundSize: '16px 16px',
+        }}
+      >
         {isGrapesJSDoc ? (
-          <div className="w-full px-4 py-8 md:px-6 flex justify-center">
+          <div className="w-full flex-1 px-4 py-8 md:px-6 flex justify-center min-h-0">
             <PageBuilderPreview
               content={document.content as GrapesJSStoredContent}
               className="min-h-[200px] w-full"
             />
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl px-4 py-8 md:px-8">
+          <div className="flex-1 min-h-0 flex justify-center overflow-auto px-4 py-8 md:px-6 md:py-8">
+            <div className="mx-auto max-w-[900px] w-full min-h-full bg-white">
             {isDocOrContract ? (
               <PlateDocumentEditor
                 initialValue={initialContent}
@@ -190,6 +198,7 @@ export function SharedDocumentView({
                 This document type cannot be previewed here.
               </p>
             )}
+            </div>
           </div>
         )}
       </main>

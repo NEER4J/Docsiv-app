@@ -5,6 +5,12 @@
   --gjs-muted: hsl(var(--muted-foreground));
 }
 
+/* Let Figma-style dot pattern show through; GrapesJS canvas keeps white. */
+.canvas-dot-pattern .gjs-editor-host,
+.canvas-dot-pattern .gjs-one-bg {
+  background: transparent !important;
+}
+
 /* Toolbar / panel styling to match app */
 .gjs-editor-host .gjs-pn-panel {
   border-color: var(--gjs-border);
@@ -40,6 +46,10 @@
 .gjs-pn-devices-c{
   padding: 3px;
   padding-left: 10px;
+}
+
+.gjs-pn-toolbar-export, .gjs-pn-devices-c{
+  display: none;
 }
 
 .gjs-devices-c .gjs-select{

@@ -48,6 +48,7 @@ import { Presentation } from 'lucide-react';
 import { PageBuilderEditor, type PageBuilderEditorHandle } from '@/components/grapesjs/page-builder-editor';
 import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
+import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
@@ -153,6 +154,12 @@ export function DocumentEditorView({
   const valueRef = useRef<Value | null>(null);
   const barTitle = useDocumentBreadcrumbTitle() || document.title || 'Untitled';
 
+  // Single document value for Plate (backward compat: old page-mode docs are merged to one)
+  const platePages = getPlatePages(document.content);
+  const rawPlateContent: Value =
+    platePages.length > 0 ? mergePlatePagesToSingle(platePages) : [{ type: 'p', children: [{ text: '' }] }];
+  const initialContent: Value = ensureTitleBlock(rawPlateContent, document.title || '');
+
   // Determine badge to show
   const badgeKey = isLocked ? 'signed' : (role !== 'edit' ? role : null);
   const badge = badgeKey ? ROLE_BADGE_CONFIG[badgeKey] : null;
@@ -164,13 +171,6 @@ export function DocumentEditorView({
       documentBreadcrumbStore.setTitle('');
     };
   }, [document.title]);
-
-  // Ensure content starts with an H1 title block
-  const rawContent: Value =
-    document.content && Array.isArray(document.content)
-      ? (document.content as Value)
-      : [{ type: 'p', children: [{ text: '' }] }];
-  const initialContent: Value = ensureTitleBlock(rawContent, document.title || '');
 
   const getWordCount = useCallback((): number => {
     const val = valueRef.current;
@@ -187,7 +187,6 @@ export function DocumentEditorView({
   const handleChange = useCallback(
     (value: Value) => {
       valueRef.current = value;
-      // Sync title from H1 block
       const newTitle = getTitleFromValue(value);
       if (newTitle !== null && newTitle !== lastTitleRef.current) {
         lastTitleRef.current = newTitle;
@@ -197,8 +196,6 @@ export function DocumentEditorView({
           updateDocumentRecord(document.id, { title: newTitle });
         }, AUTOSAVE_DEBOUNCE_MS);
       }
-
-      // Autosave content
       if (debounceRef.current) clearTimeout(debounceRef.current);
       setSaveStatus('saving');
       debounceRef.current = setTimeout(async () => {
@@ -212,7 +209,6 @@ export function DocumentEditorView({
             lastVersionAtRef.current = now;
             createDocumentVersion(document.id, value).catch(() => {});
           }
-          // Screenshot thumbnail: capture editor content root (same as export) at scale 1
           plateThumbnailRef.current?.captureThumbnail().then((base64) => {
             if (base64) uploadDocumentThumbnail(document.id, workspaceId, base64).catch(() => {});
           });
@@ -354,7 +350,11 @@ export function DocumentEditorView({
 
       {/* Editor */}
       {isReportOrProposal ? (
-        <div key={document.updated_at ?? document.id} className="min-h-0 flex-1 flex flex-col overflow-x-auto">
+        <div
+          key={document.updated_at ?? document.id}
+          className={`min-h-0 flex-1 flex flex-col overflow-x-auto ${grapesReadOnly ? 'canvas-dot-pattern' : ''}`}
+          style={grapesReadOnly ? { backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' } : undefined}
+        >
           <PageBuilderEditor
             ref={pageBuilderRef}
             documentId={document.id}
@@ -367,28 +367,34 @@ export function DocumentEditorView({
           />
         </div>
       ) : isDocOrContract ? (
-        <div className="min-h-0 flex-1 flex flex-col">
-          <DocumentCommentsProvider
-            documentId={document.id}
-            currentUserId={currentUserId}
-            currentUserDisplay={currentUserDisplay}
-          >
-            <DocumentUploadProvider
-              workspaceId={workspaceId}
+        <div
+          className="min-h-0 flex-1 flex flex-col overflow-auto canvas-dot-pattern"
+          style={{ backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' }}
+        >
+          <div className="plate-doc-toolbar-full w-full bg-white flex flex-col min-h-0">
+            <DocumentCommentsProvider
               documentId={document.id}
+              currentUserId={currentUserId}
+              currentUserDisplay={currentUserDisplay}
             >
-              <PlateDocumentEditor
-                ref={plateThumbnailRef}
-                key={document.updated_at}
-                initialValue={initialContent}
-                onChange={effectiveReadOnly ? undefined : handleChange}
-                readOnly={effectiveReadOnly}
-                canComment={canComment}
-                placeholder="Start writing..."
-                className="min-h-0 flex-1"
-              />
-            </DocumentUploadProvider>
-          </DocumentCommentsProvider>
+              <DocumentUploadProvider
+                workspaceId={workspaceId}
+                documentId={document.id}
+              >
+                <PlateDocumentEditor
+                  ref={plateThumbnailRef}
+                  key={document.updated_at}
+                  initialValue={initialContent}
+                  onChange={effectiveReadOnly ? undefined : handleChange}
+                  readOnly={effectiveReadOnly}
+                  canComment={canComment}
+                  placeholder="Start writing..."
+                  className="min-h-0 flex flex-col w-full"
+                  contentClassName="plate-doc-content-area"
+                />
+              </DocumentUploadProvider>
+            </DocumentCommentsProvider>
+          </div>
         </div>
       ) : isPresentation ? (
         <div className="flex min-h-[400px] flex-1 items-center justify-center bg-muted/30">
