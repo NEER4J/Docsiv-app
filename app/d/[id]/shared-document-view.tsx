@@ -163,7 +163,7 @@ export function SharedDocumentView({
       {/* Document content — read-only */}
       <main className="flex-1">
         {isGrapesJSDoc ? (
-          <div className="w-full px-4 py-8 md:px-6">
+          <div className="w-full px-4 py-8 md:px-6 flex justify-center">
             <PageBuilderPreview
               content={document.content as GrapesJSStoredContent}
               className="min-h-[200px] w-full"

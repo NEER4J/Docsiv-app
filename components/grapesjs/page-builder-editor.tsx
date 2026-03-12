@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { GrapesJSStoredContent } from '@/lib/grapesjs-content';
+import { DOCUMENT_PAGE_WIDTH_PX, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 import { updateDocumentContent, createDocumentVersion, uploadDocumentThumbnail } from '@/lib/actions/documents';
 import { captureHtmlAsPngBase64 } from '@/lib/capture-thumbnail';
 import { exportGrapesJSToPdf } from '@/lib/grapesjs-export-pdf';
@@ -188,7 +188,7 @@ ref: React.Ref<PageBuilderEditorHandle>
         noticeOnUnload: false,
         deviceManager: {
           devices: [
-            { name: 'Desktop', width: '' },
+            { name: 'Document', width: `${DOCUMENT_PAGE_WIDTH_PX}px` },
             { name: 'Tablet', width: '768px' },
             { name: 'Mobile', width: '320px' },
           ],

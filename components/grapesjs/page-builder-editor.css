@@ -44,4 +44,5 @@
 
 .gjs-devices-c .gjs-select{
   width: 70px;
+  display: none;
 }

@@ -1,3 +1,5 @@
+import { DOCUMENT_PAGE_WIDTH_PX } from '@/lib/grapesjs-content';
+
 /**
  * Export GrapesJS page builder content (HTML + CSS) to PDF.
  * Renders content in a temporary container, captures with html2canvas, then builds PDF with pdf-lib.
@@ -17,7 +19,7 @@ export async function exportGrapesJSToPdf(
     'position:fixed',
     'left:-9999px',
     'top:0',
-    'width:794px', // A4 at 96dpi
+    `width:${DOCUMENT_PAGE_WIDTH_PX}px`,
     'minHeight:1123px',
     'padding:40px',
     'boxSizing:border-box',

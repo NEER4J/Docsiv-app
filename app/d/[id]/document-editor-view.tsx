@@ -354,7 +354,7 @@ export function DocumentEditorView({
 
       {/* Editor */}
       {isReportOrProposal ? (
-        <div key={document.updated_at ?? document.id} className="min-h-0 flex-1 flex flex-col">
+        <div key={document.updated_at ?? document.id} className="min-h-0 flex-1 flex flex-col overflow-x-auto">
           <PageBuilderEditor
             ref={pageBuilderRef}
             documentId={document.id}
