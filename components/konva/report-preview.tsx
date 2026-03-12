@@ -2,12 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Stage, Layer, Rect, Text, Image, Circle, Ellipse, Line, Arrow, Star, RegularPolygon } from 'react-konva';
-import {
-  DOCUMENT_PAGE_HEIGHT_PX,
-  DOCUMENT_PAGE_WIDTH_PX,
-  getKonvaReportPages,
-  type KonvaStoredContent,
-} from '@/lib/konva-content';
+import { getKonvaReportPages, getKonvaReportPageSize, type KonvaStoredContent } from '@/lib/konva-content';
 import type { KonvaShapeDesc } from '@/components/konva/report-editor';
 
 type KonvaReportPreviewProps = {
@@ -154,6 +149,7 @@ function PreviewImage({ attrs }: { attrs: Record<string, unknown> }) {
  */
 export function KonvaReportPreview({ content, className = '' }: KonvaReportPreviewProps) {
   const pages = getKonvaReportPages(content);
+  const { widthPx, heightPx } = getKonvaReportPageSize(content);
 
   return (
     <div className={`overflow-x-auto ${className}`}>
@@ -165,13 +161,13 @@ export function KonvaReportPreview({ content, className = '' }: KonvaReportPrevi
               key={pageIdx}
               className="shrink-0 bg-white"
               style={{
-                width: DOCUMENT_PAGE_WIDTH_PX,
-                height: DOCUMENT_PAGE_HEIGHT_PX,
+                width: widthPx,
+                height: heightPx,
                 overflow: 'hidden',
                 border: '1px solid #e5e5e5',
               }}
             >
-              <Stage width={DOCUMENT_PAGE_WIDTH_PX} height={DOCUMENT_PAGE_HEIGHT_PX} listening={false}>
+              <Stage width={widthPx} height={heightPx} listening={false}>
                 <Layer>
                   {shapes.map((shape, idx) => (
                     <ShapeRenderer key={(shape.key as string) ?? `s-${idx}`} shape={shape} idx={idx} />

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, useState } from 'react';
-import { Rect, Text, Image, Circle, Ellipse, Line, Arrow, Star, RegularPolygon } from 'react-konva';
+import { Rect, Text, Image, Circle, Ellipse, Line, Arrow, Star, RegularPolygon, Path, Group } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaShapeDesc } from '@/lib/konva-content';
 
@@ -12,9 +12,11 @@ export type KonvaShapeRendererProps = {
   readOnly: boolean;
   isSelected: boolean;
   onSelect: (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
+  onDragMove?: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
   setNodeRef: (id: string, node: Konva.Node | null) => void;
+  onTextDblClick?: (shapeId: string) => void;
 };
 
 function useStableId(shapeId: string, setNodeRef: (id: string, node: Konva.Node | null) => void) {
@@ -31,6 +33,7 @@ function KonvaImageNode({
   attrs,
   readOnly,
   idx,
+  onDragMove,
   onDragEnd,
   onTransformEnd,
   onSelect,
@@ -42,6 +45,7 @@ function KonvaImageNode({
   attrs: Record<string, unknown>;
   readOnly: boolean;
   idx: number;
+  onDragMove?: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
   onSelect: (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
@@ -66,13 +70,16 @@ function KonvaImageNode({
     };
   }, [src]);
 
+  // Re-run when img loads so we register the node (ref is set only after Image mounts)
   useEffect(() => {
     const node = nodeRef.current;
     if (node) setNodeRef(shapeId, node);
     return () => setNodeRef(shapeId, null);
-  }, [shapeId, setNodeRef]);
+  }, [shapeId, setNodeRef, img]);
 
-  if (!img && src) return null;
+  // While loading a non-empty src, don't render so ref isn't set yet
+  if (src && !img) return null;
+
   return (
     <Image
       ref={nodeRef as React.RefObject<Konva.Image>}
@@ -81,10 +88,13 @@ function KonvaImageNode({
       y={(attrs.y as number) ?? 0}
       width={(attrs.width as number) ?? 200}
       height={(attrs.height as number) ?? 120}
+      stroke={isSelected ? '#2563eb' : undefined}
+      strokeWidth={isSelected ? 2 : 0}
       visible={visible}
       draggable={!readOnly}
       onClick={onSelect}
       onTap={onSelect}
+      onDragMove={onDragMove}
       onDragEnd={onDragEnd}
       onTransformEnd={onTransformEnd}
     />
@@ -98,13 +108,20 @@ export function KonvaShapeRenderer({
   readOnly,
   isSelected,
   onSelect,
+  onDragMove,
   onDragEnd,
   onTransformEnd,
   setNodeRef,
+  onTextDblClick,
 }: KonvaShapeRendererProps) {
   const attrs = shape.attrs as Record<string, unknown>;
   const locked = !!attrs.locked;
   const visible = attrs.visible !== false;
+
+  const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
+    if (readOnly || locked) return;
+    onDragMove?.(e);
+  };
 
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
     if (readOnly || locked) return;
@@ -128,12 +145,14 @@ export function KonvaShapeRenderer({
         fill={(attrs.fill as string) ?? '#e5e5e5'}
         stroke={attrs.stroke as string | undefined}
         strokeWidth={(attrs.strokeWidth as number) ?? 0}
+        cornerRadius={(attrs.cornerRadius as number) ?? 0}
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         rotation={(attrs.rotation as number) ?? 0}
         visible={visible}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       />
@@ -142,6 +161,9 @@ export function KonvaShapeRenderer({
 
   if (shape.className === 'Text') {
     const ref = useStableId(shapeId, setNodeRef);
+    const handleDblClick = () => {
+      if (!readOnly && onTextDblClick) onTextDblClick(shapeId);
+    };
     return (
       <Text
         ref={ref as React.RefObject<Konva.Text>}
@@ -162,6 +184,9 @@ export function KonvaShapeRenderer({
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
+        onDblClick={handleDblClick}
+        onDblTap={handleDblClick}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       />
@@ -184,6 +209,7 @@ export function KonvaShapeRenderer({
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       />
@@ -207,6 +233,7 @@ export function KonvaShapeRenderer({
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       />
@@ -224,11 +251,14 @@ export function KonvaShapeRenderer({
         points={points}
         stroke={(attrs.stroke as string) ?? '#171717'}
         strokeWidth={(attrs.strokeWidth as number) ?? 2}
+        lineCap="round"
+        lineJoin="round"
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         visible={visible}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       />
@@ -252,6 +282,7 @@ export function KonvaShapeRenderer({
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       />
@@ -276,6 +307,7 @@ export function KonvaShapeRenderer({
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       />
@@ -291,6 +323,7 @@ export function KonvaShapeRenderer({
         y={(attrs.y as number) ?? 0}
         sides={(attrs.sides as number) ?? 6}
         radius={(attrs.radius as number) ?? 50}
+        rotation={(attrs.rotation as number) ?? 0}
         fill={(attrs.fill as string) ?? '#e5e5e5'}
         stroke={attrs.stroke as string | undefined}
         strokeWidth={(attrs.strokeWidth as number) ?? 0}
@@ -299,18 +332,85 @@ export function KonvaShapeRenderer({
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       />
     );
   }
 
-  if (shape.className === 'Image' && attrs.src) {
+  if (shape.className === 'Icon') {
+    const ref = useStableId(shapeId, setNodeRef);
+    const pathData = (attrs.pathData as string) ?? '';
+    const w = (attrs.width as number) ?? 24;
+    const h = (attrs.height as number) ?? 24;
+    const ICON_VIEWBOX = 256;
+    const scaleX = w / ICON_VIEWBOX;
+    const scaleY = h / ICON_VIEWBOX;
+    if (!pathData) return null;
+    return (
+      <Path
+        ref={ref as React.RefObject<Konva.Path>}
+        x={(attrs.x as number) ?? 0}
+        y={(attrs.y as number) ?? 0}
+        data={pathData}
+        scaleX={scaleX}
+        scaleY={scaleY}
+        fill={(attrs.fill as string) ?? '#171717'}
+        listening={!readOnly && !locked}
+        visible={visible}
+        draggable={!readOnly && !locked}
+        onClick={onSelect}
+        onTap={onSelect}
+        onDragMove={handleDragMove}
+        onDragEnd={handleDragEnd}
+        onTransformEnd={handleTransformEnd}
+      />
+    );
+  }
+
+  if (shape.className === 'Video') {
+    const ref = useStableId(shapeId, setNodeRef);
+    const x = (attrs.x as number) ?? 0;
+    const y = (attrs.y as number) ?? 0;
+    const w = (attrs.width as number) ?? 320;
+    const h = (attrs.height as number) ?? 180;
+    const playPathData = 'M96 64v128l128-64L96 64z';
+    return (
+      <Group
+        ref={ref as React.RefObject<Konva.Group>}
+        x={x}
+        y={y}
+        listening={!readOnly && !locked}
+        visible={visible}
+        draggable={!readOnly && !locked}
+        onClick={onSelect}
+        onTap={onSelect}
+        onDragMove={handleDragMove}
+        onDragEnd={handleDragEnd}
+        onTransformEnd={handleTransformEnd}
+      >
+        <Rect width={w} height={h} fill="#1f2937" />
+        <Path
+          x={w / 2 - 24}
+          y={h / 2 - 24}
+          data={playPathData}
+          scaleX={48 / 256}
+          scaleY={48 / 256}
+          fill="rgba(255,255,255,0.9)"
+          listening={false}
+        />
+      </Group>
+    );
+  }
+
+  if (shape.className === 'Image') {
     return (
       <KonvaImageNode
         attrs={attrs}
         readOnly={readOnly}
         idx={_index}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
         onSelect={onSelect}

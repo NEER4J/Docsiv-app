@@ -3,15 +3,15 @@
  * Renders each page/slide to canvas via Konva then embeds in pdf-lib.
  */
 
-import type { KonvaStoredContent, KonvaShapeDesc } from '@/lib/konva-content';
+import type { KonvaStoredContent, KonvaShapeDesc, PageBackground } from '@/lib/konva-content';
 import {
-  DOCUMENT_PAGE_HEIGHT_PX,
-  DOCUMENT_PAGE_WIDTH_PX,
   getKonvaReportPages,
+  getKonvaReportPageSize,
   getKonvaPresentationSlides,
   SLIDE_WIDTH_PX,
   SLIDE_HEIGHT_PX,
 } from '@/lib/konva-content';
+import { createPatternCanvas } from '@/lib/konva-background-patterns';
 
 function getChildren(pageOrSlide: { layer?: Record<string, unknown> }): KonvaShapeDesc[] {
   const layer = pageOrSlide?.layer as { children?: KonvaShapeDesc[] } | undefined;
@@ -23,9 +23,10 @@ export async function renderPageToPngDataURL(
   shapes: KonvaShapeDesc[],
   width: number,
   height: number,
-  pixelRatio: number = 2
+  pixelRatio: number = 2,
+  background?: PageBackground | null
 ): Promise<string> {
-  return renderPageToDataURL(shapes, width, height, pixelRatio);
+  return renderPageToDataURL(shapes, width, height, pixelRatio, background);
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -42,7 +43,8 @@ async function renderPageToDataURL(
   shapes: KonvaShapeDesc[],
   width: number,
   height: number,
-  pixelRatio: number = 2
+  pixelRatio: number = 2,
+  background?: PageBackground | null
 ): Promise<string> {
   const Konva = (await import('konva')).default;
   const container = document.createElement('div');
@@ -52,6 +54,33 @@ async function renderPageToDataURL(
   try {
     const stage = new Konva.Stage({ container, width, height });
     const layer = new Konva.Layer();
+
+    if (background?.type === 'solid') {
+      const rect = new Konva.Rect({ x: 0, y: 0, width, height, fill: background.color });
+      layer.add(rect);
+    } else if (background?.type === 'pattern') {
+      const patternCanvas = createPatternCanvas(background.patternId);
+      if (patternCanvas) {
+        const rect = new Konva.Rect({
+          x: 0,
+          y: 0,
+          width,
+          height,
+          fillPatternImage: patternCanvas as unknown as HTMLImageElement,
+          fillPatternRepeat: 'repeat',
+        });
+        layer.add(rect);
+      }
+    } else if (background?.type === 'image' && background.imageUrl) {
+      try {
+        const img = await loadImage(background.imageUrl);
+        const bgImg = new Konva.Image({ x: 0, y: 0, image: img, width, height });
+        layer.add(bgImg);
+      } catch {
+        const rect = new Konva.Rect({ x: 0, y: 0, width, height, fill: '#ffffff' });
+        layer.add(rect);
+      }
+    }
 
     for (const shape of shapes) {
       const attrs = shape.attrs as Record<string, unknown>;
@@ -150,6 +179,27 @@ async function renderPageToDataURL(
           strokeWidth: (attrs.strokeWidth as number) ?? 0,
         });
         layer.add(poly);
+      } else if (shape.className === 'Video') {
+        const rect = new Konva.Rect({
+          x: (attrs.x as number) ?? 0,
+          y: (attrs.y as number) ?? 0,
+          width: (attrs.width as number) ?? 320,
+          height: (attrs.height as number) ?? 180,
+          fill: '#1f2937',
+        });
+        layer.add(rect);
+      } else if (shape.className === 'Icon' && attrs.pathData) {
+        const w = (attrs.width as number) ?? 24;
+        const h = (attrs.height as number) ?? 24;
+        const path = new Konva.Path({
+          x: (attrs.x as number) ?? 0,
+          y: (attrs.y as number) ?? 0,
+          data: attrs.pathData as string,
+          scaleX: w / 256,
+          scaleY: h / 256,
+          fill: (attrs.fill as string) ?? '#171717',
+        });
+        layer.add(path);
       }
     }
 
@@ -170,24 +220,21 @@ export async function exportKonvaReportToPdf(
   const pages = getKonvaReportPages(content);
   if (pages.length === 0) return;
 
+  const { widthPx, heightPx } = getKonvaReportPageSize(content);
+
   const { PDFDocument } = await import('pdf-lib');
   const pdfDoc = await PDFDocument.create();
   const pixelRatio = 2;
 
   for (let i = 0; i < pages.length; i++) {
-    const shapes = getChildren(pages[i] ?? {});
-    const dataUrl = await renderPageToDataURL(
-      shapes,
-      DOCUMENT_PAGE_WIDTH_PX,
-      DOCUMENT_PAGE_HEIGHT_PX,
-      pixelRatio
-    );
+    const page = pages[i] ?? {};
+    const shapes = getChildren(page);
+    const background = (page as { background?: PageBackground }).background;
+    const dataUrl = await renderPageToDataURL(shapes, widthPx, heightPx, pixelRatio, background);
     const imageBytes = await fetch(dataUrl).then((r) => r.arrayBuffer());
     const image = await pdfDoc.embedPng(imageBytes);
-    const w = DOCUMENT_PAGE_WIDTH_PX * pixelRatio;
-    const h = DOCUMENT_PAGE_HEIGHT_PX * pixelRatio;
-    const pdfPage = pdfDoc.addPage([DOCUMENT_PAGE_WIDTH_PX, DOCUMENT_PAGE_HEIGHT_PX]);
-    pdfPage.drawImage(image, { x: 0, y: 0, width: DOCUMENT_PAGE_WIDTH_PX, height: DOCUMENT_PAGE_HEIGHT_PX });
+    const pdfPage = pdfDoc.addPage([widthPx, heightPx]);
+    pdfPage.drawImage(image, { x: 0, y: 0, width: widthPx, height: heightPx });
   }
 
   const pdfBytes = await pdfDoc.save();
@@ -213,8 +260,10 @@ export async function exportKonvaPresentationToPdf(
   const pixelRatio = 2;
 
   for (let i = 0; i < slides.length; i++) {
-    const shapes = getChildren(slides[i] ?? {});
-    const dataUrl = await renderPageToDataURL(shapes, SLIDE_WIDTH_PX, SLIDE_HEIGHT_PX, pixelRatio);
+    const slide = slides[i] ?? {};
+    const shapes = getChildren(slide);
+    const background = (slide as { background?: PageBackground }).background;
+    const dataUrl = await renderPageToDataURL(shapes, SLIDE_WIDTH_PX, SLIDE_HEIGHT_PX, pixelRatio, background);
     const imageBytes = await fetch(dataUrl).then((r) => r.arrayBuffer());
     const image = await pdfDoc.embedPng(imageBytes);
     const pdfPage = pdfDoc.addPage([SLIDE_WIDTH_PX, SLIDE_HEIGHT_PX]);

@@ -4,6 +4,10 @@
  */
 
 /** Reuse page dimensions from grapesjs-content for consistency. */
+import {
+  DOCUMENT_PAGE_HEIGHT_PX as DEFAULT_PAGE_HEIGHT_PX,
+  DOCUMENT_PAGE_WIDTH_PX as DEFAULT_PAGE_WIDTH_PX,
+} from '@/lib/grapesjs-content';
 export { DOCUMENT_PAGE_HEIGHT_PX, DOCUMENT_PAGE_WIDTH_PX } from '@/lib/grapesjs-content';
 
 /** Slide dimensions (16:9). */
@@ -34,16 +38,33 @@ export function getStableId(shape: KonvaShapeDesc, index: number): string {
   return `shape-${index}`;
 }
 
+/** Page or slide background. */
+export type PageBackground =
+  | { type: 'solid'; color: string }
+  | { type: 'pattern'; patternId: string }
+  | { type: 'image'; imageUrl: string };
+
 /** One page in a report or proposal (Konva). */
 export interface KonvaPage {
   /** Layer JSON (children array of shape configs). */
   layer?: KonvaNodeJSON;
+  /** Optional background (solid, pattern, or image). */
+  background?: PageBackground;
+}
+
+/** Report block in stored content; can include optional page dimensions. */
+export interface KonvaReportBlock {
+  pages: KonvaPage[];
+  pageWidthPx?: number;
+  pageHeightPx?: number;
 }
 
 /** One slide in a presentation (Konva). */
 export interface KonvaSlide {
   /** Layer JSON for the slide. */
   layer?: KonvaNodeJSON;
+  /** Optional background (solid, pattern, or image). */
+  background?: PageBackground;
 }
 
 /**
@@ -52,10 +73,8 @@ export interface KonvaSlide {
  */
 export interface KonvaStoredContent {
   editor: 'konva';
-  /** Report/proposal: multi-page. */
-  report?: {
-    pages: KonvaPage[];
-  };
+  /** Report/proposal: multi-page; optional page dimensions in px. */
+  report?: KonvaReportBlock;
   /** Presentation: slides. */
   presentation?: {
     slides: KonvaSlide[];
@@ -70,8 +89,17 @@ export function isKonvaContent(content: unknown): content is KonvaStoredContent 
 
 /** Normalize Konva report content to a pages array. */
 export function getKonvaReportPages(content: KonvaStoredContent | null): KonvaPage[] {
-  if (!content?.report?.pages?.length) return [{ layer: { children: [] } }];
-  return content.report.pages;
+  const report = content?.report;
+  if (!report?.pages?.length) return [{ layer: { children: [] } }];
+  return report.pages;
+}
+
+/** Get report page dimensions from content, or defaults. */
+export function getKonvaReportPageSize(content: KonvaStoredContent | null): { widthPx: number; heightPx: number } {
+  const w = content?.report?.pageWidthPx;
+  const h = content?.report?.pageHeightPx;
+  if (w != null && h != null) return { widthPx: w, heightPx: h };
+  return { widthPx: DEFAULT_PAGE_WIDTH_PX, heightPx: DEFAULT_PAGE_HEIGHT_PX };
 }
 
 /** Normalize Konva presentation content to a slides array. */

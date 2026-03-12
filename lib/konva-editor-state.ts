@@ -3,10 +3,11 @@
  * Used by KonvaEditorCore. Keeps content in parent (pagesOrSlides) but we define action types here.
  */
 
-import type { KonvaShapeDesc } from '@/lib/konva-content';
+import type { KonvaShapeDesc, PageBackground } from '@/lib/konva-content';
 
 export type PageOrSlide = {
   layer: { children: KonvaShapeDesc[]; attrs?: Record<string, unknown>; className?: string };
+  background?: PageBackground;
 };
 
 export type KonvaEditorAction =

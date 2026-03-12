@@ -239,7 +239,7 @@ export function DocumentEditorView({
   );
 
   return (
-    <div className="flex flex-col min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Locked banner */}
       {isLocked && (
         <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-sm dark:bg-yellow-900/20 dark:border-yellow-800 dark:text-yellow-400">
@@ -365,14 +365,16 @@ export function DocumentEditorView({
         </div>
       </div>
 
-      {/* Live collaboration cursors (Supabase Realtime) */}
-      <DocumentPresenceCursors />
+      {/* Editor area: force light theme so canvas/editor stays consistent; header above follows app theme. */}
+      <div className="document-editor-force-light flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Live collaboration cursors (Supabase Realtime) */}
+        <DocumentPresenceCursors />
 
-      {/* Editor */}
-      {isReportOrProposalKonva ? (
+        {/* Editor */}
+        {isReportOrProposalKonva ? (
         <div
           key={document.updated_at ?? document.id}
-          className={`min-h-0 flex-1 flex flex-col overflow-x-auto ${grapesReadOnly ? 'canvas-dot-pattern' : ''}`}
+          className={`min-h-0 flex-1 flex flex-col overflow-hidden ${grapesReadOnly ? 'canvas-dot-pattern' : ''}`}
           style={grapesReadOnly ? { backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' } : undefined}
         >
           <KonvaReportEditor
@@ -384,6 +386,7 @@ export function DocumentEditorView({
             readOnly={grapesReadOnly}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}
+            onOpenDocument={(id) => router.push(`/d/${id}`)}
           />
         </div>
       ) : isReportOrProposalGrapes ? (
@@ -405,7 +408,7 @@ export function DocumentEditorView({
         </div>
       ) : isDocOrContract ? (
         <div
-          className="min-h-0 flex-1 flex flex-col overflow-auto canvas-dot-pattern"
+          className="min-h-0 flex-1 flex flex-col overflow-auto canvas-dot-pattern document-editor-force-light"
           style={{ backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' }}
         >
           <div className="plate-doc-toolbar-full w-full bg-white flex flex-col min-h-0">
@@ -436,7 +439,7 @@ export function DocumentEditorView({
       ) : isPresentation ? (
         <div
           key={document.updated_at ?? document.id}
-          className="min-h-0 flex-1 flex flex-col overflow-x-auto"
+          className="min-h-0 flex-1 flex flex-col overflow-hidden"
           style={grapesReadOnly ? { backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' } : undefined}
         >
           <KonvaPresentationEditor
@@ -448,6 +451,7 @@ export function DocumentEditorView({
             readOnly={grapesReadOnly}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}
+            onOpenDocument={(id) => router.push(`/d/${id}`)}
           />
         </div>
       ) : (
@@ -462,6 +466,7 @@ export function DocumentEditorView({
           </div>
         </div>
       )}
+      </div>
 
       {/* Share dialog */}
       <ShareDialog

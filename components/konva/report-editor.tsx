@@ -1,11 +1,10 @@
 'use client';
 
-import React, { forwardRef, useRef, useImperativeHandle } from 'react';
+import React, { forwardRef, useRef, useImperativeHandle, useState, useMemo } from 'react';
 import type Konva from 'konva';
 import {
-  DOCUMENT_PAGE_HEIGHT_PX,
-  DOCUMENT_PAGE_WIDTH_PX,
   emptyKonvaReportContent,
+  getKonvaReportPageSize,
   type KonvaStoredContent,
 } from '@/lib/konva-content';
 import { exportKonvaReportToPdf } from '@/lib/konva-export-pdf';
@@ -27,6 +26,7 @@ type KonvaReportEditorProps = {
   readOnly?: boolean;
   className?: string;
   onSaveStatus?: (status: 'idle' | 'saving' | 'saved') => void;
+  onOpenDocument?: (documentId: string) => void;
 };
 
 const ReportEditorInner = (
@@ -38,10 +38,13 @@ const ReportEditorInner = (
     readOnly = false,
     className = '',
     onSaveStatus,
+    onOpenDocument,
   }: KonvaReportEditorProps,
   ref: React.Ref<KonvaReportEditorHandle>
 ) => {
   const coreRef = useRef<KonvaEditorCoreHandle>(null);
+  const initialSize = useMemo(() => getKonvaReportPageSize(initialContent ?? null), [initialContent]);
+  const [pageSize, setPageSize] = useState(initialSize);
 
   useImperativeHandle(ref, () => ({
     save: () => coreRef.current?.save() ?? Promise.resolve(),
@@ -53,8 +56,8 @@ const ReportEditorInner = (
     <KonvaEditorCore
       ref={coreRef}
       mode="report"
-      width={DOCUMENT_PAGE_WIDTH_PX}
-      height={DOCUMENT_PAGE_HEIGHT_PX}
+      width={pageSize.widthPx}
+      height={pageSize.heightPx}
       initialContent={initialContent ?? emptyKonvaReportContent()}
       documentId={documentId}
       workspaceId={workspaceId}
@@ -63,6 +66,8 @@ const ReportEditorInner = (
       className={className}
       onSaveStatus={onSaveStatus}
       exportToPdf={exportKonvaReportToPdf}
+      onPageSizeChange={readOnly ? undefined : (w, h) => setPageSize({ widthPx: w, heightPx: h })}
+      onOpenDocument={onOpenDocument}
     />
   );
 };

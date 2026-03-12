@@ -25,6 +25,7 @@ type KonvaPresentationEditorProps = {
   readOnly?: boolean;
   className?: string;
   onSaveStatus?: (status: 'idle' | 'saving' | 'saved') => void;
+  onOpenDocument?: (documentId: string) => void;
 };
 
 const PresentationEditorInner = (
@@ -36,6 +37,7 @@ const PresentationEditorInner = (
     readOnly = false,
     className = '',
     onSaveStatus,
+    onOpenDocument,
   }: KonvaPresentationEditorProps,
   ref: React.Ref<KonvaPresentationEditorHandle>
 ) => {
@@ -61,6 +63,7 @@ const PresentationEditorInner = (
       className={className}
       onSaveStatus={onSaveStatus}
       exportToPdf={exportKonvaPresentationToPdf}
+      onOpenDocument={onOpenDocument}
     />
   );
 };

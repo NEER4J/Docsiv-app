@@ -63,7 +63,7 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
       />
-      <SidebarInset className={cn("min-w-0 max-w-full flex flex-col overflow-hidden")}>
+      <SidebarInset className={cn("min-w-0 max-w-full flex h-screen flex-col overflow-hidden")}>
         <AiAssistantProvider>
           <header
             className={cn(
@@ -81,8 +81,8 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
               </div>
             </div>
           </header>
-          {/* Only the document editor content is forced to light theme; sidebar and nav follow app theme */}
-          <div className="document-editor-force-light min-h-0 min-w-0 flex-1 overflow-x-hidden flex flex-col bg-background text-foreground">
+          {/* Document editor: header (in page) and this shell use app theme; only editor content is forced to light via wrapper inside document-editor-view. */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
             {children}
           </div>
         </AiAssistantProvider>

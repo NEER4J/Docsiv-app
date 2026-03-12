@@ -2,7 +2,8 @@
 
 @plugin "tailwind-scrollbar-hide";
 
-@custom-variant dark (&:is(.dark *));
+/* Dark variant: apply when inside .dark but NOT inside force-light (doc editor toolbar/canvas stay light) */
+@custom-variant dark (&:is(.dark *):not(.document-editor-force-light, .document-editor-force-light *));
 @tailwind components;
 @tailwind utilities;
 
@@ -188,7 +189,8 @@
 }
 
 /* Force light theme for document editor/view routes (/d/*) — overrides .dark when applied on an ancestor */
-.document-editor-force-light {
+.document-editor-force-light,
+.document-editor-force-light [data-sticky-toolbar] {
   --background: #ffffff;
   --foreground: #0a0a0a;
   --border: #e5e5e5;
@@ -211,6 +213,27 @@
   --highlight: oklch(0.852 0.199 91.936);
   --brand: oklch(0.623 0.214 259.815);
   color-scheme: light;
+}
+
+/* Plate fixed toolbar: force light theme even when rendered in portal or under .dark */
+[data-sticky-toolbar].document-editor-force-light {
+  --background: #ffffff !important;
+  --foreground: #0a0a0a !important;
+  --border: #e5e5e5 !important;
+  --muted-bg: #ffffff !important;
+  --muted-foreground: #6b6560 !important;
+  --muted-hover: #f5f5f5 !important;
+  --muted-active: #ebebeb !important;
+  --popover: #ffffff !important;
+  --popover-foreground: #0a0a0a !important;
+  --notion-default-bg: #f2f2f2 !important;
+  --notion-gray-bg: #f2f2f2 !important;
+  --highlight: oklch(0.852 0.199 91.936) !important;
+  --brand: oklch(0.623 0.214 259.815) !important;
+  color-scheme: light !important;
+  background-color: #ffffff !important;
+  color: #0a0a0a !important;
+  border-color: #e5e5e5 !important;
 }
 .document-editor-force-light [data-slate-editor] ::selection,
 .document-editor-force-light [data-slate-editor]::selection {
