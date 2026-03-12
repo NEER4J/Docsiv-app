@@ -37,7 +37,6 @@ import {
   getAccessRequests,
   getShareDialogData,
 } from '@/lib/actions/documents';
-import { captureElementAsPngBase64 } from '@/lib/capture-thumbnail';
 import { toast } from 'sonner';
 import {
   documentBreadcrumbStore,
@@ -47,6 +46,7 @@ import type { DocumentDetail } from '@/types/database';
 import type { TElement, Value } from 'platejs';
 import { Presentation } from 'lucide-react';
 import { PageBuilderEditor, type PageBuilderEditorHandle } from '@/components/grapesjs/page-builder-editor';
+import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
@@ -113,7 +113,7 @@ export function DocumentEditorView({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [grapesSaveStatus, setGrapesSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const pageBuilderRef = useRef<PageBuilderEditorHandle>(null);
-  const plateThumbnailRef = useRef<HTMLDivElement>(null);
+  const plateThumbnailRef = useRef<PlateDocumentEditorHandle>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [saveWithLabelOpen, setSaveWithLabelOpen] = useState(false);
   const [saveWithLabelInput, setSaveWithLabelInput] = useState('');
@@ -208,8 +208,8 @@ export function DocumentEditorView({
             lastVersionAtRef.current = now;
             createDocumentVersion(document.id, value).catch(() => {});
           }
-          // Screenshot thumbnail for document cards (fire-and-forget)
-          captureElementAsPngBase64(plateThumbnailRef.current).then((base64) => {
+          // Screenshot thumbnail: capture editor content root (same as export) at scale 1
+          plateThumbnailRef.current?.captureThumbnail().then((base64) => {
             if (base64) uploadDocumentThumbnail(document.id, workspaceId, base64).catch(() => {});
           });
         }
@@ -363,7 +363,7 @@ export function DocumentEditorView({
           />
         </div>
       ) : isDocOrContract ? (
-        <div ref={plateThumbnailRef} className="min-h-0 flex-1 flex flex-col">
+        <div className="min-h-0 flex-1 flex flex-col">
           <DocumentCommentsProvider
             documentId={document.id}
             currentUserId={currentUserId}
@@ -374,6 +374,7 @@ export function DocumentEditorView({
               documentId={document.id}
             >
               <PlateDocumentEditor
+                ref={plateThumbnailRef}
                 key={document.updated_at}
                 initialValue={initialContent}
                 onChange={effectiveReadOnly ? undefined : handleChange}
