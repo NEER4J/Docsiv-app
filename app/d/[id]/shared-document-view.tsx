@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
 import { MoreHorizontal, Download } from 'lucide-react';
@@ -19,7 +20,18 @@ import type { Value } from 'platejs';
 import { Presentation } from 'lucide-react';
 import { PageBuilderPreview } from '@/components/grapesjs/page-builder-preview';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
+import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
+
+const KonvaReportPreview = dynamic(
+  () => import('@/components/konva/report-preview').then((m) => ({ default: m.KonvaReportPreview })),
+  { ssr: false }
+);
+
+const KonvaPresentationPreview = dynamic(
+  () => import('@/components/konva/presentation-preview').then((m) => ({ default: m.KonvaPresentationPreview })),
+  { ssr: false }
+);
 
 type Doc = {
   id: string;
@@ -54,8 +66,9 @@ export function SharedDocumentView({
   const [editRequested, setEditRequested] = useState(false);
 
   const isGrapesJSDoc = isGrapesJSContent(document.content);
+  const isKonvaDoc = isKonvaContent(document.content);
   const isDocOrContract =
-    !isGrapesJSDoc && (document.base_type === 'doc' || document.base_type === 'contract');
+    !isGrapesJSDoc && !isKonvaDoc && (document.base_type === 'doc' || document.base_type === 'contract');
   const isPresentation = document.base_type === 'presentation';
 
   const platePages: Value[] = getPlatePages(document.content);
@@ -169,7 +182,21 @@ export function SharedDocumentView({
           backgroundSize: '16px 16px',
         }}
       >
-        {isGrapesJSDoc ? (
+        {isKonvaDoc ? (
+          <div className="w-full flex-1 px-4 py-8 md:px-6 flex justify-center min-h-0 overflow-auto">
+            {isPresentation ? (
+              <KonvaPresentationPreview
+                content={document.content as KonvaStoredContent}
+                className="min-h-[200px]"
+              />
+            ) : (
+              <KonvaReportPreview
+                content={document.content as KonvaStoredContent}
+                className="min-h-[200px] w-full"
+              />
+            )}
+          </div>
+        ) : isGrapesJSDoc ? (
           <div className="w-full flex-1 px-4 py-8 md:px-6 flex justify-center min-h-0">
             <PageBuilderPreview
               content={document.content as GrapesJSStoredContent}

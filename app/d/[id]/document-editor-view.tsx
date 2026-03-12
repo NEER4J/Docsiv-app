@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag } from 'lucide-react';
 import { DocumentCommentsProvider } from '@/components/platejs/editors/document-comments-context';
@@ -46,10 +47,23 @@ import type { DocumentDetail } from '@/types/database';
 import type { TElement, Value } from 'platejs';
 import { Presentation } from 'lucide-react';
 import { PageBuilderEditor, type PageBuilderEditorHandle } from '@/components/grapesjs/page-builder-editor';
+import type { KonvaReportEditorHandle } from '@/components/konva/report-editor';
+import type { KonvaPresentationEditorHandle } from '@/components/konva/presentation-editor';
 import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
+import { isKonvaContent, emptyKonvaReportContent, emptyKonvaPresentationContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 import { useIsMobile } from '@/hooks/use-mobile';
+
+const KonvaReportEditor = dynamic(
+  () => import('@/components/konva/report-editor').then((m) => ({ default: m.KonvaReportEditor })),
+  { ssr: false }
+);
+
+const KonvaPresentationEditor = dynamic(
+  () => import('@/components/konva/presentation-editor').then((m) => ({ default: m.KonvaPresentationEditor })),
+  { ssr: false }
+);
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 const VERSION_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
@@ -118,6 +132,12 @@ export function DocumentEditorView({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [grapesSaveStatus, setGrapesSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const pageBuilderRef = useRef<PageBuilderEditorHandle>(null);
+  const konvaReportRef = useRef<KonvaReportEditorHandle>(null);
+  const konvaPresentationRef = useRef<KonvaPresentationEditorHandle>(null);
+
+  const isReportOrProposalKonva = isReportOrProposal && (isKonvaContent(document.content) || !isGrapesJSContent(document.content));
+  const isReportOrProposalGrapes = isReportOrProposal && isGrapesJSContent(document.content);
+  const pageBuilderSaveRef = isReportOrProposalKonva ? konvaReportRef : isPresentation ? konvaPresentationRef : pageBuilderRef;
   const plateThumbnailRef = useRef<PlateDocumentEditorHandle>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [saveWithLabelOpen, setSaveWithLabelOpen] = useState(false);
@@ -280,7 +300,7 @@ export function DocumentEditorView({
               {saveStatus === 'saved' && 'Saved'}
             </span>
           )}
-          {isReportOrProposal && !effectiveReadOnly && (
+          {(isReportOrProposal || isPresentation) && !effectiveReadOnly && (
             <span className="font-body text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {grapesSaveStatus === 'saving' && 'Saving...'}
               {grapesSaveStatus === 'saved' && 'Saved'}
@@ -290,7 +310,7 @@ export function DocumentEditorView({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {isReportOrProposal && !grapesReadOnly && (
+          {(isReportOrProposal || isPresentation) && !grapesReadOnly && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -306,7 +326,7 @@ export function DocumentEditorView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
-                  onClick={() => pageBuilderRef.current?.save()}
+                  onClick={() => pageBuilderSaveRef.current?.save()}
                   disabled={grapesSaveStatus === 'saving'}
                 >
                   <Save className="size-3.5" />
@@ -349,7 +369,24 @@ export function DocumentEditorView({
       <DocumentPresenceCursors />
 
       {/* Editor */}
-      {isReportOrProposal ? (
+      {isReportOrProposalKonva ? (
+        <div
+          key={document.updated_at ?? document.id}
+          className={`min-h-0 flex-1 flex flex-col overflow-x-auto ${grapesReadOnly ? 'canvas-dot-pattern' : ''}`}
+          style={grapesReadOnly ? { backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' } : undefined}
+        >
+          <KonvaReportEditor
+            ref={konvaReportRef}
+            documentId={document.id}
+            workspaceId={workspaceId}
+            documentTitle={document.title ?? undefined}
+            initialContent={isKonvaContent(document.content) ? (document.content as KonvaStoredContent) : emptyKonvaReportContent()}
+            readOnly={grapesReadOnly}
+            className="min-h-0 flex-1"
+            onSaveStatus={setGrapesSaveStatus}
+          />
+        </div>
+      ) : isReportOrProposalGrapes ? (
         <div
           key={document.updated_at ?? document.id}
           className={`min-h-0 flex-1 flex flex-col overflow-x-auto ${grapesReadOnly ? 'canvas-dot-pattern' : ''}`}
@@ -360,7 +397,7 @@ export function DocumentEditorView({
             documentId={document.id}
             workspaceId={workspaceId}
             documentTitle={document.title ?? undefined}
-            initialContent={isGrapesJSContent(document.content) ? (document.content as GrapesJSStoredContent) : null}
+            initialContent={document.content as GrapesJSStoredContent}
             readOnly={grapesReadOnly}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}
@@ -397,16 +434,21 @@ export function DocumentEditorView({
           </div>
         </div>
       ) : isPresentation ? (
-        <div className="flex min-h-[400px] flex-1 items-center justify-center bg-muted/30">
-          <div className="text-center px-4">
-            <Presentation className="mx-auto size-10 text-muted-foreground mb-3" />
-            <p className="font-body text-lg font-medium text-foreground mb-2">
-              Slide deck editor coming soon
-            </p>
-            <p className="font-body text-muted-foreground">
-              We&apos;re building a full presentation editor. You can still edit document details.
-            </p>
-          </div>
+        <div
+          key={document.updated_at ?? document.id}
+          className="min-h-0 flex-1 flex flex-col overflow-x-auto"
+          style={grapesReadOnly ? { backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' } : undefined}
+        >
+          <KonvaPresentationEditor
+            ref={konvaPresentationRef}
+            documentId={document.id}
+            workspaceId={workspaceId}
+            documentTitle={document.title ?? undefined}
+            initialContent={isKonvaContent(document.content) ? (document.content as KonvaStoredContent) : emptyKonvaPresentationContent()}
+            readOnly={grapesReadOnly}
+            className="min-h-0 flex-1"
+            onSaveStatus={setGrapesSaveStatus}
+          />
         </div>
       ) : (
         <div className="flex min-h-[400px] flex-1 items-center justify-center bg-muted/30">
@@ -456,7 +498,7 @@ export function DocumentEditorView({
                   e.preventDefault();
                   const label = saveWithLabelInput.trim();
                   if (label) {
-                    pageBuilderRef.current?.saveWithLabel(label);
+                    pageBuilderSaveRef.current?.saveWithLabel(label);
                     setSaveWithLabelOpen(false);
                     setSaveWithLabelInput('');
                     toast.success('Saved with label');
@@ -480,7 +522,7 @@ export function DocumentEditorView({
               onClick={() => {
                 const label = saveWithLabelInput.trim();
                 if (label) {
-                  pageBuilderRef.current?.saveWithLabel(label);
+                  pageBuilderSaveRef.current?.saveWithLabel(label);
                   setSaveWithLabelOpen(false);
                   setSaveWithLabelInput('');
                   toast.success('Saved with label');

@@ -49,10 +49,10 @@
 }
 
 .gjs-pn-toolbar-export, .gjs-pn-devices-c{
-  display: none;
+  /* display: none; */
 }
 
 .gjs-devices-c .gjs-select{
   width: 70px;
-  display: none;
+  /* display: none; */
 }

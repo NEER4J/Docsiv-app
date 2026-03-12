@@ -119,3 +119,77 @@ export async function captureHtmlAsPngBase64(html: string, css?: string): Promis
     wrap.remove();
   }
 }
+
+/**
+ * Render first page/slide of Konva content to canvas and return PNG data URL (1920×1920 cover).
+ * Used for Konva report/presentation thumbnail after save.
+ */
+export async function captureKonvaContentAsPngBase64(content: {
+  editor?: string;
+  report?: { pages?: { layer?: { children?: unknown[] } }[] };
+  presentation?: { slides?: { layer?: { children?: unknown[] } }[] };
+}): Promise<string | null> {
+  if (typeof window === "undefined" || !content || content.editor !== "konva") return null;
+  const shapes: { className: string; attrs: Record<string, unknown> }[] = [];
+  let width = 960;
+  let height = 1358;
+  if (content.report?.pages?.length) {
+    const layer = content.report.pages[0]?.layer as { children?: { className: string; attrs: Record<string, unknown> }[] } | undefined;
+    if (Array.isArray(layer?.children)) shapes.push(...layer.children);
+    width = 960;
+    height = 1358;
+  } else if (content.presentation?.slides?.length) {
+    const layer = content.presentation.slides[0]?.layer as { children?: { className: string; attrs: Record<string, unknown> }[] } | undefined;
+    if (Array.isArray(layer?.children)) shapes.push(...layer.children);
+    width = 960;
+    height = 540;
+  }
+  if (shapes.length === 0) return null;
+  try {
+    const Konva = (await import("konva")).default;
+    const container = document.createElement("div");
+    container.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;";
+    document.body.appendChild(container);
+    try {
+      const stage = new Konva.Stage({ container, width, height });
+      const layer = new Konva.Layer();
+      for (const shape of shapes) {
+        const a = shape.attrs ?? {};
+        const num = (v: unknown, def: number) => (typeof v === "number" ? v : def);
+        const str = (v: unknown, def: string) => (typeof v === "string" ? v : def);
+        if (shape.className === "Rect") {
+          layer.add(new Konva.Rect({ x: num(a.x, 0), y: num(a.y, 0), width: num(a.width, 100), height: num(a.height, 50), fill: str(a.fill, "#e5e5e5") }));
+        } else if (shape.className === "Text") {
+          layer.add(new Konva.Text({ x: num(a.x, 0), y: num(a.y, 0), text: str(a.text, "Text"), fontSize: num(a.fontSize, 16), fill: str(a.fill, "#171717") }));
+        }
+      }
+      stage.add(layer);
+      stage.draw();
+      const dataUrl = stage.toDataURL({ pixelRatio: 2 });
+      stage.destroy();
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return dataUrl;
+      const img = new window.Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => {
+          const size = 1920;
+          canvas.width = size;
+          canvas.height = size;
+          const scale = Math.max(size / img.width, size / img.height);
+          const w = img.width * scale;
+          const h = img.height * scale;
+          ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, w, h);
+          resolve();
+        };
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+      return canvas.toDataURL("image/png");
+    } finally {
+      container.remove();
+    }
+  } catch {
+    return null;
+  }
+}
