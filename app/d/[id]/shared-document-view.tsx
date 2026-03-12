@@ -162,32 +162,36 @@ export function SharedDocumentView({
 
       {/* Document content — read-only */}
       <main className="flex-1">
-        <div className="mx-auto max-w-3xl px-4 py-8 md:px-8">
-          {isGrapesJSDoc ? (
+        {isGrapesJSDoc ? (
+          <div className="w-full px-4 py-8 md:px-6">
             <PageBuilderPreview
               content={document.content as GrapesJSStoredContent}
-              className="min-h-[200px]"
+              className="min-h-[200px] w-full"
             />
-          ) : isDocOrContract ? (
-            <PlateDocumentEditor
-              initialValue={initialContent}
-              readOnly
-              placeholder=""
-              className="min-h-[400px]"
-            />
-          ) : isPresentation ? (
-            <div className="rounded-lg border border-border bg-muted/30 p-8 text-center">
-              <Presentation className="mx-auto size-10 text-muted-foreground mb-3" />
+          </div>
+        ) : (
+          <div className="mx-auto max-w-3xl px-4 py-8 md:px-8">
+            {isDocOrContract ? (
+              <PlateDocumentEditor
+                initialValue={initialContent}
+                readOnly
+                placeholder=""
+                className="min-h-[400px]"
+              />
+            ) : isPresentation ? (
+              <div className="rounded-lg border border-border bg-muted/30 p-8 text-center">
+                <Presentation className="mx-auto size-10 text-muted-foreground mb-3" />
+                <p className="font-body text-muted-foreground">
+                  Presentation view coming soon.
+                </p>
+              </div>
+            ) : (
               <p className="font-body text-muted-foreground">
-                Presentation view coming soon.
+                This document type cannot be previewed here.
               </p>
-            </div>
-          ) : (
-            <p className="font-body text-muted-foreground">
-              This document type cannot be previewed here.
-            </p>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );

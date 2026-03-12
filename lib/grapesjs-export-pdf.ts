@@ -24,7 +24,7 @@ export async function exportGrapesJSToPdf(
     'background:#fff',
     'fontFamily:"Inter",sans-serif',
   ].join(';');
-  container.innerHTML = `<style>${css}</style><div class="gjs-captured">${html}</div>`;
+  container.innerHTML = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&display=swap" /><style>${css}</style><div class="gjs-captured">${html}</div>`;
   document.body.appendChild(container);
 
   try {

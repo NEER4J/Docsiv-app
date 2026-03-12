@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, Check, Settings, LayoutGrid, Loader2 } from "lucide-react";
+import { ChevronDown, Check, Settings, LayoutGrid, LoaderIcon } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -55,7 +55,7 @@ export function WorkspaceSwitcher({
       >
         <span className="truncate">{displayName}</span>
         {isSwitching ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin opacity-70" />
+          <LoaderIcon className="size-3.5 shrink-0 animate-spin opacity-70" aria-label="Loading" />
         ) : (
           <ChevronDown className="size-3.5 shrink-0 opacity-50" />
         )}

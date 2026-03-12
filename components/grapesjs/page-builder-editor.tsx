@@ -1,14 +1,82 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import type { GrapesJSStoredContent } from '@/lib/grapesjs-content';
-import { updateDocumentContent } from '@/lib/actions/documents';
-import { exportGrapesJSToPdf, openGrapesJSPrintPreview } from '@/lib/grapesjs-export-pdf';
+import { updateDocumentContent, createDocumentVersion } from '@/lib/actions/documents';
+import { exportGrapesJSToPdf } from '@/lib/grapesjs-export-pdf';
 import { registerBuilderBlocks } from '@/components/grapesjs/builder-blocks';
+import {
+  Rows,
+  TextH,
+  Paragraph,
+  Quotes,
+  ListBullets,
+  ListNumbers,
+  Minus,
+  LineVertical,
+  CursorClick,
+  Link,
+  Image,
+  Video,
+  Code,
+  Columns,
+  Table,
+  CreditCard,
+} from '@phosphor-icons/react';
 import 'grapesjs/dist/css/grapes.min.css';
 import './page-builder-editor.css';
 
-const AUTOSAVE_DEBOUNCE_MS = 2000;
+/** Phosphor icon name -> component (SpacingVertical not in Phosphor, use LineVertical) */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ICON_MAP: Record<string, React.ComponentType<any>> = {
+  Rows,
+  TextH,
+  Paragraph,
+  Quotes,
+  ListBullets,
+  ListNumbers,
+  Minus,
+  SpacingVertical: LineVertical,
+  CursorClick,
+  Link,
+  Image,
+  Video,
+  Code,
+  Columns,
+  Table,
+  CreditCard,
+};
+
+const ICON_SIZE = 20;
+const PLACEHOLDER_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 256 256"><rect width="256" height="256" fill="none"/></svg>';
+
+/** Render Phosphor icon to SVG string for GrapesJS block panel (browser-safe, no react-dom/server). */
+function getIconMedia(iconName: string): string {
+  const IconComponent = ICON_MAP[iconName];
+  if (!IconComponent) return PLACEHOLDER_SVG;
+  try {
+    const div = document.createElement('div');
+    document.body.appendChild(div);
+    const root = createRoot(div);
+    flushSync(() => {
+      root.render(
+        React.createElement(IconComponent, { size: ICON_SIZE, weight: 'duotone' as const })
+      );
+    });
+    const svg = div.querySelector('svg');
+    const html = svg ? svg.outerHTML : PLACEHOLDER_SVG;
+    root.unmount();
+    div.remove();
+    return html;
+  } catch {
+    return PLACEHOLDER_SVG;
+  }
+}
+
+export type PageBuilderEditorHandle = { save: () => Promise<void> };
 
 type PageBuilderEditorProps = {
   documentId: string;
@@ -16,15 +84,19 @@ type PageBuilderEditorProps = {
   initialContent: GrapesJSStoredContent | null;
   readOnly?: boolean;
   className?: string;
+  onSaveStatus?: (status: 'idle' | 'saving' | 'saved') => void;
 };
 
-export function PageBuilderEditor({
+const PageBuilderEditorInner = ({
   documentId,
   documentTitle,
   initialContent,
   readOnly = false,
   className = '',
-}: PageBuilderEditorProps) {
+  onSaveStatus,
+}: PageBuilderEditorProps,
+ref: React.Ref<PageBuilderEditorHandle>
+) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<{
     getProjectData: () => Record<string, unknown>;
@@ -39,9 +111,7 @@ export function PageBuilderEditor({
   initialContentRef.current = initialContent;
   const documentTitleRef = useRef(documentTitle);
   documentTitleRef.current = documentTitle;
-  const [mounted, setMounted] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const saveContent = useCallback(async () => {
     const editor = editorRef.current;
@@ -52,22 +122,22 @@ export function PageBuilderEditor({
       const css = editor.getCss();
       const payload: GrapesJSStoredContent = { projectData, html, css };
       setSaveStatus('saving');
+      onSaveStatus?.('saving');
       const { error } = await updateDocumentContent(documentId, payload);
-      setSaveStatus(error ? 'idle' : 'saved');
-      if (!error) setTimeout(() => setSaveStatus('idle'), 2000);
+      const next = error ? 'idle' : 'saved';
+      setSaveStatus(next);
+      onSaveStatus?.(next);
+      if (!error) {
+        createDocumentVersion(documentId, payload).catch(() => {});
+        setTimeout(() => { setSaveStatus('idle'); onSaveStatus?.('idle'); }, 2000);
+      }
     } catch {
       setSaveStatus('idle');
+      onSaveStatus?.('idle');
     }
-  }, [documentId, readOnly]);
+  }, [documentId, readOnly, onSaveStatus]);
 
-  const scheduleSave = useCallback(() => {
-    if (readOnly) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      saveContent();
-    }, AUTOSAVE_DEBOUNCE_MS);
-  }, [readOnly, saveContent]);
+  useImperativeHandle(ref, () => ({ save: saveContent }), [saveContent]);
 
   useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined') return;
@@ -92,16 +162,27 @@ export function PageBuilderEditor({
         canvas: {
           styles: [
             'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+            'https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..700;1,400..700&display=swap',
+            // Outline empty column cells so they are visible and droppable in the editor
+            'data:text/css;charset=utf-8,.gjs-columns-wrap%20%3E%20div%7Bmin-height:80px;border:1px%20dashed%20%23e4e4e7;box-sizing:border-box%7D',
           ],
           scripts: [],
         },
       });
 
-      // Register custom blocks (edit builder-blocks.ts to add more)
+      // Register custom blocks with Phosphor icons (edit builder-blocks.ts to add more)
       const bm = (editor as unknown as { BlockManager?: { add: (id: string, opts: Record<string, unknown>) => void } }).BlockManager;
-      if (bm) registerBuilderBlocks(bm);
+      if (bm) registerBuilderBlocks(bm, getIconMedia);
 
-      // Export PDF & Print: custom commands + toolbar panel (layout like reference image)
+      // Keep all Style Manager sectors (dropdowns) open by default
+      const sm = (editor as unknown as { StyleManager?: { getSectors: (opts?: { array?: boolean }) => unknown } }).StyleManager;
+      if (sm?.getSectors) {
+        const sectors = sm.getSectors({ array: true });
+        const list = Array.isArray(sectors) ? sectors : (sectors as { models?: unknown[] })?.models ?? [];
+        list.forEach((sector: { set?: (k: string, v: boolean) => void }) => sector?.set?.('open', true));
+      }
+
+      // Export PDF: custom command + toolbar panel
       const title = documentTitleRef.current || 'document';
       const safeName = title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '-') || 'document';
       const editorApi = editor as unknown as {
@@ -118,20 +199,12 @@ export function PageBuilderEditor({
             exportGrapesJSToPdf(html, css, `${safeName}.pdf`).catch(() => {});
           },
         });
-        editorApi.Commands.add('gjs-print-preview', {
-          run: () => {
-            const html = editorApi.getHtml();
-            const css = editorApi.getCss();
-            openGrapesJSPrintPreview(html, css, title);
-          },
-        });
       }
       if (editorApi.Panels && !readOnly) {
         editorApi.Panels.addPanel({
           id: 'toolbar-export',
           buttons: [
             { id: 'gjs-export-pdf', label: 'Export PDF', command: 'gjs-export-pdf', className: 'gjs-pn-btn--export-pdf' },
-            { id: 'gjs-print-preview', label: 'Print', command: 'gjs-print-preview', className: 'gjs-pn-btn--print' },
           ],
         });
       }
@@ -148,33 +221,23 @@ export function PageBuilderEditor({
         );
       }
 
-      if (!readOnly) {
-        editor.on('update', scheduleSave);
-      }
-      setMounted(true);
     };
 
     init();
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
       const ed = editorRef.current;
       if (ed?.destroy) {
         ed.destroy();
         editorRef.current = null;
       }
-      setMounted(false);
     };
-  }, [readOnly]); // initialContent read via ref; scheduleSave stable via saveContent
+  }, [readOnly]); // initialContent read via ref
 
   return (
     <div className={`flex flex-col min-h-0 flex-1 ${className}`}>
-      {!readOnly && mounted && (
-        <div className="flex items-center justify-end px-2 py-1 border-b border-border text-xs text-muted-foreground">
-          {saveStatus === 'saving' && 'Saving…'}
-          {saveStatus === 'saved' && 'Saved'}
-        </div>
-      )}
       <div ref={containerRef} className="min-h-[400px] flex-1 gjs-editor-host" />
     </div>
   );
-}
+};
+
+export const PageBuilderEditor = forwardRef<PageBuilderEditorHandle, PageBuilderEditorProps>(PageBuilderEditorInner);

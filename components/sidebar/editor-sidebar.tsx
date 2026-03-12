@@ -23,6 +23,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarMenuSkeleton,
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
@@ -71,7 +72,7 @@ export function EditorSidebar({
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [clients, setClients] = useState<ClientWithDocCount[]>([]);
   const [clientFilter, setClientFilter] = useState<string>("all");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!!currentWorkspaceId);
   const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
 
   // Clear loading indicator when we've navigated to the document
@@ -217,11 +218,13 @@ export function EditorSidebar({
               )}
               <SidebarMenu className="gap-0.5">
                 {loading && documents.length === 0 ? (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton className="h-8 text-[0.75rem] text-muted-foreground">
-                      Loading…
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  <>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <SidebarMenuItem key={i}>
+                        <SidebarMenuSkeleton showIcon className="h-8 gap-2.5" />
+                      </SidebarMenuItem>
+                    ))}
+                  </>
                 ) : (
                   documents.slice(0, RECENT_DOCS_LIMIT).map((doc) => {
                     const href = `/d/${doc.id}`;

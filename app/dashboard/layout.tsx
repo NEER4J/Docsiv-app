@@ -11,7 +11,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/server";
 import { SearchDialog } from "@/components/sidebar/search-dialog";
-import { getMyWorkspaces, getCurrentUserProfile } from "@/lib/actions/onboarding";
+import { getMyWorkspaces, getCurrentUserProfile, setWorkspaceCookie } from "@/lib/actions/onboarding";
 
 const WORKSPACE_ID_COOKIE = "workspace_id";
 
@@ -39,13 +39,16 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
 
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
-  const savedWorkspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value;
+  let savedWorkspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value ?? null;
 
   const { workspaces } = await getMyWorkspaces();
-  const currentWorkspaceId =
-    savedWorkspaceId && workspaces.some((w) => w.id === savedWorkspaceId)
-      ? savedWorkspaceId
-      : workspaces[0]?.id ?? null;
+  const validWorkspaceId = savedWorkspaceId && workspaces.some((w) => w.id === savedWorkspaceId) ? savedWorkspaceId : null;
+  const currentWorkspaceId = validWorkspaceId ?? workspaces[0]?.id ?? null;
+
+  // Auto-set workspace cookie when missing or invalid so workspace and docs load without manual selection
+  if (!validWorkspaceId && workspaces.length > 0) {
+    await setWorkspaceCookie(workspaces[0].id).catch(() => {});
+  }
 
   const userData = {
     id: user.id,

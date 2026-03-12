@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Globe, Eye, MessageSquare, Lock } from 'lucide-react';
+import { Globe, Eye, MessageSquare, Lock, Save } from 'lucide-react';
 import { DocumentCommentsProvider } from '@/components/platejs/editors/document-comments-context';
 import { DocumentUploadProvider } from '@/components/platejs/editors/document-upload-context';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
@@ -29,7 +29,7 @@ import {
 import type { DocumentDetail } from '@/types/database';
 import type { TElement, Value } from 'platejs';
 import { Presentation } from 'lucide-react';
-import { PageBuilderEditor } from '@/components/grapesjs/page-builder-editor';
+import { PageBuilderEditor, type PageBuilderEditorHandle } from '@/components/grapesjs/page-builder-editor';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
@@ -94,6 +94,8 @@ export function DocumentEditorView({
   const canShare = role === 'edit';
 
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [grapesSaveStatus, setGrapesSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const pageBuilderRef = useRef<PageBuilderEditorHandle>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [editRequested, setEditRequested] = useState(false);
   const [prefetchedShareData, setPrefetchedShareData] = useState<ShareDialogData | null>(null);
@@ -248,16 +250,34 @@ export function DocumentEditorView({
             </div>
           )}
 
-          {(isDocOrContract || isReportOrProposal) && !effectiveReadOnly && (
+          {isDocOrContract && !effectiveReadOnly && (
             <span className="font-body text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {saveStatus === 'saving' && 'Saving...'}
               {saveStatus === 'saved' && 'Saved'}
+            </span>
+          )}
+          {isReportOrProposal && !effectiveReadOnly && (
+            <span className="font-body text-xs text-muted-foreground whitespace-nowrap shrink-0">
+              {grapesSaveStatus === 'saving' && 'Saving...'}
+              {grapesSaveStatus === 'saved' && 'Saved'}
             </span>
           )}
           <DocumentPresenceAvatars />
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {isReportOrProposal && !effectiveReadOnly && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-sm"
+              onClick={() => pageBuilderRef.current?.save()}
+              disabled={grapesSaveStatus === 'saving'}
+            >
+              <Save className="size-3.5" />
+              Save
+            </Button>
+          )}
           {canShare && (
             <Button
               variant="outline"
@@ -289,13 +309,15 @@ export function DocumentEditorView({
 
       {/* Editor */}
       {isReportOrProposal ? (
-        <div className="min-h-0 flex-1 flex flex-col">
+        <div key={document.updated_at ?? document.id} className="min-h-0 flex-1 flex flex-col">
           <PageBuilderEditor
+            ref={pageBuilderRef}
             documentId={document.id}
             documentTitle={document.title ?? undefined}
             initialContent={isGrapesJSContent(document.content) ? (document.content as GrapesJSStoredContent) : null}
             readOnly={effectiveReadOnly}
             className="min-h-0 flex-1"
+            onSaveStatus={setGrapesSaveStatus}
           />
         </div>
       ) : isDocOrContract ? (

@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { getCurrentUserProfile } from "@/lib/actions/onboarding";
+import { getCurrentUserProfile, getMyWorkspaces, setWorkspaceCookie } from "@/lib/actions/onboarding";
 import { getDocuments, getDocumentTypes } from "@/lib/actions/documents";
 import { getClients } from "@/lib/actions/clients";
 import { DocumentsView } from "./documents-view";
@@ -8,9 +8,15 @@ type Props = { searchParams: Promise<{ trash?: string }> };
 
 export default async function DocumentsPage({ searchParams }: Props) {
   const cookieStore = await cookies();
-  const workspaceId = cookieStore.get("workspace_id")?.value ?? null;
+  let workspaceId = cookieStore.get("workspace_id")?.value ?? null;
   const params = await searchParams;
   const includeTrash = params?.trash === "1";
+
+  const { workspaces } = await getMyWorkspaces();
+  if (!workspaceId && workspaces.length > 0) {
+    workspaceId = workspaces[0].id;
+    await setWorkspaceCookie(workspaceId).catch(() => {});
+  }
 
   const [{ profile }, documentsResult, clientsResult, typesResult] = await Promise.all([
     getCurrentUserProfile(),

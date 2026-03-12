@@ -20,8 +20,28 @@
   color: hsl(var(--foreground));
 }
 
-/* Export / custom buttons in toolbar */
-.gjs-editor-host .gjs-pn-btn[data-id="gjs-export-pdf"],
-.gjs-editor-host .gjs-pn-btn[data-id="gjs-print-preview"] {
+/* Export button in toolbar */
+.gjs-editor-host .gjs-pn-btn[data-id="gjs-export-pdf"] {
   font-size: 12px;
+}
+
+/* Block panel: Phosphor icons size */
+.gjs-editor-host .gjs-block__media svg {
+  width: 34px;
+  height: 34px;
+  fill: white !important  ;
+}
+.gjs-block__media{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gjs-pn-devices-c{
+  padding: 3px;
+  padding-left: 10px;
+}
+
+.gjs-devices-c .gjs-select{
+  width: 70px;
 }

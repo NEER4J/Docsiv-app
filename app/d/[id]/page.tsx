@@ -13,7 +13,7 @@ import {
   getLinkVerifiedToken,
   findActiveDocumentLink,
 } from '@/lib/actions/documents';
-import { getCurrentUserProfile, getWorkspaceDetails } from '@/lib/actions/onboarding';
+import { getCurrentUserProfile, getWorkspaceDetails, setWorkspaceCookie } from '@/lib/actions/onboarding';
 import { DocumentRoomProvider } from '@/components/platejs/editors/document-room-provider';
 import { DocumentEditorView } from './document-editor-view';
 import { SharedDocumentView } from './shared-document-view';
@@ -223,6 +223,9 @@ async function handleAuthenticatedAccess(
           }
         : undefined;
 
+      // Keep workspace cookie in sync so sidebar and nav show the doc's workspace
+      await setWorkspaceCookie(workspaceId).catch(() => {});
+
       return (
         <DocumentRoomProvider
           documentId={document.id}
@@ -285,6 +288,12 @@ async function handleAuthenticatedAccess(
 
   const role = access.role ?? 'view';
   const readOnly = role !== 'edit';
+  const docWorkspaceId = access.workspaceId ?? '';
+
+  // When opening a doc via link/collaborator, set workspace cookie so sidebar matches (if user is member)
+  if (docWorkspaceId) {
+    await setWorkspaceCookie(docWorkspaceId).catch(() => {});
+  }
 
   return (
     <DocumentRoomProvider
@@ -295,7 +304,7 @@ async function handleAuthenticatedAccess(
     >
       <DocumentEditorView
         document={document}
-        workspaceId={access.workspaceId ?? ''}
+        workspaceId={docWorkspaceId}
         workspaceName={collabDoc.workspace_name}
         workspaceHandle={collabDoc.workspace_handle}
         currentUserId={currentUserId}
