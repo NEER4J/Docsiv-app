@@ -131,6 +131,8 @@ export interface DocumentListItem {
   client_id: string | null;
   client_name: string | null;
   thumbnail_url: string | null;
+  /** First page / first area HTML for card preview (GrapesJS docs); optional until migration applied */
+  preview_html?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;

@@ -92,6 +92,7 @@ export type UpdateDocumentInput = {
   client_id?: string | null;
   document_type_id?: string | null;
   require_signature?: boolean;
+  thumbnail_url?: string | null;
 };
 
 export async function updateDocumentRecord(
@@ -108,9 +109,41 @@ export async function updateDocumentRecord(
     p_document_type_id: input.document_type_id ?? null,
     p_require_signature: input.require_signature ?? null,
     p_clear_client_id: clearClient,
+    p_thumbnail_url: input.thumbnail_url ?? null,
   });
   if (error) return { error: error.message };
   return {};
+}
+
+const DOCUMENT_ATTACHMENTS_BUCKET = "document-attachments";
+const THUMBNAIL_FILENAME = "thumbnail.png";
+
+/** Upload a screenshot as document thumbnail and set document.thumbnail_url. Used by Plate and GrapesJS after save. */
+export async function uploadDocumentThumbnail(
+  documentId: string,
+  workspaceId: string,
+  imageBase64: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const path = `${workspaceId}/${documentId}/${THUMBNAIL_FILENAME}`;
+  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+  const buffer = Buffer.from(base64Data, "base64");
+
+  const { error: uploadError } = await supabase.storage
+    .from(DOCUMENT_ATTACHMENTS_BUCKET)
+    .upload(path, buffer, {
+      contentType: "image/png",
+      upsert: true,
+    });
+  if (uploadError) return { error: uploadError.message };
+
+  const { data: urlData } = supabase.storage
+    .from(DOCUMENT_ATTACHMENTS_BUCKET)
+    .getPublicUrl(path);
+  const publicUrl = urlData?.publicUrl ?? null;
+  if (!publicUrl) return { error: "Failed to get thumbnail URL" };
+
+  return updateDocumentRecord(documentId, { thumbnail_url: publicUrl });
 }
 
 export async function duplicateDocument(
@@ -176,12 +209,14 @@ export async function restoreDocument(documentId: string): Promise<{ error?: str
 
 export async function updateDocumentContent(
   documentId: string,
-  content: unknown
+  content: unknown,
+  options?: { previewHtml?: string | null }
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("update_document_content", {
-    p_document_id: documentId,
     p_content: content,
+    p_document_id: documentId,
+    p_preview_html: options?.previewHtml ?? null,
   });
   if (error) return { error: error.message };
   return {};
@@ -192,6 +227,7 @@ export interface DocumentVersionItem {
   document_id: string;
   created_at: string;
   created_by: string;
+  label?: string | null;
   author_name: string | null;
   author_avatar_url: string | null;
 }
@@ -223,12 +259,14 @@ export async function restoreDocumentVersion(
 
 export async function createDocumentVersion(
   documentId: string,
-  content: unknown
+  content: unknown,
+  label?: string | null
 ): Promise<{ versionId: string | null; error?: string }> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("create_document_version", {
     p_document_id: documentId,
     p_content: content,
+    p_label: label ?? null,
   });
   if (error) return { versionId: null, error: error.message };
   return { versionId: data as string };
@@ -490,6 +528,7 @@ export type SharedDocumentItem = {
   client_id: string | null;
   client_name: string | null;
   thumbnail_url: string | null;
+  preview_html: string | null;
   created_at: string;
   updated_at: string;
   workspace_name: string;

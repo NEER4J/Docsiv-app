@@ -28,6 +28,7 @@ function toDocumentListItem(doc: SharedDocumentItem): DocumentListItem {
     client_id: doc.client_id,
     client_name: doc.client_name,
     thumbnail_url: doc.thumbnail_url,
+    preview_html: doc.preview_html ?? null,
     created_at: doc.created_at,
     updated_at: doc.updated_at,
   };

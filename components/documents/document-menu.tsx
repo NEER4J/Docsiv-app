@@ -567,8 +567,12 @@ export function DocumentMenu({
                       <p className="text-sm font-medium truncate">
                         {new Date(v.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                       </p>
-                      {v.author_name && (
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">by {v.author_name}</p>
+                      {(v.label || v.author_name) && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {v.label && <span className="font-medium text-foreground/90">{v.label}</span>}
+                          {v.label && v.author_name && ' · '}
+                          {v.author_name && <>by {v.author_name}</>}
+                        </p>
                       )}
                     </div>
                     <Button

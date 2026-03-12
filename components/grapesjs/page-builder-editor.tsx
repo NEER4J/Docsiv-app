@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, f
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { GrapesJSStoredContent } from '@/lib/grapesjs-content';
-import { updateDocumentContent, createDocumentVersion } from '@/lib/actions/documents';
+import { updateDocumentContent, createDocumentVersion, uploadDocumentThumbnail } from '@/lib/actions/documents';
+import { captureHtmlAsPngBase64 } from '@/lib/capture-thumbnail';
 import { exportGrapesJSToPdf } from '@/lib/grapesjs-export-pdf';
 import { registerBuilderBlocks } from '@/components/grapesjs/builder-blocks';
 import {
@@ -76,10 +77,14 @@ function getIconMedia(iconName: string): string {
   }
 }
 
-export type PageBuilderEditorHandle = { save: () => Promise<void> };
+export type PageBuilderEditorHandle = {
+  save: () => Promise<void>;
+  saveWithLabel: (label: string) => Promise<void>;
+};
 
 type PageBuilderEditorProps = {
   documentId: string;
+  workspaceId: string;
   documentTitle?: string;
   initialContent: GrapesJSStoredContent | null;
   readOnly?: boolean;
@@ -89,6 +94,7 @@ type PageBuilderEditorProps = {
 
 const PageBuilderEditorInner = ({
   documentId,
+  workspaceId,
   documentTitle,
   initialContent,
   readOnly = false,
@@ -113,37 +119,65 @@ ref: React.Ref<PageBuilderEditorHandle>
   documentTitleRef.current = documentTitle;
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
-  const saveContent = useCallback(async () => {
-    const editor = editorRef.current;
-    if (!editor || readOnly) return;
-    try {
-      const projectData = editor.getProjectData();
-      const html = editor.getHtml();
-      const css = editor.getCss();
-      const payload: GrapesJSStoredContent = { projectData, html, css };
-      setSaveStatus('saving');
-      onSaveStatus?.('saving');
-      const { error } = await updateDocumentContent(documentId, payload);
-      const next = error ? 'idle' : 'saved';
-      setSaveStatus(next);
-      onSaveStatus?.(next);
-      if (!error) {
-        createDocumentVersion(documentId, payload).catch(() => {});
-        setTimeout(() => { setSaveStatus('idle'); onSaveStatus?.('idle'); }, 2000);
+  const saveContent = useCallback(
+    async (versionLabel?: string | null) => {
+      const editor = editorRef.current;
+      if (!editor || readOnly) return;
+      try {
+        const projectData = editor.getProjectData();
+        const html = editor.getHtml();
+        const css = editor.getCss();
+        const payload: GrapesJSStoredContent = { projectData, html, css };
+        const previewHtml = html.trim().length > 0 ? html.substring(0, 3000) : null;
+        setSaveStatus('saving');
+        onSaveStatus?.('saving');
+        const { error } = await updateDocumentContent(documentId, payload, { previewHtml });
+        const next = error ? 'idle' : 'saved';
+        setSaveStatus(next);
+        onSaveStatus?.(next);
+        if (!error) {
+          createDocumentVersion(documentId, payload, versionLabel ?? undefined).catch(() => {});
+          setTimeout(() => {
+            setSaveStatus('idle');
+            onSaveStatus?.('idle');
+          }, 2000);
+          // Screenshot thumbnail for document cards (fire-and-forget)
+          captureHtmlAsPngBase64(html, css).then((base64) => {
+            if (base64) uploadDocumentThumbnail(documentId, workspaceId, base64).catch(() => {});
+          });
+        }
+      } catch {
+        setSaveStatus('idle');
+        onSaveStatus?.('idle');
       }
-    } catch {
-      setSaveStatus('idle');
-      onSaveStatus?.('idle');
-    }
-  }, [documentId, readOnly, onSaveStatus]);
+    },
+    [documentId, readOnly, onSaveStatus]
+  );
 
-  useImperativeHandle(ref, () => ({ save: saveContent }), [saveContent]);
+  const saveWithLabel = useCallback(
+    (label: string) => saveContent(label.trim() || undefined),
+    [saveContent]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      save: () => saveContent(),
+      saveWithLabel,
+    }),
+    [saveContent, saveWithLabel]
+  );
 
   useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined') return;
 
     const init = async () => {
       const grapesjs = (await import('grapesjs')).default;
+
+      const uploadUrl =
+        typeof window !== 'undefined' && workspaceId && documentId
+          ? `${window.location.origin}/api/documents/${documentId}/upload-asset?workspaceId=${encodeURIComponent(workspaceId)}`
+          : false;
 
       const editor = grapesjs.init({
         container: containerRef.current!,
@@ -158,6 +192,10 @@ ref: React.Ref<PageBuilderEditorHandle>
             { name: 'Tablet', width: '768px' },
             { name: 'Mobile', width: '320px' },
           ],
+        },
+        assetManager: {
+          upload: readOnly ? false : uploadUrl,
+          uploadName: 'files',
         },
         canvas: {
           styles: [

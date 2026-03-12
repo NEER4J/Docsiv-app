@@ -106,6 +106,7 @@ export function DocumentHistoryPanel({ documentId }: { documentId: string }) {
                       <p className="font-body text-muted-foreground text-[0.75rem] truncate">
                         {new Date(v.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                         {v.author_name ? ` · ${v.author_name}` : ''}
+                        {v.label ? ` · ${v.label}` : ''}
                       </p>
                     </div>
                     <Button

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Globe, Eye, MessageSquare, Lock, Save } from 'lucide-react';
+import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag } from 'lucide-react';
 import { DocumentCommentsProvider } from '@/components/platejs/editors/document-comments-context';
 import { DocumentUploadProvider } from '@/components/platejs/editors/document-upload-context';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
@@ -14,13 +14,30 @@ import { ShareDialog, type ShareDialogData } from '@/components/documents/share-
 import { DocumentMenu } from '@/components/documents/document-menu';
 import { Button } from '@/components/ui/button';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
   updateDocumentContent,
   createDocumentVersion,
   updateDocumentRecord,
+  uploadDocumentThumbnail,
   requestEditAccess,
   getAccessRequests,
   getShareDialogData,
 } from '@/lib/actions/documents';
+import { captureElementAsPngBase64 } from '@/lib/capture-thumbnail';
 import { toast } from 'sonner';
 import {
   documentBreadcrumbStore,
@@ -96,7 +113,10 @@ export function DocumentEditorView({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [grapesSaveStatus, setGrapesSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const pageBuilderRef = useRef<PageBuilderEditorHandle>(null);
+  const plateThumbnailRef = useRef<HTMLDivElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [saveWithLabelOpen, setSaveWithLabelOpen] = useState(false);
+  const [saveWithLabelInput, setSaveWithLabelInput] = useState('');
   const [editRequested, setEditRequested] = useState(false);
   const [prefetchedShareData, setPrefetchedShareData] = useState<ShareDialogData | null>(null);
 
@@ -188,10 +208,14 @@ export function DocumentEditorView({
             lastVersionAtRef.current = now;
             createDocumentVersion(document.id, value).catch(() => {});
           }
+          // Screenshot thumbnail for document cards (fire-and-forget)
+          captureElementAsPngBase64(plateThumbnailRef.current).then((base64) => {
+            if (base64) uploadDocumentThumbnail(document.id, workspaceId, base64).catch(() => {});
+          });
         }
       }, AUTOSAVE_DEBOUNCE_MS);
     },
-    [document.id]
+    [document.id, workspaceId]
   );
 
   return (
@@ -267,16 +291,33 @@ export function DocumentEditorView({
 
         <div className="flex items-center gap-1 shrink-0">
           {isReportOrProposal && !effectiveReadOnly && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 text-sm"
-              onClick={() => pageBuilderRef.current?.save()}
-              disabled={grapesSaveStatus === 'saving'}
-            >
-              <Save className="size-3.5" />
-              Save
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-sm"
+                  disabled={grapesSaveStatus === 'saving'}
+                >
+                  <Save className="size-3.5" />
+                  Save
+                  <ChevronDown className="size-3.5 opacity-70" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => pageBuilderRef.current?.save()}
+                  disabled={grapesSaveStatus === 'saving'}
+                >
+                  <Save className="size-3.5" />
+                  Save
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSaveWithLabelOpen(true)}>
+                  <Tag className="size-3.5" />
+                  Save with label…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {canShare && (
             <Button
@@ -313,6 +354,7 @@ export function DocumentEditorView({
           <PageBuilderEditor
             ref={pageBuilderRef}
             documentId={document.id}
+            workspaceId={workspaceId}
             documentTitle={document.title ?? undefined}
             initialContent={isGrapesJSContent(document.content) ? (document.content as GrapesJSStoredContent) : null}
             readOnly={effectiveReadOnly}
@@ -321,7 +363,7 @@ export function DocumentEditorView({
           />
         </div>
       ) : isDocOrContract ? (
-        <div className="min-h-0 flex-1 flex flex-col">
+        <div ref={plateThumbnailRef} className="min-h-0 flex-1 flex flex-col">
           <DocumentCommentsProvider
             documentId={document.id}
             currentUserId={currentUserId}
@@ -381,6 +423,64 @@ export function DocumentEditorView({
         initialData={prefetchedShareData}
         onDataLoaded={setPrefetchedShareData}
       />
+
+      {/* Save with label (GrapesJS / Report & Proposal) */}
+      <Dialog open={saveWithLabelOpen} onOpenChange={setSaveWithLabelOpen}>
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Save with label</DialogTitle>
+            <p className="font-body text-sm text-muted-foreground">
+              Add a label to this version so you can find it easily in History (e.g. &quot;Final draft&quot;, &quot;Sent to client&quot;).
+            </p>
+          </DialogHeader>
+          <div className="grid gap-2 py-2">
+            <Label htmlFor="version-label">Label</Label>
+            <Input
+              id="version-label"
+              placeholder="e.g. Final draft, Sent to client"
+              value={saveWithLabelInput}
+              onChange={(e) => setSaveWithLabelInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const label = saveWithLabelInput.trim();
+                  if (label) {
+                    pageBuilderRef.current?.saveWithLabel(label);
+                    setSaveWithLabelOpen(false);
+                    setSaveWithLabelInput('');
+                    toast.success('Saved with label');
+                  }
+                }
+              }}
+            />
+          </div>
+          <DialogFooter showCloseButton={false}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSaveWithLabelOpen(false);
+                setSaveWithLabelInput('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!saveWithLabelInput.trim() || grapesSaveStatus === 'saving'}
+              onClick={() => {
+                const label = saveWithLabelInput.trim();
+                if (label) {
+                  pageBuilderRef.current?.saveWithLabel(label);
+                  setSaveWithLabelOpen(false);
+                  setSaveWithLabelInput('');
+                  toast.success('Saved with label');
+                }
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

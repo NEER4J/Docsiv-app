@@ -122,6 +122,25 @@ function getDocumentHref(doc: DocumentListItem): string {
   return `/d/${doc.id}`;
 }
 
+/** Renders first page/area preview in a sandboxed iframe for document cards */
+function DocumentCardPreview({
+  previewHtml,
+  className,
+}: {
+  previewHtml: string;
+  className?: string;
+}) {
+  const srcdoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:0;overflow:hidden;background:#fafafa}.p{transform:scale(0.15);transform-origin:0 0;width:667%;min-height:500%;box-sizing:border-box;}</style></head><body><div class="p">${previewHtml}</div></body></html>`;
+  return (
+    <iframe
+      title="Document preview"
+      sandbox="allow-same-origin"
+      srcDoc={srcdoc}
+      className={className}
+    />
+  );
+}
+
 export function DocumentCard({
   doc,
   variant = "grid",
@@ -174,6 +193,8 @@ export function DocumentCard({
   }
 
   if (variant === "recent") {
+    const thumbnailUrl = doc.thumbnail_url?.trim();
+    const showPreviewHtml = !thumbnailUrl && doc.preview_html?.trim();
     return (
       <div className="relative block w-full max-w-[140px] min-w-0 sm:max-w-[160px] md:max-w-[180px]">
         <Link
@@ -181,13 +202,19 @@ export function DocumentCard({
           className="group relative block w-full"
         >
           <Card className="overflow-hidden transition-colors">
-            <div className="relative flex h-16 w-full items-center justify-center border-b border-border bg-zinc-200 transition-colors dark:bg-muted-hover dark:group-hover:bg-muted-active group-hover:bg-zinc-300 sm:h-24">
+            <div className="relative flex h-16 w-full items-center justify-center overflow-hidden border-b border-border bg-zinc-200 transition-colors dark:bg-muted-hover dark:group-hover:bg-muted-active group-hover:bg-zinc-300 sm:h-24">
               <Badge variant="secondary" className="absolute left-2 top-2 z-10 border-0 !bg-muted-hover !text-foreground text-[0.65rem] font-normal sm:left-2.5 sm:top-2.5 sm:text-[0.7rem]">
                 {statusLabel}
               </Badge>
-              <span className="flex size-8 shrink-0 items-center justify-center sm:size-10">
-                <Icon weight="fill" className="size-8 sm:size-10" style={{ color: typeConfig.color }} />
-              </span>
+              {thumbnailUrl ? (
+                <img src={thumbnailUrl} alt="" className="absolute inset-0 h-full w-full object-cover object-left-top" />
+              ) : showPreviewHtml ? (
+                <DocumentCardPreview previewHtml={showPreviewHtml} className="absolute inset-0 h-full w-full border-0 pointer-events-none" />
+              ) : (
+                <span className="flex size-8 shrink-0 items-center justify-center sm:size-10">
+                  <Icon weight="fill" className="size-8 sm:size-10" style={{ color: typeConfig.color }} />
+                </span>
+              )}
             </div>
             <CardContent className="flex flex-col gap-1.5 bg-muted p-2 transition-colors group-hover:bg-muted-hover sm:gap-2 sm:p-2.5">
               <p className="min-w-0 truncate text-[0.7rem] font-medium sm:text-xs">{doc.title}</p>
@@ -212,17 +239,25 @@ export function DocumentCard({
   }
 
   // grid
+  const thumbnailUrl = doc.thumbnail_url?.trim();
+  const showPreviewHtml = !thumbnailUrl && doc.preview_html?.trim();
   return (
     <li>
       <Link href={docHref} className="group block">
         <Card className="overflow-hidden transition-colors">
-          <div className="relative flex aspect-[4/3] items-center justify-center border-b border-border bg-zinc-200 transition-colors dark:bg-muted-hover dark:group-hover:bg-muted-active group-hover:bg-zinc-300">
+          <div className="relative flex aspect-[4/3] min-h-0 items-center justify-center overflow-hidden border-b border-border bg-zinc-200 transition-colors dark:bg-muted-hover dark:group-hover:bg-muted-active group-hover:bg-zinc-300">
             <Badge variant="secondary" className="absolute left-2.5 top-2.5 z-10 border-0 !bg-muted-hover !text-foreground text-[0.7rem] font-normal">
               {statusLabel}
             </Badge>
-            <span className="flex size-12 shrink-0 items-center justify-center">
-              <Icon weight="fill" className="size-12 h-12 w-12" style={{ color: typeConfig.color }} />
-            </span>
+            {thumbnailUrl ? (
+              <img src={thumbnailUrl} alt="" className="absolute inset-0 h-full w-full object-cover object-left-top" />
+            ) : showPreviewHtml ? (
+              <DocumentCardPreview previewHtml={showPreviewHtml} className="absolute inset-0 h-full w-full border-0 pointer-events-none" />
+            ) : (
+              <span className="flex size-12 shrink-0 items-center justify-center">
+                <Icon weight="fill" className="size-12 h-12 w-12" style={{ color: typeConfig.color }} />
+              </span>
+            )}
           </div>
           <CardContent className="flex flex-col gap-2 bg-muted p-3 transition-colors group-hover:bg-muted-hover">
             <div className="flex min-w-0 items-center gap-2">
