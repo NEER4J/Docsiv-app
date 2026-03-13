@@ -84,9 +84,10 @@ async function renderPageToDataURL(
         const imgX = width / 2 - drawWidth / 2 + offsetX;
         const imgY = height / 2 - drawHeight / 2 + offsetY;
         const group = new Konva.Group({
-          clipFunc: (ctx: CanvasRenderingContext2D) => {
-            ctx.beginPath();
-            ctx.rect(0, 0, width, height);
+          clipFunc: () => {
+            const path = new Path2D();
+            path.rect(0, 0, width, height);
+            return [path];
           },
         });
         const bgImg = new Konva.Image({
