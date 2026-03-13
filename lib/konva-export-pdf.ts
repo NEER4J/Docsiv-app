@@ -74,8 +74,30 @@ async function renderPageToDataURL(
     } else if (background?.type === 'image' && background.imageUrl) {
       try {
         const img = await loadImage(background.imageUrl);
-        const bgImg = new Konva.Image({ x: 0, y: 0, image: img, width, height });
-        layer.add(bgImg);
+        const nw = img.naturalWidth || width;
+        const nh = img.naturalHeight || height;
+        const scale = Math.max(width / nw, height / nh);
+        const drawWidth = nw * scale;
+        const drawHeight = nh * scale;
+        const offsetX = background.offsetX ?? 0;
+        const offsetY = background.offsetY ?? 0;
+        const imgX = width / 2 - drawWidth / 2 + offsetX;
+        const imgY = height / 2 - drawHeight / 2 + offsetY;
+        const group = new Konva.Group({
+          clipFunc: (ctx: CanvasRenderingContext2D) => {
+            ctx.beginPath();
+            ctx.rect(0, 0, width, height);
+          },
+        });
+        const bgImg = new Konva.Image({
+          x: imgX,
+          y: imgY,
+          image: img,
+          width: drawWidth,
+          height: drawHeight,
+        });
+        group.add(bgImg);
+        layer.add(group);
       } catch {
         const rect = new Konva.Rect({ x: 0, y: 0, width, height, fill: '#ffffff' });
         layer.add(rect);
@@ -213,12 +235,10 @@ async function renderPageToDataURL(
   }
 }
 
-export async function exportKonvaReportToPdf(
-  content: KonvaStoredContent,
-  filename: string = 'report.pdf'
-): Promise<void> {
+/** Generate report PDF and return as Blob (for preview or download). */
+export async function getKonvaReportPdfBlob(content: KonvaStoredContent): Promise<Blob | null> {
   const pages = getKonvaReportPages(content);
-  if (pages.length === 0) return;
+  if (pages.length === 0) return null;
 
   const { widthPx, heightPx } = getKonvaReportPageSize(content);
 
@@ -239,7 +259,15 @@ export async function exportKonvaReportToPdf(
 
   const pdfBytes = await pdfDoc.save();
   const buffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer;
-  const blob = new Blob([buffer], { type: 'application/pdf' });
+  return new Blob([buffer], { type: 'application/pdf' });
+}
+
+export async function exportKonvaReportToPdf(
+  content: KonvaStoredContent,
+  filename: string = 'report.pdf'
+): Promise<void> {
+  const blob = await getKonvaReportPdfBlob(content);
+  if (!blob) return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -248,12 +276,10 @@ export async function exportKonvaReportToPdf(
   URL.revokeObjectURL(url);
 }
 
-export async function exportKonvaPresentationToPdf(
-  content: KonvaStoredContent,
-  filename: string = 'presentation.pdf'
-): Promise<void> {
+/** Generate presentation PDF and return as Blob (for preview or download). */
+export async function getKonvaPresentationPdfBlob(content: KonvaStoredContent): Promise<Blob | null> {
   const slides = getKonvaPresentationSlides(content);
-  if (slides.length === 0) return;
+  if (slides.length === 0) return null;
 
   const { PDFDocument } = await import('pdf-lib');
   const pdfDoc = await PDFDocument.create();
@@ -272,7 +298,15 @@ export async function exportKonvaPresentationToPdf(
 
   const pdfBytes = await pdfDoc.save();
   const buffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer;
-  const blob = new Blob([buffer], { type: 'application/pdf' });
+  return new Blob([buffer], { type: 'application/pdf' });
+}
+
+export async function exportKonvaPresentationToPdf(
+  content: KonvaStoredContent,
+  filename: string = 'presentation.pdf'
+): Promise<void> {
+  const blob = await getKonvaPresentationPdfBlob(content);
+  if (!blob) return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

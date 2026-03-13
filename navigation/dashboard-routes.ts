@@ -44,11 +44,26 @@ export interface BreadcrumbItem {
 
 /**
  * Returns breadcrumb items for the given pathname and params.
+ * Handles both /dashboard/* and /d/* (document editor) routes.
  */
 export function getDashboardBreadcrumbs(
   pathname: string,
   params: Record<string, string | string[] | undefined> = {}
 ): BreadcrumbItem[] {
+  // Document editor routes: /d or /d/[id]
+  if (pathname.startsWith("/d")) {
+    const rest = pathname.slice(2).replace(/^\/+/, "");
+    const segments = rest ? rest.split("/") : [];
+    const items: BreadcrumbItem[] = [
+      { label: "Documents", href: "/dashboard/documents" },
+    ];
+    if (segments.length > 0) {
+      // /d/[id] — last segment is document (label can be overridden with actual title in navbar)
+      items.push({ label: "Document", href: null });
+    }
+    return items;
+  }
+
   const base = "/dashboard";
   if (!pathname.startsWith(base)) return [];
 

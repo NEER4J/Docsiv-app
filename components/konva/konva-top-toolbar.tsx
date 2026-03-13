@@ -17,6 +17,7 @@ import {
   Copy,
   Trash,
   CaretDown,
+  Presentation,
 } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import {
@@ -42,6 +43,7 @@ export type KonvaTopToolbarProps = {
   onToggleVisibility: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onPreview?: () => void;
 };
 
 export function KonvaTopToolbar({
@@ -58,6 +60,7 @@ export function KonvaTopToolbar({
   onToggleVisibility,
   onDuplicate,
   onDelete,
+  onPreview,
 }: KonvaTopToolbarProps) {
   if (readOnly) return null;
 
@@ -169,6 +172,20 @@ export function KonvaTopToolbar({
             <Trash className="size-4" weight="bold" />
           </Button>
         </>
+      )}
+      {onPreview && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto h-8 gap-1.5 px-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+          onClick={onPreview}
+          aria-label="Preview document"
+          title="Preview"
+        >
+          <Presentation className="size-4" weight="bold" />
+          Preview
+        </Button>
       )}
     </header>
   );

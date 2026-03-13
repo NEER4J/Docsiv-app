@@ -24,6 +24,7 @@ import {
   FileText,
   CaretDoubleLeft,
   CaretDoubleRight,
+  MagnifyingGlass,
 } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import {
@@ -57,7 +58,6 @@ import { toast } from 'sonner';
 import type { PageBackground, KonvaStoredContent } from '@/lib/konva-content';
 import { BACKGROUND_PATTERNS } from '@/lib/konva-background-patterns';
 import { KONVA_FONT_FAMILIES, loadFontFamily } from '@/lib/konva-fonts';
-import { KONVA_ICONS, getIconsByCategory } from '@/lib/konva-icons';
 import { getTemplatesByMode } from '@/lib/konva-templates';
 import { getDocuments, getDocumentById } from '@/lib/actions/documents';
 import type { DocumentListItem } from '@/types/database';
@@ -209,6 +209,14 @@ export function KonvaLeftSidebar({
   const [stripCollapsed, setStripCollapsed] = useState(false);
   const [sessionUploads, setSessionUploads] = useState<{ url: string; name: string; type: string }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [unsplashQuery, setUnsplashQuery] = useState('');
+  const [unsplashSearchTerm, setUnsplashSearchTerm] = useState('');
+  const [unsplashResults, setUnsplashResults] = useState<
+    { id: string; width: number; height: number; urls: { regular: string; small: string; thumb: string }; user: { name: string } }[]
+  >([]);
+  const [unsplashLoading, setUnsplashLoading] = useState(false);
+  const [unsplashPage, setUnsplashPage] = useState(1);
+  const unsplashSearchAbortRef = useRef<AbortController | null>(null);
   const [selectedFont, setSelectedFont] = useState<string>('Inter');
   const [myDesigns, setMyDesigns] = useState<DocumentListItem[]>([]);
   const [templateSelectOpen, setTemplateSelectOpen] = useState(false);
@@ -216,6 +224,15 @@ export function KonvaLeftSidebar({
   const [templateDocTitle, setTemplateDocTitle] = useState('');
   const [templateSelectedPages, setTemplateSelectedPages] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [iconifyQuery, setIconifyQuery] = useState('');
+  const [iconifyResults, setIconifyResults] = useState<string[]>([]);
+  const [iconifyLoading, setIconifyLoading] = useState(false);
+  const iconifyDefaultsLoadedRef = useRef(false);
+  const [bgUnsplashQuery, setBgUnsplashQuery] = useState('');
+  const [bgUnsplashResults, setBgUnsplashResults] = useState<
+    { id: string; urls: { regular: string; small: string; thumb: string }; user: { name: string } }[]
+  >([]);
+  const [bgUnsplashLoading, setBgUnsplashLoading] = useState(false);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -276,6 +293,104 @@ export function KonvaLeftSidebar({
     },
     [documentId, workspaceId]
   );
+
+  const searchUnsplash = useCallback(async (term: string, pageNum = 1) => {
+    const q = term.trim();
+    if (!q) {
+      setUnsplashResults([]);
+      setUnsplashSearchTerm('');
+      return;
+    }
+    setUnsplashSearchTerm(q);
+    unsplashSearchAbortRef.current?.abort();
+    unsplashSearchAbortRef.current = new AbortController();
+    setUnsplashLoading(true);
+    try {
+      const res = await fetch(
+        `/api/unsplash/search?q=${encodeURIComponent(q)}&page=${pageNum}&per_page=20`,
+        { signal: unsplashSearchAbortRef.current.signal }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? 'Unsplash search failed');
+        setUnsplashResults([]);
+        return;
+      }
+      setUnsplashResults(data.results ?? []);
+      setUnsplashPage(pageNum);
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      toast.error(err instanceof Error ? err.message : 'Search failed');
+      setUnsplashResults([]);
+    } finally {
+      setUnsplashLoading(false);
+      unsplashSearchAbortRef.current = null;
+    }
+  }, []);
+
+  const searchIconify = useCallback(async (term: string) => {
+    const q = term.trim();
+    if (!q) {
+      setIconifyResults([]);
+      return;
+    }
+    setIconifyLoading(true);
+    try {
+      const res = await fetch(`/api/iconify/search?q=${encodeURIComponent(q)}&limit=32`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? 'Icon search failed');
+        setIconifyResults([]);
+        return;
+      }
+      setIconifyResults(data.icons ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Search failed');
+      setIconifyResults([]);
+    } finally {
+      setIconifyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeLeftTab === 'icons' && !iconifyDefaultsLoadedRef.current) {
+      iconifyDefaultsLoadedRef.current = true;
+      setIconifyLoading(true);
+      fetch('/api/iconify/search?q=arrow&limit=24')
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data.icons) && data.icons.length > 0) {
+            setIconifyResults(data.icons);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setIconifyLoading(false));
+    }
+  }, [activeLeftTab]);
+
+  const searchBgUnsplash = useCallback(async (term: string) => {
+    const q = term.trim();
+    if (!q) {
+      setBgUnsplashResults([]);
+      return;
+    }
+    setBgUnsplashLoading(true);
+    try {
+      const res = await fetch(`/api/unsplash/search?q=${encodeURIComponent(q)}&per_page=20`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? 'Unsplash search failed');
+        setBgUnsplashResults([]);
+        return;
+      }
+      setBgUnsplashResults(data.results ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Search failed');
+      setBgUnsplashResults([]);
+    } finally {
+      setBgUnsplashLoading(false);
+    }
+  }, []);
 
   if (readOnly) return null;
 
@@ -697,7 +812,7 @@ export function KonvaLeftSidebar({
               ))}
             </div>
             <div className="mt-3 flex flex-col gap-1">
-              <Button size="sm" variant="outline" className="h-8 gap-1 w-full border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={onExportPdf}>
+              <Button type="button" size="sm" variant="outline" className="h-8 gap-1 w-full border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={onExportPdf}>
                 <FilePdf className="size-4" /> Export PDF
               </Button>
               {onExportPng && (
@@ -1022,19 +1137,166 @@ export function KonvaLeftSidebar({
                     </Button>
                   </>
                 )}
+
+                {/* From Unsplash - separate from uploads */}
+                <div className="mt-4 border-t border-zinc-700 pt-4">
+                  <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">From Unsplash</p>
+                  <p className="mb-2 text-[10px] text-zinc-500">Search free high‑resolution photos for canvas or background.</p>
+                  <div className="flex gap-1.5">
+                    <Input
+                      placeholder="Search photos…"
+                      value={unsplashQuery}
+                      onChange={(e) => setUnsplashQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && searchUnsplash(unsplashQuery)}
+                      className="h-8 flex-1 border-zinc-700 bg-zinc-800 text-xs text-zinc-100 placeholder:text-zinc-500"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0 border-zinc-700 bg-zinc-800 px-2 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100"
+                      onClick={() => searchUnsplash(unsplashQuery)}
+                      disabled={unsplashLoading || !unsplashQuery.trim()}
+                    >
+                      <MagnifyingGlass className="size-4" weight="bold" />
+                    </Button>
+                  </div>
+                  {unsplashLoading && (
+                    <p className="mt-2 text-[10px] text-zinc-500">Searching…</p>
+                  )}
+                  {!unsplashLoading && unsplashResults.length > 0 && (
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      {unsplashResults.map((photo) => {
+                        const maxW = 400;
+                        const maxH = 300;
+                        let w = photo.width;
+                        let h = photo.height;
+                        if (w > maxW || h > maxH) {
+                          const scale = Math.min(maxW / w, maxH / h);
+                          w = Math.round(w * scale);
+                          h = Math.round(h * scale);
+                        }
+                        return (
+                          <div
+                            key={photo.id}
+                            className="flex flex-col gap-0.5 rounded border border-zinc-700 bg-zinc-800/80 p-1.5"
+                          >
+                            <div className="aspect-square w-full overflow-hidden rounded bg-zinc-800">
+                              <img
+                                src={photo.urls.thumb}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                            <span className="truncate text-[10px] text-zinc-400" title={photo.user.name}>
+                              {photo.user.name}
+                            </span>
+                            <div className="flex flex-col gap-0.5">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-xs text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100"
+                                onClick={() => onAddShape('Image', { src: photo.urls.regular, width: w, height: h })}
+                              >
+                                Add to canvas
+                              </Button>
+                              {onSetPageBackground && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 text-xs text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300"
+                                  onClick={() => onSetPageBackground(currentPageIndex, { type: 'image', imageUrl: photo.urls.regular })}
+                                >
+                                  Use as background
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {!unsplashLoading && unsplashSearchTerm && unsplashResults.length === 0 && (
+                    <p className="mt-2 text-[10px] text-zinc-500">No results. Try another search.</p>
+                  )}
+                </div>
               </>
             ) : (
-              <div className="flex flex-col gap-2">
-                <p className="text-xs text-zinc-500">Upload requires document context.</p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100"
-                  onClick={() => onAddShape('Image', { src: '', width: 200, height: 120 })}
-                >
-                  Add placeholder image
-                </Button>
+              <div className="flex flex-col gap-4">
+                <div>
+                  <p className="text-xs text-zinc-500">Upload requires document context.</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100"
+                    onClick={() => onAddShape('Image', { src: '', width: 200, height: 120 })}
+                  >
+                    Add placeholder image
+                  </Button>
+                </div>
+                {/* From Unsplash - still available without document context */}
+                <div className="border-t border-zinc-700 pt-4">
+                  <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">From Unsplash</p>
+                  <p className="mb-2 text-[10px] text-zinc-500">Search free photos to add to canvas.</p>
+                  <div className="flex gap-1.5">
+                    <Input
+                      placeholder="Search photos…"
+                      value={unsplashQuery}
+                      onChange={(e) => setUnsplashQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && searchUnsplash(unsplashQuery)}
+                      className="h-8 flex-1 border-zinc-700 bg-zinc-800 text-xs text-zinc-100 placeholder:text-zinc-500"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0 border-zinc-700 bg-zinc-800 px-2 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100"
+                      onClick={() => searchUnsplash(unsplashQuery)}
+                      disabled={unsplashLoading || !unsplashQuery.trim()}
+                    >
+                      <MagnifyingGlass className="size-4" weight="bold" />
+                    </Button>
+                  </div>
+                  {unsplashLoading && <p className="mt-2 text-[10px] text-zinc-500">Searching…</p>}
+                  {!unsplashLoading && unsplashResults.length > 0 && (
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      {unsplashResults.map((photo) => {
+                        const maxW = 400;
+                        const maxH = 300;
+                        let w = photo.width;
+                        let h = photo.height;
+                        if (w > maxW || h > maxH) {
+                          const scale = Math.min(maxW / w, maxH / h);
+                          w = Math.round(w * scale);
+                          h = Math.round(h * scale);
+                        }
+                        return (
+                          <div key={photo.id} className="flex flex-col gap-0.5 rounded border border-zinc-700 bg-zinc-800/80 p-1.5">
+                            <div className="aspect-square w-full overflow-hidden rounded bg-zinc-800">
+                              <img src={photo.urls.thumb} alt="" className="h-full w-full object-cover" />
+                            </div>
+                            <span className="truncate text-[10px] text-zinc-400" title={photo.user.name}>{photo.user.name}</span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 text-xs text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100"
+                              onClick={() => onAddShape('Image', { src: photo.urls.regular, width: w, height: h })}
+                            >
+                              Add to canvas
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {!unsplashLoading && unsplashSearchTerm && unsplashResults.length === 0 && (
+                    <p className="mt-2 text-[10px] text-zinc-500">No results. Try another search.</p>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1042,41 +1304,76 @@ export function KonvaLeftSidebar({
         {activeLeftTab === 'icons' && (
           <div className="flex flex-1 flex-col overflow-y-auto p-2">
             <h3 className="mb-2 text-xs font-medium text-zinc-400">Icons</h3>
-            <p className="mb-2 text-[10px] text-zinc-500">Click to add to canvas</p>
-            <div className="flex flex-col gap-3">
-              {Array.from(getIconsByCategory().entries()).map(([category, icons]) => (
-                <div key={category}>
-                  <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">{category}</p>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {icons.map((icon) => (
-                      <button
-                        key={icon.id}
-                        type="button"
-                        onClick={() =>
+            <p className="mb-2 text-[10px] text-zinc-500">Search 200k+ icons from Iconify. Click to add to canvas.</p>
+            <div className="flex gap-1.5">
+              <Input
+                placeholder="Search icons…"
+                value={iconifyQuery}
+                onChange={(e) => setIconifyQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && searchIconify(iconifyQuery)}
+                className="h-8 flex-1 border-zinc-700 bg-zinc-800 text-xs text-zinc-100 placeholder:text-zinc-500"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 shrink-0 border-zinc-700 bg-zinc-800 px-2 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100"
+                onClick={() => searchIconify(iconifyQuery)}
+                disabled={iconifyLoading || !iconifyQuery.trim()}
+              >
+                <MagnifyingGlass className="size-4" weight="bold" />
+              </Button>
+            </div>
+            {iconifyLoading && <p className="mt-2 text-[10px] text-zinc-500">Searching…</p>}
+            {!iconifyLoading && iconifyResults.length > 0 && (
+              <div className="mt-3 grid grid-cols-4 gap-1.5">
+                {iconifyResults.map((iconName) => {
+                  const svgUrl = `https://api.iconify.design/${iconName.replace(':', '/')}.svg?height=24`;
+                  return (
+                    <button
+                      key={iconName}
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/iconify/icon?name=${encodeURIComponent(iconName)}`);
+                          const data = await res.json();
+                          if (!res.ok) {
+                            toast.error(data?.error ?? 'Could not load icon');
+                            return;
+                          }
+                          const hasStroke = data.paths?.some((p: { stroke?: string }) => p.stroke);
                           onAddShape('Icon', {
-                            pathData: icon.pathData,
+                            paths: data.paths,
+                            pathData: data.pathData,
+                            viewBoxSize: data.viewBoxSize ?? 24,
                             fill: '#171717',
+                            ...(hasStroke && { stroke: '#000000', strokeWidth: 1 }),
                             width: 24,
                             height: 24,
-                          })
+                          });
+                        } catch {
+                          toast.error('Failed to add icon');
                         }
-                        className="flex h-10 w-10 items-center justify-center rounded border border-zinc-700 bg-zinc-800 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700 hover:text-zinc-100"
-                        title={icon.name}
-                      >
-                        <svg
-                          viewBox="0 0 256 256"
-                          className="h-5 w-5 shrink-0"
-                          fill="currentColor"
+                      }}
+                      className="flex h-10 w-10 items-center justify-center rounded border border-zinc-700 bg-zinc-800 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700 hover:text-zinc-100"
+                      title={iconName}
+                    >
+                      <span className="flex h-8 w-8 items-center justify-center rounded bg-zinc-500">
+                        <img
+                          src={svgUrl}
+                          alt=""
+                          className="h-5 w-5 shrink-0 opacity-90"
                           style={{ minWidth: 20, minHeight: 20 }}
-                        >
-                          <path d={icon.pathData} />
-                        </svg>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+                        />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {!iconifyLoading && iconifyQuery.trim() && iconifyResults.length === 0 && (
+              <p className="mt-2 text-[10px] text-zinc-500">No icons found. Try another search.</p>
+            )}
           </div>
         )}
         {activeLeftTab === 'draw' && (
@@ -1224,7 +1521,50 @@ export function KonvaLeftSidebar({
                         ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-zinc-500">Upload images in the Upload or Photos tab first.</p>
+                    <p className="text-xs text-zinc-500">Upload images in the Media tab first, or search Unsplash below.</p>
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">From Unsplash</Label>
+                  <p className="text-[10px] text-zinc-500">Search free photos to use as background.</p>
+                  <div className="flex gap-1.5">
+                    <Input
+                      placeholder="Search photos…"
+                      value={bgUnsplashQuery}
+                      onChange={(e) => setBgUnsplashQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && searchBgUnsplash(bgUnsplashQuery)}
+                      className="h-8 flex-1 border-zinc-700 bg-zinc-800 text-xs text-zinc-100 placeholder:text-zinc-500"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0 border-zinc-700 bg-zinc-800 px-2 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100"
+                      onClick={() => searchBgUnsplash(bgUnsplashQuery)}
+                      disabled={bgUnsplashLoading || !bgUnsplashQuery.trim()}
+                    >
+                      <MagnifyingGlass className="size-4" weight="bold" />
+                    </Button>
+                  </div>
+                  {bgUnsplashLoading && <p className="text-[10px] text-zinc-500">Searching…</p>}
+                  {!bgUnsplashLoading && bgUnsplashResults.length > 0 && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {bgUnsplashResults.map((photo) => (
+                        <button
+                          key={photo.id}
+                          type="button"
+                          onClick={() => onSetPageBackground(currentPageIndex, { type: 'image', imageUrl: photo.urls.regular })}
+                          className={`overflow-hidden rounded border-2 transition-colors ${
+                            currentPageBackground?.type === 'image' && currentPageBackground.imageUrl === photo.urls.regular
+                              ? 'border-blue-500'
+                              : 'border-zinc-700 hover:border-zinc-600'
+                          }`}
+                          title={photo.user.name}
+                        >
+                          <img src={photo.urls.thumb} alt="" className="aspect-square w-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
                 <Button

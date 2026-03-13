@@ -42,7 +42,7 @@ export function getStableId(shape: KonvaShapeDesc, index: number): string {
 export type PageBackground =
   | { type: 'solid'; color: string }
   | { type: 'pattern'; patternId: string }
-  | { type: 'image'; imageUrl: string };
+  | { type: 'image'; imageUrl: string; offsetX?: number; offsetY?: number };
 
 /** One page in a report or proposal (Konva). */
 export interface KonvaPage {

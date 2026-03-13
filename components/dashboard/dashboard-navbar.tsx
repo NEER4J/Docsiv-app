@@ -15,8 +15,10 @@ export function DashboardNavbar() {
 
   if (breadcrumbs.length === 0) return null;
 
-  // Override the last breadcrumb label with the actual document title
-  const isDocumentPage = pathname?.match(/^\/dashboard\/documents\/[^/]+$/);
+  // Override the last breadcrumb label with the actual document title (dashboard or /d editor)
+  const isDashboardDocumentPage = pathname?.match(/^\/dashboard\/documents\/[^/]+$/);
+  const isEditorDocumentPage = pathname?.match(/^\/d\/[^/]+$/);
+  const isDocumentPage = isDashboardDocumentPage || isEditorDocumentPage;
   if (isDocumentPage && documentTitle && breadcrumbs.length > 1) {
     breadcrumbs[breadcrumbs.length - 1] = {
       ...breadcrumbs[breadcrumbs.length - 1],

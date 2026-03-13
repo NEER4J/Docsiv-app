@@ -1,0 +1,5 @@
+/* Left-align Univer ribbon tabs and toolbar (override default center/space-around) */
+.univer-sheet-editor-wrapper .univer-justify-center,
+.univer-sheet-editor-wrapper .univer-justify-around {
+  justify-content: flex-start !important;
+}

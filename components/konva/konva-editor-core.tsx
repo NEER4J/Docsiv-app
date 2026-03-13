@@ -8,7 +8,7 @@ import React, {
   forwardRef,
   useEffect,
 } from 'react';
-import { Stage, Layer, Transformer, Line, Rect, Image } from 'react-konva';
+import { Stage, Layer, Group, Transformer, Line, Rect, Image } from 'react-konva';
 import type Konva from 'konva';
 import {
   getStableId,
@@ -31,6 +31,12 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { renderPageToPngDataURL } from '@/lib/konva-export-pdf';
 import { updateDocumentContent, createDocumentVersion, uploadDocumentThumbnail } from '@/lib/actions/documents';
 import { computeSnap, type Bounds } from '@/lib/konva-snap';
@@ -49,10 +55,14 @@ function KonvaBackgroundLayer({
   background,
   width,
   height,
+  isCurrentPage,
+  onBackgroundImageDragEnd,
 }: {
   background: PageBackground;
   width: number;
   height: number;
+  isCurrentPage?: boolean;
+  onBackgroundImageDragEnd?: (offsetX: number, offsetY: number) => void;
 }) {
   const [patternCanvas, setPatternCanvas] = useState<HTMLCanvasElement | null>(null);
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
@@ -99,15 +109,43 @@ function KonvaBackgroundLayer({
     );
   }
   if (background.type === 'image' && bgImage) {
+    const nw = bgImage.naturalWidth || width;
+    const nh = bgImage.naturalHeight || height;
+    const scale = Math.max(width / nw, height / nh);
+    const drawWidth = nw * scale;
+    const drawHeight = nh * scale;
+    const offsetX = background.offsetX ?? 0;
+    const offsetY = background.offsetY ?? 0;
+    const imgX = width / 2 - drawWidth / 2 + offsetX;
+    const imgY = height / 2 - drawHeight / 2 + offsetY;
+    const canDrag = isCurrentPage && !!onBackgroundImageDragEnd;
+
     return (
-      <Image
-        x={0}
-        y={0}
-        width={width}
-        height={height}
-        image={bgImage}
+      <Group
+        clipFunc={(ctx) => {
+          ctx.rect(0, 0, width, height);
+        }}
         listening={false}
-      />
+      >
+        <Image
+          x={imgX}
+          y={imgY}
+          width={drawWidth}
+          height={drawHeight}
+          image={bgImage}
+          listening={canDrag}
+          draggable={canDrag}
+          onDragEnd={(e) => {
+            if (!onBackgroundImageDragEnd) return;
+            const node = e.target;
+            const newX = node.x();
+            const newY = node.y();
+            const newOffsetX = newX - (width / 2 - drawWidth / 2);
+            const newOffsetY = newY - (height / 2 - drawHeight / 2);
+            onBackgroundImageDragEnd(newOffsetX, newOffsetY);
+          }}
+        />
+      </Group>
     );
   }
   return null;
@@ -203,6 +241,7 @@ const KonvaEditorCoreInner = (
     clientX: number;
     clientY: number;
   } | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const viewAllScrollRef = useRef<HTMLDivElement>(null);
   const [canvasCursor, setCanvasCursor] = useState<'grab' | 'default' | 'move' | 'grabbing' | string>('grab');
   const [guideLines, setGuideLines] = useState<{ vertical: number[]; horizontal: number[] }>({ vertical: [], horizontal: [] });
@@ -546,7 +585,17 @@ const KonvaEditorCoreInner = (
           attrs = { ...base, sides: (defaultAttrs.sides as number) ?? 6, radius: 50, fill: '#e5e5e5', rotation: (defaultAttrs.rotation as number) ?? 0 };
           break;
         case 'Icon':
-          attrs = { ...base, pathData: (defaultAttrs.pathData as string) ?? '', fill: (defaultAttrs.fill as string) ?? '#171717', width: 24, height: 24 };
+          attrs = {
+            ...base,
+            paths: defaultAttrs.paths as Array<{ d: string; fill?: string | null; stroke?: string | null; strokeWidth?: number }> | undefined,
+            pathData: (defaultAttrs.pathData as string) ?? '',
+            fill: (defaultAttrs.fill as string) ?? '#171717',
+            stroke: (defaultAttrs.stroke as string) ?? '',
+            strokeWidth: (defaultAttrs.strokeWidth as number) ?? 0,
+            width: (defaultAttrs.width as number) ?? 24,
+            height: (defaultAttrs.height as number) ?? 24,
+            viewBoxSize: (defaultAttrs.viewBoxSize as number) ?? 256,
+          };
           break;
         case 'Video':
           attrs = { ...base, src: (defaultAttrs.src as string) ?? '', width: 320, height: 180 };
@@ -702,7 +751,8 @@ const KonvaEditorCoreInner = (
       if (readOnly) return;
       setGuideLines({ vertical: [], horizontal: [] });
       pushHistory();
-      const node = e.target;
+      const shapeId = getStableId(shapes[index], index);
+      const node = nodeMapRef.current.get(shapeId) ?? e.target;
       setPages((prev) => {
         const next = [...prev];
         const page = next[currentIndex] ?? { layer: { children: [] } };
@@ -714,7 +764,7 @@ const KonvaEditorCoreInner = (
         return next;
       });
     },
-    [readOnly, currentIndex, pushHistory]
+    [readOnly, currentIndex, pushHistory, shapes]
   );
 
   const handleTransformEnd = useCallback(
@@ -1153,16 +1203,18 @@ const KonvaEditorCoreInner = (
     [updateShapeAttrs]
   );
 
+  const buildPdfPayload = useCallback((): KonvaStoredContent => ({
+    editor: 'konva',
+    ...(mode === 'report'
+      ? { report: { pages: pages.map((p) => ({ layer: p.layer ?? pageToLayer(p) })), pageWidthPx: width, pageHeightPx: height } }
+      : { presentation: { slides: pages.map((s) => ({ layer: s.layer ?? pageToLayer(s) })) } }),
+  }), [mode, pages, width, height]);
+
   const handleExportPdf = useCallback(() => {
-    const payload: KonvaStoredContent = {
-      editor: 'konva',
-      ...(mode === 'report'
-        ? { report: { pages: pages.map((p) => ({ layer: p.layer ?? pageToLayer(p) })), pageWidthPx: width, pageHeightPx: height } }
-        : { presentation: { slides: pages.map((s) => ({ layer: s.layer ?? pageToLayer(s) })) } }),
-    };
+    const payload = buildPdfPayload();
     const name = (documentTitle || (mode === 'report' ? 'report' : 'presentation')).replace(/[^\w\s-]/g, '').replace(/\s+/g, '-') || mode;
     exportToPdf(payload, `${name}.pdf`).catch(() => {});
-  }, [mode, pages, documentTitle, exportToPdf, width, height]);
+  }, [mode, documentTitle, exportToPdf, buildPdfPayload]);
 
   const handleExportPng = useCallback(async () => {
     const dataUrl = await renderPageToPngDataURL(shapes, width, height, 2);
@@ -1197,12 +1249,85 @@ const KonvaEditorCoreInner = (
     editorRootRef.current?.focus({ preventScroll: true });
   }, []);
 
+  const previewScale = Math.min(420 / width, 520 / height, 0.85);
+
   return (
     <div
       ref={editorRootRef}
       className={`flex min-h-0 flex-1 overflow-hidden outline-none ${className}`}
       tabIndex={0}
     >
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent
+          className="max-h-[90vh] max-w-[95vw] overflow-hidden flex flex-col border border-zinc-700 bg-zinc-900 text-zinc-100"
+          onPointerDownCapture={(e) => e.target === e.currentTarget && e.preventDefault()}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{ userSelect: 'none' }}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-zinc-100">Document preview</DialogTitle>
+          </DialogHeader>
+          <div
+            className="flex-1 overflow-auto rounded border border-zinc-700 bg-zinc-800 p-4"
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <div className="mx-auto flex flex-col items-center gap-6">
+              {pages.map((page, pageIndex) => {
+                const pageShapes = getChildren(page);
+                const pageBg = (page as { background?: PageBackground })?.background;
+                return (
+                  <div key={pageIndex} className="flex flex-col items-center gap-2">
+                    <div
+                      className="overflow-hidden rounded border border-zinc-600 bg-white"
+                      style={{
+                        width: width * previewScale,
+                        height: height * previewScale,
+                      }}
+                      onContextMenu={(e) => e.preventDefault()}
+                    >
+                      <div
+                        style={{
+                          width: width,
+                          height: height,
+                          transform: `scale(${previewScale})`,
+                          transformOrigin: 'top left',
+                        }}
+                      >
+                        <Stage width={width} height={height} listening={false}>
+                          {pageBg ? (
+                            <Layer listening={false}>
+                              <KonvaBackgroundLayer background={pageBg} width={width} height={height} />
+                            </Layer>
+                          ) : null}
+                          <Layer listening={false}>
+                            {pageShapes.map((shape, idx) => (
+                              <KonvaShapeRenderer
+                                key={getStableId(shape, idx)}
+                                shape={shape}
+                                index={idx}
+                                shapeId={getStableId(shape, idx)}
+                                readOnly
+                                isSelected={false}
+                                onSelect={() => {}}
+                                onDragEnd={() => {}}
+                                onTransformEnd={() => {}}
+                                setNodeRef={() => {}}
+                              />
+                            ))}
+                          </Layer>
+                        </Stage>
+                      </div>
+                    </div>
+                    <span className="text-xs font-medium text-zinc-400">
+                      {mode === 'report' ? 'Page' : 'Slide'} {pageIndex + 1}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       {!readOnly && (
         <KonvaLeftSidebar
           mode={mode}
@@ -1254,6 +1379,7 @@ const KonvaEditorCoreInner = (
             onToggleVisibility={toggleVisibilitySelected}
             onDuplicate={duplicateSelected}
             onDelete={deleteSelected}
+            onPreview={() => setPreviewOpen(true)}
           />
         )}
         <div
@@ -1383,9 +1509,28 @@ const KonvaEditorCoreInner = (
             {(() => {
               const page = pages[currentIndex] as { background?: PageBackground } | undefined;
               const bg = page?.background;
+              const isImageBg = bg?.type === 'image';
               return bg ? (
-                <Layer listening={false}>
-                  <KonvaBackgroundLayer background={bg} width={width} height={height} />
+                <Layer listening={isImageBg && !readOnly}>
+                  <KonvaBackgroundLayer
+                    background={bg}
+                    width={width}
+                    height={height}
+                    isCurrentPage={!readOnly}
+                    onBackgroundImageDragEnd={
+                      isImageBg && !readOnly
+                        ? (offsetX, offsetY) => {
+                            pushHistory();
+                            setPageBackground(currentIndex, {
+                              type: 'image',
+                              imageUrl: bg.imageUrl,
+                              offsetX,
+                              offsetY,
+                            });
+                          }
+                        : undefined
+                    }
+                  />
                 </Layer>
               ) : null;
             })()}

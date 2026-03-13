@@ -15,6 +15,7 @@
     "@hookform/resolvers": "^3.10.0",
     "@liveblocks/node": "^3.15.1",
     "@liveblocks/react": "^3.15.1",
+    "@mertdeveci55/univer-import-export": "^0.2.1",
     "@phosphor-icons/react": "^2.1.10",
     "@platejs/ai": "^52.3.1",
     "@platejs/autoformat": "^52.0.11",
@@ -59,6 +60,12 @@
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
     "@udecode/cn": "^52.0.11",
+    "@univerjs/preset-sheets-core": "^0.17.0",
+    "@univerjs/preset-sheets-data-validation": "^0.17.0",
+    "@univerjs/preset-sheets-drawing": "^0.17.0",
+    "@univerjs/preset-sheets-hyper-link": "^0.17.0",
+    "@univerjs/preset-sheets-note": "^0.17.0",
+    "@univerjs/presets": "^0.17.0",
     "@uploadthing/react": "^7.3.3",
     "ai": "^5.0.28",
     "class-variance-authority": "^0.7.1",
@@ -96,6 +103,7 @@
     "tailwind-scrollbar-hide": "^4.0.0",
     "uploadthing": "^7.7.4",
     "use-file-picker": "^2.1.2",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {

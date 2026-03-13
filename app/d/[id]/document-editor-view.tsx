@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag } from 'lucide-react';
+import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag, Pencil } from 'lucide-react';
 import { DocumentCommentsProvider } from '@/components/platejs/editors/document-comments-context';
 import { DocumentUploadProvider } from '@/components/platejs/editors/document-upload-context';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
@@ -45,15 +45,19 @@ import {
 } from '@/lib/stores/document-breadcrumb-store';
 import type { DocumentDetail } from '@/types/database';
 import type { TElement, Value } from 'platejs';
-import { Presentation } from 'lucide-react';
 import { PageBuilderEditor, type PageBuilderEditorHandle } from '@/components/grapesjs/page-builder-editor';
 import type { KonvaReportEditorHandle } from '@/components/konva/report-editor';
 import type { KonvaPresentationEditorHandle } from '@/components/konva/presentation-editor';
+import type { UniverSheetEditorHandle } from '@/components/univer/univer-sheet-editor';
 import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 import { isKonvaContent, emptyKonvaReportContent, emptyKonvaPresentationContent, type KonvaStoredContent } from '@/lib/konva-content';
+import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
+import { getDisplayForDocumentType } from '@/lib/document-type-icons';
+import { BASE_TYPE_FALLBACK } from '@/app/dashboard/documents/document-types';
 
 const KonvaReportEditor = dynamic(
   () => import('@/components/konva/report-editor').then((m) => ({ default: m.KonvaReportEditor })),
@@ -62,6 +66,11 @@ const KonvaReportEditor = dynamic(
 
 const KonvaPresentationEditor = dynamic(
   () => import('@/components/konva/presentation-editor').then((m) => ({ default: m.KonvaPresentationEditor })),
+  { ssr: false }
+);
+
+const UniverSheetEditor = dynamic(
+  () => import('@/components/univer/univer-sheet-editor').then((m) => ({ default: m.UniverSheetEditor })),
   { ssr: false }
 );
 
@@ -96,6 +105,28 @@ const ROLE_BADGE_CONFIG: Record<string, { label: string; icon: typeof Eye; class
   signed: { label: 'Signed & Locked', icon: Lock, className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' },
 };
 
+function DocumentTypeIcon({
+  documentType,
+  baseType,
+}: {
+  documentType: DocumentDetail['document_type'];
+  baseType: DocumentDetail['base_type'];
+}) {
+  const typeConfig = documentType
+    ? getDisplayForDocumentType(documentType)
+    : BASE_TYPE_FALLBACK[baseType];
+  const Icon = typeConfig.icon;
+  return (
+    <span
+      className="flex size-8 shrink-0 items-center justify-center rounded-md"
+      style={{ backgroundColor: typeConfig.bgColor ?? '#f3f4f6' }}
+      aria-hidden
+    >
+      <Icon weight="fill" className="size-4 shrink-0" style={{ color: typeConfig.color }} />
+    </span>
+  );
+}
+
 export function DocumentEditorView({
   document,
   workspaceId,
@@ -121,6 +152,7 @@ export function DocumentEditorView({
   const isReportOrProposal = docTypeSlug === 'report' || docTypeSlug === 'proposal';
   const isDocOrContract = (baseType === 'doc' || baseType === 'contract') && !isReportOrProposal;
   const isPresentation = baseType === 'presentation';
+  const isSheet = baseType === 'sheet' || docTypeSlug === 'sheet';
   const isMobile = useIsMobile();
   const isLocked = document.status === 'signed';
   const effectiveReadOnly = readOnly || isLocked;
@@ -134,16 +166,20 @@ export function DocumentEditorView({
   const pageBuilderRef = useRef<PageBuilderEditorHandle>(null);
   const konvaReportRef = useRef<KonvaReportEditorHandle>(null);
   const konvaPresentationRef = useRef<KonvaPresentationEditorHandle>(null);
+  const univerSheetRef = useRef<UniverSheetEditorHandle>(null);
 
   const isReportOrProposalKonva = isReportOrProposal && (isKonvaContent(document.content) || !isGrapesJSContent(document.content));
   const isReportOrProposalGrapes = isReportOrProposal && isGrapesJSContent(document.content);
-  const pageBuilderSaveRef = isReportOrProposalKonva ? konvaReportRef : isPresentation ? konvaPresentationRef : pageBuilderRef;
+  const pageBuilderSaveRef = isSheet ? univerSheetRef : isReportOrProposalKonva ? konvaReportRef : isPresentation ? konvaPresentationRef : pageBuilderRef;
   const plateThumbnailRef = useRef<PlateDocumentEditorHandle>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [saveWithLabelOpen, setSaveWithLabelOpen] = useState(false);
   const [saveWithLabelInput, setSaveWithLabelInput] = useState('');
   const [editRequested, setEditRequested] = useState(false);
   const [prefetchedShareData, setPrefetchedShareData] = useState<ShareDialogData | null>(null);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Prefetch share dialog data when editor loads so the dialog opens instantly
   useEffect(() => {
@@ -167,6 +203,19 @@ export function DocumentEditorView({
       });
     }
   }, [document.id, role]);
+
+  // Handle File menu actions from Univer ribbon (Import / Export)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { action } = (e as CustomEvent<{ action: 'import' | 'exportExcel' | 'exportCsv' }>).detail ?? {};
+      if (action === 'import') univerSheetRef.current?.openImportDialog();
+      else if (action === 'exportExcel') univerSheetRef.current?.exportExcel();
+      else if (action === 'exportCsv') univerSheetRef.current?.exportCsv();
+    };
+    window.addEventListener('habiv-univer-file-action', handler);
+    return () => window.removeEventListener('habiv-univer-file-action', handler);
+  }, []);
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastVersionAtRef = useRef<number>(0);
@@ -191,6 +240,33 @@ export function DocumentEditorView({
       documentBreadcrumbStore.setTitle('');
     };
   }, [document.title]);
+
+  const canRenameTitle = role === 'edit' && !effectiveReadOnly;
+  const startEditingTitle = useCallback(() => {
+    if (!canRenameTitle) return;
+    setEditTitleValue(barTitle);
+    setIsEditingTitle(true);
+  }, [canRenameTitle, barTitle]);
+  useEffect(() => {
+    if (isEditingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [isEditingTitle]);
+
+  const saveTitle = useCallback(async () => {
+    const trimmed = editTitleValue.trim() || 'Untitled';
+    setIsEditingTitle(false);
+    if (trimmed === barTitle) return;
+    documentBreadcrumbStore.setTitle(trimmed);
+    const { error } = await updateDocumentRecord(document.id, { title: trimmed });
+    if (error) {
+      toast.error('Could not rename document');
+      documentBreadcrumbStore.setTitle(barTitle);
+    } else {
+      toast.success('Document renamed');
+    }
+  }, [document.id, editTitleValue, barTitle]);
 
   const getWordCount = useCallback((): number => {
     const val = valueRef.current;
@@ -251,12 +327,53 @@ export function DocumentEditorView({
       {/* Top bar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span
-            className="font-ui text-sm font-medium text-foreground truncate"
-            title={barTitle}
-          >
-            {barTitle}
-          </span>
+          <DocumentTypeIcon documentType={document.document_type} baseType={baseType} />
+          {isEditingTitle ? (
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={editTitleValue}
+              onChange={(e) => setEditTitleValue(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  (e.target as HTMLInputElement).blur();
+                }
+                if (e.key === 'Escape') {
+                  setEditTitleValue(barTitle);
+                  setIsEditingTitle(false);
+                  titleInputRef.current?.blur();
+                }
+              }}
+              className="font-ui text-sm font-medium text-foreground bg-transparent border border-border rounded px-1.5 py-0.5 min-w-[120px] max-w-[40vw] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+              aria-label="Document name"
+            />
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={startEditingTitle}
+                className={cn(
+                  'font-ui text-sm font-medium text-foreground truncate text-left min-w-0 rounded px-1.5 py-0.5 -ml-1',
+                  canRenameTitle && 'hover:bg-muted/80 cursor-pointer'
+                )}
+                title={canRenameTitle ? 'Rename document' : barTitle}
+              >
+                {barTitle}
+              </button>
+              {canRenameTitle && (
+                <button
+                  type="button"
+                  onClick={startEditingTitle}
+                  className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/80"
+                  aria-label="Rename document"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
+            </>
+          )}
 
           {/* Role badge + request access */}
           {badge && (
@@ -300,7 +417,7 @@ export function DocumentEditorView({
               {saveStatus === 'saved' && 'Saved'}
             </span>
           )}
-          {(isReportOrProposal || isPresentation) && !effectiveReadOnly && (
+          {(isReportOrProposal || isPresentation || isSheet) && !effectiveReadOnly && (
             <span className="font-body text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {grapesSaveStatus === 'saving' && 'Saving...'}
               {grapesSaveStatus === 'saved' && 'Saved'}
@@ -310,7 +427,7 @@ export function DocumentEditorView({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {(isReportOrProposal || isPresentation) && !grapesReadOnly && (
+          {(isReportOrProposal || isPresentation || isSheet) && !(isSheet ? effectiveReadOnly : grapesReadOnly) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -454,6 +571,22 @@ export function DocumentEditorView({
             onOpenDocument={(id) => router.push(`/d/${id}`)}
           />
         </div>
+      ) : isSheet ? (
+        <div
+          key={document.updated_at ?? document.id}
+          className="min-h-0 flex-1 flex flex-col overflow-hidden"
+        >
+          <UniverSheetEditor
+            ref={univerSheetRef}
+            documentId={document.id}
+            workspaceId={workspaceId}
+            documentTitle={document.title ?? undefined}
+            initialContent={isUniverSheetContent(document.content) ? (document.content as UniverStoredContent) : emptyUniverSheetContent()}
+            readOnly={effectiveReadOnly}
+            className="min-h-0 flex-1"
+            onSaveStatus={setGrapesSaveStatus}
+          />
+        </div>
       ) : (
         <div className="flex min-h-[400px] flex-1 items-center justify-center bg-muted/30">
           <div className="text-center px-4">
@@ -461,7 +594,7 @@ export function DocumentEditorView({
               Editor coming soon
             </p>
             <p className="font-body text-muted-foreground">
-              The Sheets editor is currently in development. You can still fill in document details.
+              This document type is not yet supported. You can still fill in document details.
             </p>
           </div>
         </div>

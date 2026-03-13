@@ -21,7 +21,13 @@ import { Presentation } from 'lucide-react';
 import { PageBuilderPreview } from '@/components/grapesjs/page-builder-preview';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
+import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
+
+const UniverSheetEditor = dynamic(
+  () => import('@/components/univer/univer-sheet-editor').then((m) => ({ default: m.UniverSheetEditor })),
+  { ssr: false }
+);
 
 const KonvaReportPreview = dynamic(
   () => import('@/components/konva/report-preview').then((m) => ({ default: m.KonvaReportPreview })),
@@ -67,8 +73,9 @@ export function SharedDocumentView({
 
   const isGrapesJSDoc = isGrapesJSContent(document.content);
   const isKonvaDoc = isKonvaContent(document.content);
+  const isSheetDoc = document.base_type === 'sheet';
   const isDocOrContract =
-    !isGrapesJSDoc && !isKonvaDoc && (document.base_type === 'doc' || document.base_type === 'contract');
+    !isGrapesJSDoc && !isKonvaDoc && !isSheetDoc && (document.base_type === 'doc' || document.base_type === 'contract');
   const isPresentation = document.base_type === 'presentation';
 
   const platePages: Value[] = getPlatePages(document.content);
@@ -182,7 +189,18 @@ export function SharedDocumentView({
           backgroundSize: '16px 16px',
         }}
       >
-        {isKonvaDoc ? (
+        {isSheetDoc ? (
+          <div className="w-full flex-1 min-h-0 flex flex-col px-4 py-4 md:px-6">
+            <UniverSheetEditor
+              documentId={documentId}
+              workspaceId=""
+              documentTitle={document.title}
+              initialContent={isUniverSheetContent(document.content) ? (document.content as UniverStoredContent) : emptyUniverSheetContent()}
+              readOnly
+              className="min-h-[400px] flex-1 w-full"
+            />
+          </div>
+        ) : isKonvaDoc ? (
           <div className="w-full flex-1 px-4 py-8 md:px-6 flex justify-center min-h-0 overflow-auto">
             {isPresentation ? (
               <KonvaPresentationPreview

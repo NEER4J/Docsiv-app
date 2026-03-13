@@ -128,6 +128,10 @@ export function KonvaPropertiesPanel({
           isMultiple={selectedShapes.length > 1}
           hasText={selectedShapes.some((s) => s.className === 'Text')}
           hasImage={selectedShapes.some((s) => s.className === 'Image')}
+          hasIcon={selectedShapes.some((s) => s.className === 'Icon')}
+          hasShapeWithFill={selectedShapes.some((s) =>
+            ['Rect', 'Circle', 'Ellipse', 'Star', 'RegularPolygon'].includes(s.className)
+          )}
           onUpdateAttrs={onUpdateAttrs}
           readOnly={readOnly}
         />
@@ -143,6 +147,8 @@ function PropertiesPanelContent({
   isMultiple,
   hasText,
   hasImage,
+  hasIcon,
+  hasShapeWithFill,
   onUpdateAttrs,
   readOnly,
 }: {
@@ -152,6 +158,8 @@ function PropertiesPanelContent({
   isMultiple: boolean;
   hasText: boolean;
   hasImage: boolean;
+  hasIcon: boolean;
+  hasShapeWithFill: boolean;
   onUpdateAttrs: (ids: string[], attrs: Record<string, unknown>) => void;
   readOnly: boolean;
 }) {
@@ -198,7 +206,7 @@ function PropertiesPanelContent({
         </PropGrid2>
       </div>
 
-      {(first.className === 'Rect' || first.className === 'Image' || first.className === 'Text') && (
+      {(first.className === 'Rect' || first.className === 'Image' || first.className === 'Text' || first.className === 'Icon') && (
         <div className="space-y-2">
           <p className={SECTION_HEADER}>Size</p>
           <PropGrid2>
@@ -359,11 +367,11 @@ function PropertiesPanelContent({
         </PropRow>
       </div>
 
-      {(first.className === 'Rect' || hasText) && (
+      {(first.className === 'Rect' || hasText || hasIcon || hasShapeWithFill) && (
         <div className="space-y-1.5">
           <p className={SECTION_HEADER}>Fill</p>
           <ColorPicker
-            value={(attrs.fill as string) ?? '#e5e5e5'}
+            value={(attrs.fill as string) ?? (hasIcon ? '#171717' : '#e5e5e5')}
             onChange={(v) => update('fill', v)}
             label="Fill"
             disabled={readOnly}
@@ -392,6 +400,9 @@ function PropertiesPanelContent({
             placeholder="W"
           />
         </div>
+        {hasIcon && (attrs.strokeWidth as number) === 0 && (
+          <p className="text-[10px] text-zinc-500">Set width &gt; 0 to show stroke on icon</p>
+        )}
       </div>
 
       {hasText && (
