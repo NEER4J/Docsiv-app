@@ -50,8 +50,10 @@ import type { KonvaReportEditorHandle } from '@/components/konva/report-editor';
 import type { KonvaPresentationEditorHandle } from '@/components/konva/presentation-editor';
 import type { UniverSheetEditorHandle } from '@/components/univer/univer-sheet-editor';
 import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
+import { captureUniverContentAsPngBase64 } from '@/lib/capture-thumbnail';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
-import { isKonvaContent, emptyKonvaReportContent, emptyKonvaPresentationContent, type KonvaStoredContent } from '@/lib/konva-content';
+import { isKonvaContent, emptyKonvaReportContent, emptyKonvaPresentationContent, getKonvaReportPageSize, type KonvaStoredContent } from '@/lib/konva-content';
+import { useOptionalKonvaAi } from '@/components/konva/konva-ai-provider';
 import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -215,6 +217,61 @@ export function DocumentEditorView({
     window.addEventListener('habiv-univer-file-action', handler);
     return () => window.removeEventListener('habiv-univer-file-action', handler);
   }, []);
+
+  const konvaAi = useOptionalKonvaAi();
+  const konvaAiRef = useRef(konvaAi);
+  konvaAiRef.current = konvaAi;
+
+  useEffect(() => {
+    const api = konvaAiRef.current;
+    if (!api) return;
+    if (grapesReadOnly) {
+      api.unregister();
+      return;
+    }
+    if (isReportOrProposalKonva) {
+      const size = getKonvaReportPageSize(isKonvaContent(document.content) ? document.content as KonvaStoredContent : null);
+      api.register({
+        getContent: () => konvaReportRef.current?.getContent() ?? null,
+        applyContent: (content) => konvaReportRef.current?.applyContent(content),
+        mode: 'report',
+        pageWidthPx: size.widthPx,
+        pageHeightPx: size.heightPx,
+      });
+      const t = setTimeout(() => {
+        konvaAiRef.current?.register({
+          getContent: () => konvaReportRef.current?.getContent() ?? null,
+          applyContent: (content) => konvaReportRef.current?.applyContent(content),
+          mode: 'report',
+          pageWidthPx: size.widthPx,
+          pageHeightPx: size.heightPx,
+        });
+      }, 300);
+      return () => {
+        clearTimeout(t);
+        konvaAiRef.current?.unregister();
+      };
+    }
+    if (isPresentation) {
+      api.register({
+        getContent: () => konvaPresentationRef.current?.getContent() ?? null,
+        applyContent: (content) => konvaPresentationRef.current?.applyContent(content),
+        mode: 'presentation',
+      });
+      const t = setTimeout(() => {
+        konvaAiRef.current?.register({
+          getContent: () => konvaPresentationRef.current?.getContent() ?? null,
+          applyContent: (content) => konvaPresentationRef.current?.applyContent(content),
+          mode: 'presentation',
+        });
+      }, 300);
+      return () => {
+        clearTimeout(t);
+        konvaAiRef.current?.unregister();
+      };
+    }
+    api.unregister();
+  }, [isReportOrProposalKonva, isPresentation, grapesReadOnly, document.content]);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -585,6 +642,13 @@ export function DocumentEditorView({
             readOnly={effectiveReadOnly}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}
+            onSaveSuccess={async (savedContent) => {
+              const base64 = await captureUniverContentAsPngBase64({
+                editor: savedContent.editor,
+                snapshot: savedContent.snapshot as Record<string, unknown>,
+              });
+              if (base64) uploadDocumentThumbnail(document.id, workspaceId, base64).catch(() => {});
+            }}
           />
         </div>
       ) : (

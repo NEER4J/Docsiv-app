@@ -143,7 +143,9 @@ export async function uploadDocumentThumbnail(
   const publicUrl = urlData?.publicUrl ?? null;
   if (!publicUrl) return { error: "Failed to get thumbnail URL" };
 
-  return updateDocumentRecord(documentId, { thumbnail_url: publicUrl });
+  // Cache-bust so the browser loads the new image instead of serving the old cached one.
+  const thumbnailUrl = `${publicUrl}?v=${Date.now()}`;
+  return updateDocumentRecord(documentId, { thumbnail_url: thumbnailUrl });
 }
 
 export async function duplicateDocument(

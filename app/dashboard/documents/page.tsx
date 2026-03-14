@@ -4,13 +4,9 @@ import { getDocuments, getDocumentTypes } from "@/lib/actions/documents";
 import { getClients } from "@/lib/actions/clients";
 import { DocumentsView } from "./documents-view";
 
-type Props = { searchParams: Promise<{ trash?: string }> };
-
-export default async function DocumentsPage({ searchParams }: Props) {
+export default async function DocumentsPage() {
   const cookieStore = await cookies();
   let workspaceId = cookieStore.get("workspace_id")?.value ?? null;
-  const params = await searchParams;
-  const includeTrash = params?.trash === "1";
 
   const { workspaces } = await getMyWorkspaces();
   if (!workspaceId && workspaces.length > 0) {
@@ -20,7 +16,7 @@ export default async function DocumentsPage({ searchParams }: Props) {
 
   const [{ profile }, documentsResult, clientsResult, typesResult] = await Promise.all([
     getCurrentUserProfile(),
-    workspaceId ? getDocuments(workspaceId, { include_trash: includeTrash }) : Promise.resolve({ documents: [] }),
+    workspaceId ? getDocuments(workspaceId, { include_trash: false }) : Promise.resolve({ documents: [] }),
     workspaceId ? getClients(workspaceId) : Promise.resolve({ clients: [] }),
     getDocumentTypes(),
   ]);
@@ -34,11 +30,10 @@ export default async function DocumentsPage({ searchParams }: Props) {
     <DocumentsView
       firstName={firstName}
       workspaceId={workspaceId}
-      isEmpty={documents.length === 0 && !includeTrash}
+      isEmpty={documents.length === 0}
       documents={documents}
       clients={clients}
       documentTypes={documentTypes}
-      showTrash={includeTrash}
     />
   );
 }

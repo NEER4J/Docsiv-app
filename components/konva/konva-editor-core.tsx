@@ -16,6 +16,8 @@ import {
   type KonvaShapeDesc,
   type KonvaStoredContent,
   type PageBackground,
+  SLIDE_WIDTH_PX,
+  SLIDE_HEIGHT_PX,
 } from '@/lib/konva-content';
 import { createPatternCanvas } from '@/lib/konva-background-patterns';
 import { clonePages, type PageOrSlide, HISTORY_LIMIT } from '@/lib/konva-editor-state';
@@ -159,6 +161,8 @@ export type KonvaEditorCoreHandle = {
   save: () => Promise<void>;
   saveWithLabel: (label: string) => Promise<void>;
   getStageRef: () => Konva.Stage | null;
+  getContent: () => KonvaStoredContent;
+  setContent: (content: KonvaStoredContent) => void;
 };
 
 export type KonvaEditorCoreProps = {
@@ -459,15 +463,46 @@ const KonvaEditorCoreInner = (
     setSelectedIds([]);
   }, [future, pages]);
 
+  const buildStoredContent = useCallback((): KonvaStoredContent => {
+    return {
+      editor: 'konva',
+      ...(mode === 'report'
+        ? { report: { pages: pages.map((p) => ({ layer: p.layer ?? pageToLayer(p), ...(p.background ? { background: p.background } : {}) })), pageWidthPx: width, pageHeightPx: height } }
+        : { presentation: { slides: pages.map((s) => ({ layer: s.layer ?? pageToLayer(s), ...(s.background ? { background: s.background } : {}) })) } }),
+    };
+  }, [mode, pages, width, height]);
+
+  const getContent = useCallback((): KonvaStoredContent => buildStoredContent(), [buildStoredContent]);
+
+  const setContent = useCallback(
+    (content: KonvaStoredContent) => {
+      if (!content || content.editor !== 'konva') return;
+      const normalize = (item: { layer?: KonvaNodeJSON; background?: PageBackground }): PageOrSlide => {
+        const layer = item.layer as { children?: KonvaShapeDesc[] } | undefined;
+        return {
+          layer: {
+            children: Array.isArray(layer?.children) ? layer.children : [],
+            attrs: {},
+            className: 'Layer',
+          },
+          ...(item.background ? { background: item.background } : {}),
+        };
+      };
+      pushHistory();
+      if (mode === 'report' && content.report?.pages?.length) {
+        setPages(content.report.pages.map(normalize));
+      } else if (mode === 'presentation' && content.presentation?.slides?.length) {
+        setPages(content.presentation.slides.map(normalize));
+      }
+      setSelectedIds([]);
+    },
+    [mode, pushHistory]
+  );
+
   const persistContent = useCallback(
     async (versionLabel?: string | null) => {
       if (readOnly) return;
-      const payload: KonvaStoredContent = {
-        editor: 'konva',
-        ...(mode === 'report'
-          ? { report: { pages: pages.map((p) => ({ layer: p.layer ?? pageToLayer(p) })), pageWidthPx: width, pageHeightPx: height } }
-          : { presentation: { slides: pages.map((s) => ({ layer: s.layer ?? pageToLayer(s) })) } }),
-      };
+      const payload = buildStoredContent();
       onSaveStatus?.('saving');
       const { error } = await updateDocumentContent(documentId, payload, { previewHtml: null });
       const next = error ? 'idle' : 'saved';
@@ -475,20 +510,22 @@ const KonvaEditorCoreInner = (
       if (!error) {
         createDocumentVersion(documentId, payload, versionLabel ?? undefined).catch(() => {});
         setTimeout(() => onSaveStatus?.('idle'), 2000);
-        if (stageRef.current) {
-          try {
-            const layer = stageRef.current.getLayers()[0];
-            if (layer) {
-              const dataUrl = layer.toDataURL({ pixelRatio: 2 });
+        // Thumbnail: render first page/slide from saved content (consistent with list "Update thumbnail").
+        const firstPage = pages[0];
+        if (firstPage) {
+          const shapes = getChildren(firstPage);
+          const background = (firstPage as { background?: PageBackground })?.background;
+          const w = mode === 'report' ? width : SLIDE_WIDTH_PX;
+          const h = mode === 'report' ? height : SLIDE_HEIGHT_PX;
+          renderPageToPngDataURL(shapes, w, h, 2, background ?? undefined)
+            .then((dataUrl) => {
               if (dataUrl) uploadDocumentThumbnail(documentId, workspaceId, dataUrl).catch(() => {});
-            }
-          } catch {
-            // ignore
-          }
+            })
+            .catch(() => {});
         }
       }
     },
-    [documentId, workspaceId, mode, pages, readOnly, onSaveStatus]
+    [documentId, workspaceId, mode, pages, width, height, readOnly, onSaveStatus, buildStoredContent]
   );
 
   useImperativeHandle(
@@ -497,8 +534,10 @@ const KonvaEditorCoreInner = (
       save: () => persistContent(),
       saveWithLabel: (label: string) => persistContent(label),
       getStageRef: () => stageRef.current ?? null,
+      getContent,
+      setContent,
     }),
-    [persistContent]
+    [persistContent, getContent, setContent]
   );
 
   const goToPage = useCallback((index: number) => {

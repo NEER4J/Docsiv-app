@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
 import { SidebarCloseOnNavigate } from "@/components/sidebar/sidebar-close-on-navigate";
 import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
+import { KonvaAiProvider } from "@/components/konva/konva-ai-provider";
 import { DashboardNavbar } from "@/components/dashboard/dashboard-navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -73,7 +74,8 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
         currentWorkspaceId={currentWorkspaceId}
       />
       <SidebarInset className={cn("min-w-0 max-w-full flex flex-col overflow-hidden")}>
-        <AiAssistantProvider>
+        <KonvaAiProvider>
+          <AiAssistantProvider>
           <header
             className={cn(
               "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
@@ -91,7 +93,8 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
             </div>
           </header>
           <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden p-4 md:p-6">{children}</div>
-        </AiAssistantProvider>
+          </AiAssistantProvider>
+        </KonvaAiProvider>
       </SidebarInset>
     </SidebarProvider>
   );

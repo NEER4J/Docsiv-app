@@ -4,7 +4,6 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LayoutGrid, List, ChevronDown, Search } from "lucide-react";
-import { Trash } from "@phosphor-icons/react";
 import { useAuth } from "@/lib/auth/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,8 +37,10 @@ import {
 import { DocumentCard } from "@/components/documents/document-card";
 import { DocumentsList } from "@/components/documents/documents-list";
 import { getDocumentById, softDeleteDocument, restoreDocument, uploadDocumentThumbnail } from "@/lib/actions/documents";
-import { captureHtmlAsPngBase64 } from "@/lib/capture-thumbnail";
+import { captureHtmlAsPngBase64, captureKonvaContentAsPngBase64, captureUniverContentAsPngBase64 } from "@/lib/capture-thumbnail";
 import { getFirstPageContent, isGrapesJSContent } from "@/lib/grapesjs-content";
+import { isKonvaContent } from "@/lib/konva-content";
+import { isUniverSheetContent } from "@/lib/univer-sheet-content";
 import { toast } from "sonner";
 import { DocumentsEmptyState } from "@/components/documents/documents-empty-state";
 import { NewDocumentDialog } from "@/components/documents/new-document-dialog";
@@ -283,7 +284,6 @@ export function DocumentsView({
   documents = [],
   clients = [],
   documentTypes = [],
-  showTrash = false,
 }: {
   firstName?: string;
   workspaceId: string | null;
@@ -291,12 +291,11 @@ export function DocumentsView({
   documents?: DocumentListItem[];
   clients?: ClientWithDocCount[];
   documentTypes?: DocumentType[];
-  showTrash?: boolean;
 }) {
   const router = useRouter();
   const { user } = useAuth();
   const [layout, setLayout] = useState<"grid" | "list">("grid");
-  const [documentTab, setDocumentTab] = useState(showTrash ? "trash" : "all");
+  const [documentTab, setDocumentTab] = useState("all");
   const [clientId, setClientId] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
@@ -312,13 +311,19 @@ export function DocumentsView({
         toast.error("Could not load document");
         return;
       }
-      const content = fullDoc.content;
-      if (!isGrapesJSContent(content)) {
-        toast.info("This document uses the rich-text editor. Open it and save to update the thumbnail.");
+      const content = fullDoc.content as Record<string, unknown>;
+      let base64: string | null = null;
+      if (isUniverSheetContent(content)) {
+        base64 = await captureUniverContentAsPngBase64(content);
+      } else if (isKonvaContent(content)) {
+        base64 = await captureKonvaContentAsPngBase64(content);
+      } else if (isGrapesJSContent(content)) {
+        const { html, css } = getFirstPageContent(content);
+        base64 = await captureHtmlAsPngBase64(html, css);
+      } else {
+        toast.info("Open the document and save to update the thumbnail.");
         return;
       }
-      const { html, css } = getFirstPageContent(content);
-      const base64 = await captureHtmlAsPngBase64(html, css);
       if (!base64) {
         toast.error("Could not capture thumbnail");
         return;
@@ -335,10 +340,7 @@ export function DocumentsView({
     }
   };
 
-  const documentTabs = useMemo(() => {
-    const tabs = buildDocumentTabs(documentTypes);
-    return [...tabs, { value: "trash", label: "Trash", icon: Trash, color: "var(--muted-foreground)" }];
-  }, [documentTypes]);
+  const documentTabs = useMemo(() => buildDocumentTabs(documentTypes), [documentTypes]);
 
   const onMoveToTrash = async (docId: string) => {
     const { error } = await softDeleteDocument(docId);
@@ -407,29 +409,20 @@ export function DocumentsView({
       </div>
 
       <DocumentTypeSwitcher
-        value={showTrash ? "trash" : documentTab}
-        onValueChange={(v) => {
-          if (v === "trash") {
-            router.push("/dashboard/documents?trash=1");
-          } else {
-            setDocumentTab(v);
-            router.push("/dashboard/documents");
-          }
-        }}
+        value={documentTab}
+        onValueChange={setDocumentTab}
         items={documentTabs}
       >
         {documentTabs.map((tab) => (
           <DocumentTypeSwitcherContent key={tab.value} value={tab.value} className="mt-6">
-            {tab.value !== "trash" && (
-              <RecentlyUsedSection
-                docs={filteredDocs}
-                navigatingToDocId={navigatingToDocId}
-                onNavigateStart={setNavigatingToDocId}
-                onUpdateThumbnail={handleUpdateThumbnail}
-                updatingThumbnailId={updatingThumbnailId}
-              />
-            )}
-            {tab.value !== "trash" && filteredDocs.length > 0 && <Separator className="my-6" />}
+            <RecentlyUsedSection
+              docs={filteredDocs}
+              navigatingToDocId={navigatingToDocId}
+              onNavigateStart={setNavigatingToDocId}
+              onUpdateThumbnail={handleUpdateThumbnail}
+              updatingThumbnailId={updatingThumbnailId}
+            />
+            {filteredDocs.length > 0 && <Separator className="my-6" />}
             <FilterBar
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
@@ -442,15 +435,13 @@ export function DocumentsView({
               clients={clients}
             />
             <h2 className="font-ui mb-3 mt-6 text-sm font-semibold tracking-[-0.01em] text-foreground">
-              {tab.value === "trash" ? "Trash" : "All documents"}
+              All documents
             </h2>
             <DocumentsList
               layout={layout}
-              docs={tab.value === "trash" ? documents : filteredDocs}
-              emptyMessage={tab.value === "trash" ? "No items in trash." : "No documents found."}
-              showTrash={tab.value === "trash"}
+              docs={filteredDocs}
+              emptyMessage="No documents found."
               onMoveToTrash={onMoveToTrash}
-              onRestore={onRestore}
               navigatingToDocId={navigatingToDocId}
               onNavigateStart={setNavigatingToDocId}
               onUpdateThumbnail={handleUpdateThumbnail}

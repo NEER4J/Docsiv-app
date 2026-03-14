@@ -46,6 +46,8 @@ type UniverSheetEditorProps = {
   readOnly?: boolean;
   className?: string;
   onSaveStatus?: (status: 'idle' | 'saving' | 'saved') => void;
+  /** Called after a successful save with the saved content (e.g. to capture thumbnail). */
+  onSaveSuccess?: (content: UniverStoredContent) => void;
 };
 
 function safeFileName(name: string): string {
@@ -60,6 +62,7 @@ const UniverSheetEditorInner = (
     initialContent,
     readOnly = false,
     className = '',
+    onSaveSuccess,
     onSaveStatus,
   }: UniverSheetEditorProps,
   ref: React.Ref<UniverSheetEditorHandle>
@@ -72,9 +75,11 @@ const UniverSheetEditorInner = (
   const lastSnapshotRef = useRef<object | null>(null);
   const documentIdRef = useRef(documentId);
   const onSaveStatusRef = useRef(onSaveStatus);
+  const onSaveSuccessRef = useRef(onSaveSuccess);
   const dirtyRef = useRef(false);
   documentIdRef.current = documentId;
   onSaveStatusRef.current = onSaveStatus;
+  onSaveSuccessRef.current = onSaveSuccess;
 
   const performSave = useCallback(async (payload: UniverStoredContent) => {
     onSaveStatusRef.current?.('saving');
@@ -85,6 +90,7 @@ const UniverSheetEditorInner = (
     } else {
       dirtyRef.current = false;
       setTimeout(() => onSaveStatusRef.current?.('idle'), 2000);
+      onSaveSuccessRef.current?.(payload);
     }
   }, []);
 

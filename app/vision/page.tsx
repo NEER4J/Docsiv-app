@@ -60,15 +60,14 @@ const voiceTraits = [
 ];
 
 const docTypeMap = [
-  { type: 'Proposals',          lib: 'Puck',         color: '#ddebf1', text: '#0b6e99', reason: 'Visual layout, premium feel for winning business' },
-  { type: 'Reports',            lib: 'Puck / Plate',  color: '#ddedea', text: '#0f7b6c', reason: 'Puck for visual; Plate.js for data-dense text' },
-  { type: 'Sheets',             lib: 'Custom',       color: '#ddedea', text: '#0f7b6c', reason: 'Spreadsheet-style data, budgets, trackers; structured grid or export' },
-  { type: 'Strategy Decks',     lib: 'Slides.com',     color: '#eae4f2', text: '#6940a5', reason: 'Full editor with shapes, animations, themes' },
-  { type: 'SOWs / Contracts',   lib: 'Plate.js',      color: '#fbf3db', text: '#dfab01', reason: 'Text-heavy, structured, precise editing control' },
-  { type: 'Briefs',             lib: 'Plate.js',      color: '#faebdd', text: '#d9730d', reason: 'Structured input, collaborative block editing' },
-  { type: 'Onboarding Docs',    lib: 'Plate.js',      color: '#f2f2f2', text: '#64473a', reason: 'Step-by-step structure, modular blocks' },
-  { type: 'Case Studies',       lib: 'Puck',          color: '#ddebf1', text: '#0b6e99', reason: 'Visual storytelling, image + copy layouts' },
-  { type: 'Invoices',           lib: 'Custom',        color: '#f2f2f2', text: '#9b9a97', reason: 'Fixed format, no complex editing needed' },
+  { type: 'Proposal',   lib: 'Custom (Konva)', color: '#ddebf1', text: '#0b6e99', reason: 'Custom visual editor on Konva; drag-and-drop layout for winning business' },
+  { type: 'Report',     lib: 'Custom (Konva)', color: '#ddedea', text: '#0f7b6c', reason: 'Custom multi-page report editor built on react-konva' },
+  { type: 'Sheet',      lib: 'Univer',        color: '#ddedea', text: '#0f7b6c', reason: 'Spreadsheet data, budgets, trackers; full Univer sheet editor with import/export' },
+  { type: 'Contract',   lib: 'Plate.js',      color: '#fbf3db', text: '#dfab01', reason: 'Text-heavy, structured, precise editing control' },
+  { type: 'Deck',       lib: 'Custom (Konva)', color: '#eae4f2', text: '#6940a5', reason: 'Custom presentation editor on Konva; shapes, slides, PDF export' },
+  { type: 'SOW',        lib: 'Plate.js',      color: '#fbf3db', text: '#dfab01', reason: 'Statement of work; structured, precise editing' },
+  { type: 'Brief',      lib: 'Plate.js',      color: '#faebdd', text: '#d9730d', reason: 'Structured input, collaborative block editing' },
+  { type: 'Document',   lib: 'Plate.js',      color: '#f2f2f2', text: '#64473a', reason: 'General docs, meeting notes, playbooks; modular blocks' },
 ];
 
 const integrations = [
@@ -88,7 +87,7 @@ const integrations = [
 
 const coreFeatures = [
   { n: '01', label: 'AI Document Creation',   color: '#ddebf1', text: '#0b6e99', desc: 'Turn meeting notes or raw data into polished, client-ready documents in minutes.' },
-  { n: '02', label: 'Every Document Type',    color: '#ddedea', text: '#0f7b6c', desc: 'Proposals, reports, sheets, strategy decks, SOWs, onboarding docs — all in one place.' },
+  { n: '02', label: 'Every Document Type',    color: '#ddedea', text: '#0f7b6c', desc: 'Proposals, reports, sheets, decks, contracts, SOWs, briefs, documents — all in one place.' },
   { n: '03', label: 'White-Label by Default', color: '#eae4f2', text: '#6940a5', desc: 'Your logo, your colors, your domain. Clients never see Docsiv; they see you.' },
   { n: '04', label: 'Branded Client Portal',  color: '#fbf3db', text: '#dfab01', desc: 'One link. Every document you\'ve ever sent, organised in a beautiful branded space.' },
   { n: '05', label: 'Document Analytics',     color: '#faebdd', text: '#d9730d', desc: 'Know when clients open, read, and engage with what you send them.' },
@@ -96,13 +95,13 @@ const coreFeatures = [
 ];
 
 const libraries = [
-  { name: 'Puck',           url: 'puckeditor.com',           badge: 'Editor',        color: '#ddebf1', text: '#0b6e99', desc: 'Visual drag-and-drop for proposals and case studies.' },
-  { name: 'Plate.js',       url: 'platejs.org',              badge: 'Editor',        color: '#ddedea', text: '#0f7b6c', desc: 'Rich-text block editor for SOWs, contracts, briefs.' },
-  { name: 'Slides.com',      url: 'slides.com',             badge: 'Presentations', color: '#eae4f2', text: '#6940a5', desc: 'Full-featured deck editor with shapes, animations, and themes.' },
-  { name: 'Phosphor Icons', url: 'phosphoricons.com',        badge: 'Icons',         color: '#fbf3db', text: '#dfab01', desc: 'Light weight, size 40 base. Used throughout the UI.' },
-  { name: 'Tailwind CSS',   url: 'tailwindcss.com',          badge: 'Styling',       color: '#faebdd', text: '#d9730d', desc: 'v4 with @import syntax. Utility-first, no config file.' },
-  { name: 'Next.js',        url: 'nextjs.org',               badge: 'Framework',     color: '#f2f2f2', text: '#37352f', desc: 'App router, server components, React framework.' },
-  { name: 'Resend',         url: 'resend.com',               badge: 'Email',         color: '#f2f2f2', text: '#37352f', desc: 'Transactional email for waitlist + doc delivery. Active.' },
+  { name: 'Custom editor (Konva)', url: 'konvajs.org',       badge: 'Editor',        color: '#ddebf1', text: '#0b6e99', desc: 'Custom visual editor built on react-konva: proposals, reports, case studies, strategy decks.' },
+  { name: 'Plate.js',              url: 'platejs.org',       badge: 'Editor',        color: '#ddedea', text: '#0f7b6c', desc: 'Rich-text block editor for SOWs, contracts, briefs, docs.' },
+  { name: 'Univer',                url: 'univer.ai',         badge: 'Sheets',        color: '#ddedea', text: '#0f7b6c', desc: 'Spreadsheet editor for sheets: formulas, validation, import/export.' },
+  { name: 'Phosphor Icons',        url: 'phosphoricons.com', badge: 'Icons',        color: '#fbf3db', text: '#dfab01', desc: 'Light weight, size 40 base. Used throughout the UI.' },
+  { name: 'Tailwind CSS',          url: 'tailwindcss.com',   badge: 'Styling',      color: '#faebdd', text: '#d9730d', desc: 'v4 with @import syntax. Utility-first, no config file.' },
+  { name: 'Next.js',                url: 'nextjs.org',       badge: 'Framework',    color: '#f2f2f2', text: '#37352f', desc: 'App router, server components, React framework.' },
+  { name: 'Resend',                url: 'resend.com',         badge: 'Email',        color: '#f2f2f2', text: '#37352f', desc: 'Transactional email for waitlist + doc delivery. Active.' },
 ];
 
 /* ─── SMALL HELPERS ── */
@@ -780,7 +779,7 @@ export default function VisionPage() {
               <div>
                 <p className="font-[family-name:var(--font-dm-sans)] text-[0.7rem] font-semibold tracking-[0.12em] uppercase mb-2" style={{ color: '#dfab01' }}>7. New Document Flow</p>
                 <ul className="font-[family-name:var(--font-dm-sans)] text-sm font-light space-y-1" style={{ color: '#dfab01' }}>
-                  <li>Pick document type (proposal / report / SOW / brief / deck / contract / onboarding / case study / invoice)</li>
+                  <li>Pick document type (proposal / report / sheet / contract / deck / sow / brief / document)</li>
                   <li>Pick creation method: AI generate, Start from template, Start blank</li>
                   <li>Select client · Name the document</li>
                 </ul>
@@ -788,9 +787,9 @@ export default function VisionPage() {
               <div>
                 <p className="font-[family-name:var(--font-dm-sans)] text-[0.7rem] font-semibold tracking-[0.12em] uppercase mb-2" style={{ color: '#dfab01' }}>8. Document Editors</p>
                 <ul className="font-[family-name:var(--font-dm-sans)] text-sm font-light space-y-1" style={{ color: '#dfab01' }}>
-                  <li>Puck editor — proposals, case studies</li>
-                  <li>Plate.js editor — SOWs, contracts, briefs, onboarding docs, reports</li>
-                  <li>Slides.com — strategy decks / presentations</li>
+                  <li>Custom editor (Konva) — proposals, reports, case studies, strategy decks</li>
+                  <li>Plate.js — SOWs, contracts, briefs, onboarding docs</li>
+                  <li>Univer — sheets (spreadsheets, budgets, trackers)</li>
                 </ul>
               </div>
               <div>
@@ -866,9 +865,9 @@ export default function VisionPage() {
               <li>Settings (workspace, brand, team)</li>
               <li>Client management</li>
               <li>New document flow + AI generation</li>
-              <li>Plate.js editor (text docs first — SOWs, briefs)</li>
-              <li>Puck editor (proposals)</li>
-              <li>Slides.com (decks)</li>
+              <li>Plate.js editor (text docs — SOWs, briefs)</li>
+              <li>Custom Konva editor (proposals, reports, case studies, decks)</li>
+              <li>Univer (sheets)</li>
               <li>Share + branded portal</li>
               <li>Analytics + open tracking</li>
               <li>Templates</li>

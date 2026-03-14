@@ -25,6 +25,7 @@ import {
   CaretDoubleLeft,
   CaretDoubleRight,
   MagnifyingGlass,
+  Sparkle,
 } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,13 +56,14 @@ import {
 } from '@/lib/page-sizes';
 import { uploadDocumentAttachment } from '@/lib/storage/upload';
 import { toast } from 'sonner';
-import type { PageBackground, KonvaStoredContent } from '@/lib/konva-content';
+import type { PageBackground, KonvaStoredContent, KonvaAiChatMessage } from '@/lib/konva-content';
 import { BACKGROUND_PATTERNS } from '@/lib/konva-background-patterns';
 import { KONVA_FONT_FAMILIES, loadFontFamily } from '@/lib/konva-fonts';
 import { getTemplatesByMode } from '@/lib/konva-templates';
 import { getDocuments, getDocumentById } from '@/lib/actions/documents';
 import type { DocumentListItem } from '@/types/database';
 import { isKonvaContent } from '@/lib/konva-content';
+import { useOptionalKonvaAi } from '@/components/konva/konva-ai-provider';
 
 export type KonvaShapeType =
   | 'Rect'
@@ -86,7 +88,8 @@ export type KonvaLeftTabId =
   | 'draw'
   | 'background'
   | 'layers'
-  | 'pages';
+  | 'pages'
+  | 'ai';
 
 const TAB_CONFIG: { id: KonvaLeftTabId; label: string; icon: React.ReactNode }[] = [
   { id: 'my-designs', label: 'My Designs', icon: <FolderOpen className="size-4" weight="regular" /> },
@@ -99,6 +102,7 @@ const TAB_CONFIG: { id: KonvaLeftTabId; label: string; icon: React.ReactNode }[]
   { id: 'background', label: 'Background', icon: <PaintBrush className="size-4" weight="regular" /> },
   { id: 'layers', label: 'Layers', icon: <Stack className="size-4" weight="regular" /> },
   { id: 'pages', label: 'Pages', icon: <FileText className="size-4" weight="regular" /> },
+  { id: 'ai', label: 'AI', icon: <Sparkle className="size-4" weight="regular" /> },
 ];
 
 export type KonvaLeftSidebarProps = {
@@ -233,6 +237,127 @@ export function KonvaLeftSidebar({
     { id: string; urls: { regular: string; small: string; thumb: string }; user: { name: string } }[]
   >([]);
   const [bgUnsplashLoading, setBgUnsplashLoading] = useState(false);
+
+  const konvaAi = useOptionalKonvaAi();
+  const [aiMessages, setAiMessages] = useState<KonvaAiChatMessage[]>([]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAttachedImages, setAiAttachedImages] = useState<Array<{ dataUrl: string; name: string }>>([]);
+  const aiMessagesEndRef = useRef<HTMLDivElement>(null);
+  const aiTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const aiFileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    aiMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [aiMessages]);
+
+  // Auto-resize textarea
+  const adjustAiTextareaHeight = useCallback(() => {
+    const el = aiTextareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, []);
+
+  useEffect(() => {
+    adjustAiTextareaHeight();
+  }, [aiInput, adjustAiTextareaHeight]);
+
+  const handleAiImageAttach = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        if (file.size > 10 * 1024 * 1024) { toast.error(`Image "${file.name}" exceeds 10MB.`); continue; }
+        if (aiAttachedImages.length >= 4) { toast.error('Maximum 4 images.'); break; }
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        setAiAttachedImages((prev) => (prev.length >= 4 ? prev : [...prev, { dataUrl, name: file.name }]));
+      }
+      e.target.value = '';
+    },
+    [aiAttachedImages.length]
+  );
+
+  const handleAiSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const trimmed = aiInput.trim();
+      if (!trimmed && aiAttachedImages.length === 0) return;
+      if (!konvaAi?.getContent || !konvaAi?.applyContent || !konvaAi?.mode) {
+        toast.error('Editor not ready. Try again in a moment.');
+        return;
+      }
+      setAiInput('');
+      const userMessage: KonvaAiChatMessage = {
+        role: 'user',
+        content: trimmed || 'See attached image(s)',
+        images: aiAttachedImages.length > 0 ? aiAttachedImages.map((img) => img.dataUrl) : undefined,
+      };
+      setAiAttachedImages([]);
+      setAiMessages((prev) => [...prev, userMessage]);
+      setAiLoading(true);
+
+      const content = konvaAi.getContent?.() ?? null;
+      if (!content) {
+        setAiLoading(false);
+        toast.error('Could not read document. Try again.');
+        setAiMessages((prev) => [...prev, { role: 'assistant', content: 'Could not read the current document. Make sure the editor is ready and try again.' }]);
+        return;
+      }
+
+      const chatMessages = [...aiMessages, userMessage].map((m) => ({ role: m.role, content: m.content, images: m.images }));
+      try {
+        const res = await fetch('/api/ai/konva', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: chatMessages,
+            content: content as KonvaStoredContent,
+            mode: konvaAi.mode,
+            pageWidthPx: konvaAi.pageWidthPx ?? undefined,
+            pageHeightPx: konvaAi.pageHeightPx ?? undefined,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const msg = data?.error ?? `Request failed (${res.status})`;
+          toast.error(msg);
+          setAiMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${msg}` }]);
+          return;
+        }
+        const data = await res.json();
+
+        if (data.action === 'chat') {
+          setAiMessages((prev) => [...prev, { role: 'assistant', content: data.message ?? 'I reviewed the document.', action: 'chat' }]);
+        } else if (data.action === 'edit') {
+          const newContent = data.content;
+          if (!newContent || typeof newContent !== 'object') {
+            toast.error('Invalid document in AI response.');
+            setAiMessages((prev) => [...prev, { role: 'assistant', content: 'Sorry, the edit response was invalid.' }]);
+            return;
+          }
+          konvaAi.applyContent(newContent as KonvaStoredContent);
+          setAiMessages((prev) => [...prev, { role: 'assistant', content: data.message ?? "I've updated the document.", action: 'edit' }]);
+        } else {
+          const newContent = data.content;
+          if (newContent && typeof newContent === 'object') konvaAi.applyContent(newContent as KonvaStoredContent);
+          const msg = typeof data.message === 'string' ? data.message : typeof data.summary === 'string' ? data.summary : 'Done.';
+          setAiMessages((prev) => [...prev, { role: 'assistant', content: msg, action: newContent ? 'edit' : 'chat' }]);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Request failed';
+        toast.error(message);
+        setAiMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${message}` }]);
+      } finally {
+        setAiLoading(false);
+      }
+    },
+    [aiInput, aiMessages, konvaAi, aiAttachedImages]
+  );
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -820,6 +945,129 @@ export function KonvaLeftSidebar({
                   Export PNG
                 </Button>
               )}
+            </div>
+          </div>
+        )}
+
+        {activeLeftTab === 'ai' && (
+          <div className="flex flex-1 flex-col overflow-hidden p-2">
+            <h3 className="mb-2 text-xs font-medium text-zinc-400">AI Assistant</h3>
+            {!(konvaAi?.getContent && konvaAi?.applyContent && konvaAi?.mode) ? (
+              <p className="text-[10px] text-zinc-500 mb-2">Preparing editor… Try again in a moment.</p>
+            ) : (
+              <p className="mb-2 text-[10px] text-zinc-500">
+                Ask me to edit, review, or improve your design.
+              </p>
+            )}
+            <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto flex flex-col gap-2 mb-2">
+                {aiMessages.length === 0 && (
+                  <p className="text-[10px] text-zinc-500">
+                    e.g. &quot;Add a title page&quot;, &quot;What&apos;s on this page?&quot;, &quot;Suggest improvements&quot;
+                  </p>
+                )}
+                {aiMessages.map((m, i) => (
+                  <div
+                    key={i}
+                    className={`rounded border p-2 text-[11px] ${
+                      m.role === 'user'
+                        ? 'border-zinc-600 bg-zinc-800 text-zinc-200 ml-2'
+                        : 'border-zinc-700 bg-zinc-800/80 text-zinc-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <span className="text-[10px] font-medium text-zinc-500">
+                        {m.role === 'user' ? 'You' : 'Assistant'}
+                      </span>
+                      {m.role === 'assistant' && m.action === 'edit' && (
+                        <span className="text-[9px] text-emerald-400">✓ Edited</span>
+                      )}
+                    </div>
+                    <span className="whitespace-pre-wrap">{m.content}</span>
+                    {m.images && m.images.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {m.images.map((src, j) => (
+                          <img key={j} src={src} alt="attached" className="h-10 w-10 rounded object-cover border border-zinc-600" />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {aiLoading && (
+                  <div className="flex items-center gap-2 rounded border border-zinc-700 bg-zinc-800/80 p-2 text-[11px] text-zinc-500">
+                    <Sparkle className="size-3.5 shrink-0 animate-pulse" weight="fill" />
+                    Thinking…
+                  </div>
+                )}
+                <div ref={aiMessagesEndRef} />
+              </div>
+              {/* Image attachment preview */}
+              {aiAttachedImages.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                  {aiAttachedImages.map((img, i) => (
+                    <div key={i} className="group relative">
+                      <img src={img.dataUrl} alt={img.name} className="h-10 w-10 rounded object-cover border border-zinc-600" />
+                      <button
+                        type="button"
+                        className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-red-500 text-white text-[8px] opacity-0 transition-opacity group-hover:opacity-100"
+                        onClick={() => setAiAttachedImages((prev) => prev.filter((_, j) => j !== i))}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <form
+                className="flex gap-1.5 shrink-0"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleAiSubmit(e);
+                }}
+              >
+                <input
+                  ref={aiFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleAiImageAttach}
+                />
+                <div className="flex min-w-0 flex-1 items-end gap-0.5 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-1">
+                  <button
+                    type="button"
+                    className="shrink-0 p-0.5 text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                    onClick={() => aiFileInputRef.current?.click()}
+                    disabled={aiLoading || aiAttachedImages.length >= 4}
+                    aria-label="Attach image"
+                  >
+                    <UploadSimple className="size-3.5" />
+                  </button>
+                  <textarea
+                    ref={aiTextareaRef}
+                    placeholder="Ask about or edit the design..."
+                    className="min-h-[20px] max-h-[120px] flex-1 resize-none bg-transparent text-xs text-zinc-200 outline-none placeholder:text-zinc-500 disabled:opacity-50"
+                    rows={1}
+                    value={aiInput}
+                    onChange={(e) => setAiInput(e.target.value)}
+                    disabled={aiLoading}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleAiSubmit(e as unknown as React.FormEvent);
+                      }
+                    }}
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-auto shrink-0 self-end bg-zinc-100 text-zinc-900 hover:bg-zinc-200 px-3 py-1.5"
+                  disabled={aiLoading || (!aiInput.trim() && aiAttachedImages.length === 0) || !konvaAi?.getContent || !konvaAi?.applyContent || !konvaAi?.mode}
+                >
+                  {aiLoading ? '…' : 'Send'}
+                </Button>
+              </form>
             </div>
           </div>
         )}

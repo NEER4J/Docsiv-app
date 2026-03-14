@@ -4,6 +4,7 @@ import { DocumentEditorTheme } from "@/components/documents/document-editor-them
 import { EditorSidebar } from "@/components/sidebar/editor-sidebar";
 import { SidebarCloseOnNavigate } from "@/components/sidebar/sidebar-close-on-navigate";
 import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
+import { KonvaAiProvider } from "@/components/konva/konva-ai-provider";
 import { DashboardNavbar } from "@/components/dashboard/dashboard-navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -64,28 +65,30 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
         currentWorkspaceId={currentWorkspaceId}
       />
       <SidebarInset className={cn("min-w-0 max-w-full flex h-screen flex-col overflow-hidden")}>
-        <AiAssistantProvider>
-          <header
-            className={cn(
-              "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
-              "sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
-            )}
-          >
-            <div className="flex w-full items-center gap-2 px-4 lg:px-6">
-              <SidebarTrigger className="-ml-1 shrink-0" />
-              <Separator orientation="vertical" className="h-4 shrink-0" />
-              <DashboardNavbar />
-              <div className="ml-auto flex shrink-0 items-center gap-1">
-                <SearchDialog />
-                <AiAssistantSidebar />
+        <KonvaAiProvider>
+          <AiAssistantProvider>
+            <header
+              className={cn(
+                "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
+                "sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
+              )}
+            >
+              <div className="flex w-full items-center gap-2 px-4 lg:px-6">
+                <SidebarTrigger className="-ml-1 shrink-0" />
+                <Separator orientation="vertical" className="h-4 shrink-0" />
+                <DashboardNavbar />
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <SearchDialog />
+                  <AiAssistantSidebar />
+                </div>
               </div>
+            </header>
+            {/* Document editor: header (in page) and this shell use app theme; only editor content is forced to light via wrapper inside document-editor-view. */}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
+              {children}
             </div>
-          </header>
-          {/* Document editor: header (in page) and this shell use app theme; only editor content is forced to light via wrapper inside document-editor-view. */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
-            {children}
-          </div>
-        </AiAssistantProvider>
+          </AiAssistantProvider>
+        </KonvaAiProvider>
       </SidebarInset>
     </SidebarProvider>
   );

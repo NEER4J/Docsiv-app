@@ -123,3 +123,20 @@ export function emptyKonvaPresentationContent(): KonvaStoredContent {
     presentation: { slides: [{ layer: { children: [] } }] },
   };
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * AI Assistant types
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Whether the AI edited the document or just chatted. */
+export type KonvaAiAction = 'edit' | 'chat';
+
+/** Chat message used by AI assistant sidebars. */
+export type KonvaAiChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  /** Present on assistant messages: did the AI edit the document or just chat? */
+  action?: KonvaAiAction;
+  /** Base64 data URLs of attached images (user messages only). */
+  images?: string[];
+};

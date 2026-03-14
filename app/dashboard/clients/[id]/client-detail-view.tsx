@@ -13,8 +13,10 @@ import {
 import { DocumentsFilterBar } from "@/components/documents/documents-filter-bar";
 import { DocumentsList } from "@/components/documents/documents-list";
 import { getDocumentById, uploadDocumentThumbnail } from "@/lib/actions/documents";
-import { captureHtmlAsPngBase64 } from "@/lib/capture-thumbnail";
+import { captureHtmlAsPngBase64, captureKonvaContentAsPngBase64, captureUniverContentAsPngBase64 } from "@/lib/capture-thumbnail";
 import { getFirstPageContent, isGrapesJSContent } from "@/lib/grapesjs-content";
+import { isKonvaContent } from "@/lib/konva-content";
+import { isUniverSheetContent } from "@/lib/univer-sheet-content";
 import { toast } from "sonner";
 import type { ClientWithDocCount } from "@/types/database";
 import type { DocumentListItem, DocumentType } from "@/types/database";
@@ -200,13 +202,19 @@ export function ClientDetailView({
         toast.error("Could not load document");
         return;
       }
-      const content = fullDoc.content;
-      if (!isGrapesJSContent(content)) {
-        toast.info("This document uses the rich-text editor. Open it and save to update the thumbnail.");
+      const content = fullDoc.content as Record<string, unknown>;
+      let base64: string | null = null;
+      if (isUniverSheetContent(content)) {
+        base64 = await captureUniverContentAsPngBase64(content);
+      } else if (isKonvaContent(content)) {
+        base64 = await captureKonvaContentAsPngBase64(content);
+      } else if (isGrapesJSContent(content)) {
+        const { html, css } = getFirstPageContent(content);
+        base64 = await captureHtmlAsPngBase64(html, css);
+      } else {
+        toast.info("Open the document and save to update the thumbnail.");
         return;
       }
-      const { html, css } = getFirstPageContent(content);
-      const base64 = await captureHtmlAsPngBase64(html, css);
       if (!base64) {
         toast.error("Could not capture thumbnail");
         return;
