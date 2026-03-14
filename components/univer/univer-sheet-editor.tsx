@@ -280,6 +280,25 @@ const UniverSheetEditorInner = (
     const container = containerRef.current;
     if (!container) return;
 
+    const univerShortcutKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('input, textarea, [contenteditable="true"], select')) return;
+      const api = univerRef.current?.univerAPI;
+      if (!api) return;
+      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' || key === 'y' || key === 'c' || key === 'v' || key === 'x' || key === 'a') {
+        try {
+          const handled = api.getShortcut().triggerShortcut(e);
+          if (handled) e.preventDefault();
+        } catch {
+          // ignore
+        }
+      }
+    };
+
     const locale = LocaleType.EN_US;
     const { univer, univerAPI } = createUniver({
       locale,
@@ -391,6 +410,9 @@ const UniverSheetEditorInner = (
       } catch (e) {
         console.warn('Could not register File/Insert menus in ribbon', e);
       }
+
+      // Forward common shortcuts to Univer when focus is not in an input (e.g. grid doesn't take focus).
+      window.addEventListener('keydown', univerShortcutKeyDown, true);
     }
 
     if (!readOnly && wb) {
@@ -418,6 +440,7 @@ const UniverSheetEditorInner = (
       document.addEventListener('visibilitychange', onVisibilityChange);
 
       return () => {
+        window.removeEventListener('keydown', univerShortcutKeyDown, true);
         dispose?.dispose?.();
         if (periodicSaveIntervalRef.current) {
           clearInterval(periodicSaveIntervalRef.current);
@@ -435,6 +458,7 @@ const UniverSheetEditorInner = (
     }
 
     return () => {
+      if (!readOnly) window.removeEventListener('keydown', univerShortcutKeyDown, true);
       univer.dispose();
       univerRef.current = null;
     };

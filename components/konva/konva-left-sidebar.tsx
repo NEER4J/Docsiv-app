@@ -232,6 +232,7 @@ export function KonvaLeftSidebar({
   const [iconifyResults, setIconifyResults] = useState<string[]>([]);
   const [iconifyLoading, setIconifyLoading] = useState(false);
   const iconifyDefaultsLoadedRef = useRef(false);
+  const [iconCache, setIconCache] = useState<Record<string, Record<string, unknown>>>({});
   const [bgUnsplashQuery, setBgUnsplashQuery] = useState('');
   const [bgUnsplashResults, setBgUnsplashResults] = useState<
     { id: string; urls: { regular: string; small: string; thumb: string }; user: { name: string } }[]
@@ -517,6 +518,11 @@ export function KonvaLeftSidebar({
     }
   }, []);
 
+  const setDragData = useCallback((e: React.DragEvent, type: KonvaShapeType, attrs: Record<string, unknown> = {}) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ type, attrs }));
+    e.dataTransfer.effectAllowed = 'copy';
+  }, []);
+
   if (readOnly) return null;
 
   return (
@@ -576,49 +582,49 @@ export function KonvaLeftSidebar({
           <div className="flex flex-1 flex-col overflow-y-auto p-2">
             <h3 className="mb-2 text-xs font-medium text-zinc-400">Basic</h3>
             <div className="mb-3 flex flex-wrap gap-1">
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Text', {})}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Text', {})} onClick={() => onAddShape('Text', {})}>
                 <TextT className="size-4" /> Text
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Rect', {})}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Rect', {})} onClick={() => onAddShape('Rect', {})}>
                 <Rectangle className="size-4" /> Box
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Rect', { cornerRadius: 12 })}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Rect', { cornerRadius: 12 })} onClick={() => onAddShape('Rect', { cornerRadius: 12 })}>
                 <Rectangle className="size-4" weight="duotone" /> Rounded
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Image', { src: '' })}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Image', { src: '' })} onClick={() => onAddShape('Image', { src: '' })}>
                 <ImageIcon className="size-4" /> Image
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Circle', {})}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Circle', {})} onClick={() => onAddShape('Circle', {})}>
                 <Circle className="size-4" /> Circle
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Ellipse', {})}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Ellipse', {})} onClick={() => onAddShape('Ellipse', {})}>
                 <Circle className="size-4" weight="duotone" /> Ellipse
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('RegularPolygon', { sides: 3 })}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'RegularPolygon', { sides: 3 })} onClick={() => onAddShape('RegularPolygon', { sides: 3 })}>
                 <span className="text-xs font-bold">△</span> Triangle
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('RegularPolygon', { sides: 4, rotation: 45 })}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'RegularPolygon', { sides: 4, rotation: 45 })} onClick={() => onAddShape('RegularPolygon', { sides: 4, rotation: 45 })}>
                 <span className="text-xs">◇</span> Diamond
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('RegularPolygon', { sides: 6 })}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'RegularPolygon', { sides: 6 })} onClick={() => onAddShape('RegularPolygon', { sides: 6 })}>
                 <span className="text-xs">⬡</span> Hexagon
               </Button>
             </div>
             <h3 className="mb-2 text-xs font-medium text-zinc-400">Arrows & lines</h3>
             <div className="mb-3 flex flex-wrap gap-1">
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Line', {})}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Line', {})} onClick={() => onAddShape('Line', {})}>
                 <ArrowRight className="size-4" /> Line
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Arrow', {})}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Arrow', {})} onClick={() => onAddShape('Arrow', {})}>
                 <ArrowRight className="size-4" weight="bold" /> Arrow
               </Button>
             </div>
             <h3 className="mb-2 text-xs font-medium text-zinc-400">Decorative</h3>
             <div className="flex flex-wrap gap-1">
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('Star', {})}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Star', {})} onClick={() => onAddShape('Star', {})}>
                 <span className="text-xs font-bold">★</span> Star
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" onClick={() => onAddShape('RegularPolygon', {})}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'RegularPolygon', {})} onClick={() => onAddShape('RegularPolygon', {})}>
                 <span className="text-xs">⬡</span> Polygon
               </Button>
             </div>
@@ -658,22 +664,26 @@ export function KonvaLeftSidebar({
                 { label: 'Callout', fontSize: 14, fontStyle: 'bold' as const, text: 'Callout' },
                 { label: 'Button label', fontSize: 14, fontStyle: 'bold' as const, text: 'Button', align: 'center' as const },
                 { label: 'Label / Overline', fontSize: 11, fontStyle: 'normal' as const, text: 'LABEL' },
-              ].map((item) => (
+              ].map((item) => {
+                const it = item as { align?: string; fontStyleItalic?: boolean; fill?: string };
+                const textAttrs = {
+                  fontSize: item.fontSize,
+                  fontStyle: it.fontStyleItalic ? 'italic' : item.fontStyle,
+                  text: item.text,
+                  fontFamily: selectedFont,
+                  align: it.align ?? 'left',
+                  ...(it.fill != null && { fill: it.fill }),
+                };
+                return (
                 <button
                   key={item.label}
                   type="button"
                   className="flex w-full items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-2.5 py-2 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-700"
+                  draggable
+                  onDragStart={(e) => { loadFontFamily(selectedFont); setDragData(e, 'Text', textAttrs); }}
                   onClick={() => {
                     loadFontFamily(selectedFont);
-                    const it = item as { align?: string; fontStyleItalic?: boolean; fill?: string };
-                    onAddShape('Text', {
-                      fontSize: item.fontSize,
-                      fontStyle: it.fontStyleItalic ? 'italic' : item.fontStyle,
-                      text: item.text,
-                      fontFamily: selectedFont,
-                      align: it.align ?? 'left',
-                      ...(it.fill != null && { fill: it.fill }),
-                    });
+                    onAddShape('Text', textAttrs);
                   }}
                 >
                   <span className="size-2.5 shrink-0 rounded-sm bg-zinc-500" aria-hidden />
@@ -688,7 +698,8 @@ export function KonvaLeftSidebar({
                     {item.label}
                   </span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -1325,11 +1336,16 @@ export function KonvaLeftSidebar({
                         return (
                           <div
                             key={`${u.url}-${i}`}
-                            className="flex flex-col gap-0.5 rounded border border-zinc-700 bg-zinc-800/80 p-1.5"
+                            className="flex flex-col gap-0.5 rounded border border-zinc-700 bg-zinc-800/80 p-1.5 cursor-grab active:cursor-grabbing"
+                            draggable
+                            onDragStart={(e) => {
+                              if (isImage && u.url) setDragData(e, 'Image', { src: u.url, width: 200, height: 120 });
+                              else if (isVideo && u.url) setDragData(e, 'Video', { src: u.url });
+                            }}
                           >
                             <div className="aspect-square w-full overflow-hidden rounded bg-zinc-800">
                               {isImage ? (
-                                <img src={u.url} alt="" className="h-full w-full object-cover" />
+                                <img src={u.url} alt="" className="h-full w-full object-cover" draggable={false} />
                               ) : isVideo ? (
                                 <div className="flex h-full w-full items-center justify-center text-zinc-500">
                                   <VideoCamera className="size-6" weight="bold" />
@@ -1379,6 +1395,8 @@ export function KonvaLeftSidebar({
                       size="sm"
                       variant="outline"
                       className="border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100"
+                      draggable
+                      onDragStart={(e) => setDragData(e, 'Image', { src: '', width: 200, height: 120 })}
                       onClick={() => onAddShape('Image', { src: '', width: 200, height: 120 })}
                     >
                       Add placeholder image
@@ -1427,13 +1445,16 @@ export function KonvaLeftSidebar({
                         return (
                           <div
                             key={photo.id}
-                            className="flex flex-col gap-0.5 rounded border border-zinc-700 bg-zinc-800/80 p-1.5"
+                            className="flex flex-col gap-0.5 rounded border border-zinc-700 bg-zinc-800/80 p-1.5 cursor-grab active:cursor-grabbing"
+                            draggable
+                            onDragStart={(e) => setDragData(e, 'Image', { src: photo.urls.regular, width: w, height: h })}
                           >
                             <div className="aspect-square w-full overflow-hidden rounded bg-zinc-800">
                               <img
                                 src={photo.urls.thumb}
                                 alt=""
                                 className="h-full w-full object-cover"
+                                draggable={false}
                               />
                             </div>
                             <span className="truncate text-[10px] text-zinc-400" title={photo.user.name}>
@@ -1480,6 +1501,8 @@ export function KonvaLeftSidebar({
                     size="sm"
                     variant="outline"
                     className="mt-2 border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100"
+                    draggable
+                    onDragStart={(e) => setDragData(e, 'Image', { src: '', width: 200, height: 120 })}
                     onClick={() => onAddShape('Image', { src: '', width: 200, height: 120 })}
                   >
                     Add placeholder image
@@ -1522,9 +1545,14 @@ export function KonvaLeftSidebar({
                           h = Math.round(h * scale);
                         }
                         return (
-                          <div key={photo.id} className="flex flex-col gap-0.5 rounded border border-zinc-700 bg-zinc-800/80 p-1.5">
+                          <div
+                            key={photo.id}
+                            className="flex flex-col gap-0.5 rounded border border-zinc-700 bg-zinc-800/80 p-1.5 cursor-grab active:cursor-grabbing"
+                            draggable
+                            onDragStart={(e) => setDragData(e, 'Image', { src: photo.urls.regular, width: w, height: h })}
+                          >
                             <div className="aspect-square w-full overflow-hidden rounded bg-zinc-800">
-                              <img src={photo.urls.thumb} alt="" className="h-full w-full object-cover" />
+                              <img src={photo.urls.thumb} alt="" className="h-full w-full object-cover" draggable={false} />
                             </div>
                             <span className="truncate text-[10px] text-zinc-400" title={photo.user.name}>{photo.user.name}</span>
                             <Button
@@ -1577,10 +1605,15 @@ export function KonvaLeftSidebar({
               <div className="mt-3 grid grid-cols-4 gap-1.5">
                 {iconifyResults.map((iconName) => {
                   const svgUrl = `https://api.iconify.design/${iconName.replace(':', '/')}.svg?height=24`;
+                  const cachedAttrs = iconCache[iconName];
                   return (
                     <button
                       key={iconName}
                       type="button"
+                      draggable={!!cachedAttrs}
+                      onDragStart={(e) => {
+                        if (cachedAttrs) setDragData(e, 'Icon', cachedAttrs);
+                      }}
                       onClick={async () => {
                         try {
                           const res = await fetch(`/api/iconify/icon?name=${encodeURIComponent(iconName)}`);
@@ -1590,7 +1623,7 @@ export function KonvaLeftSidebar({
                             return;
                           }
                           const hasStroke = data.paths?.some((p: { stroke?: string }) => p.stroke);
-                          onAddShape('Icon', {
+                          const iconAttrs = {
                             paths: data.paths,
                             pathData: data.pathData,
                             viewBoxSize: data.viewBoxSize ?? 24,
@@ -1598,7 +1631,9 @@ export function KonvaLeftSidebar({
                             ...(hasStroke && { stroke: '#000000', strokeWidth: 1 }),
                             width: 24,
                             height: 24,
-                          });
+                          };
+                          setIconCache((prev) => ({ ...prev, [iconName]: iconAttrs }));
+                          onAddShape('Icon', iconAttrs);
                         } catch {
                           toast.error('Failed to add icon');
                         }

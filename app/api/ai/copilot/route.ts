@@ -4,12 +4,12 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText } from 'ai';
 import { NextResponse } from 'next/server';
 
-const DEFAULT_COPILOT_MODEL = 'gemini-2.0-flash';
+import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 
 export async function POST(req: NextRequest) {
   const {
     apiKey: key,
-    model = DEFAULT_COPILOT_MODEL,
+    model = DEFAULT_AI_MODEL,
     prompt,
     system,
   } = await req.json();

@@ -20,14 +20,16 @@ import { type SlateEditor, createSlateEditor, nanoid } from 'platejs';
 import { z } from 'zod';
 
 import { BaseEditorKit } from '@/components/platejs/editor/editor-base-kit';
+import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { markdownJoinerTransform } from '@/lib/markdown-joiner-transform';
 
 import {
   buildEditTableMultiCellPrompt,
   getChooseToolPrompt,
-  getCommentPrompt,
   getEditPrompt,
+  getFormatBlockPrompt,
   getGeneratePrompt,
+  getInsertBlockPrompt,
 } from './prompt';
 
 export async function POST(req: NextRequest) {
@@ -53,7 +55,7 @@ export async function POST(req: NextRequest) {
   const isSelecting = editor.api.isExpanded();
 
   const google = createGoogleGenerativeAI({ apiKey });
-  const defaultModel = 'gemini-2.0-flash';
+  const defaultModel = DEFAULT_AI_MODEL;
 
   try {
     const stream = createUIMessageStream<ChatMessage>({
@@ -68,8 +70,8 @@ export async function POST(req: NextRequest) {
             });
 
             const enumOptions = isSelecting
-              ? ['generate', 'edit', 'comment']
-              : ['generate', 'comment'];
+              ? ['generate', 'edit', 'insertBlock', 'formatBlock']
+              : ['generate', 'insertBlock'];
 
             const result = await generateText({
               model: google(model && model.startsWith('google/') ? model.slice(7) : defaultModel) as unknown as LanguageModel,
@@ -95,7 +97,12 @@ export async function POST(req: NextRequest) {
             // Not used
             prompt: '',
             tools: {
-              comment: getCommentTool(editor, {
+              formatBlock: getFormatBlockTool(editor, {
+                messagesRaw,
+                model: geminiModel,
+                writer,
+              }),
+              insertBlock: getInsertBlockTool(editor, {
                 messagesRaw,
                 model: geminiModel,
                 writer,
@@ -107,10 +114,17 @@ export async function POST(req: NextRequest) {
               }),
             },
             prepareStep: async (step) => {
-              if (toolName === 'comment') {
+              if (toolName === 'formatBlock') {
                 return {
                   ...step,
-                  toolChoice: { toolName: 'comment', type: 'tool' },
+                  toolChoice: { toolName: 'formatBlock', type: 'tool' },
+                };
+              }
+
+              if (toolName === 'insertBlock') {
+                return {
+                  ...step,
+                  toolChoice: { toolName: 'insertBlock', type: 'tool' },
                 };
               }
 
@@ -188,7 +202,12 @@ export async function POST(req: NextRequest) {
   }
 }
 
-const getCommentTool = (
+const formatBlockSchema = z.object({
+  align: z.enum(['left', 'center', 'right', 'justify']).optional(),
+  indent: z.enum(['increase', 'decrease']).optional(),
+});
+
+const getFormatBlockTool = (
   editor: SlateEditor,
   {
     messagesRaw,
@@ -201,32 +220,77 @@ const getCommentTool = (
   }
 ) =>
   tool({
-    description: 'Comment on the content',
+    description: 'Apply alignment or indent/outdent to selected block(s)',
     parameters: z.object({ _: z.string().optional() }),
     // @ts-ignore - AI SDK v5 tool execute overload
     execute: async () => {
-      const commentSchema = z.object({
-        blockId: z
-          .string()
-          .describe(
-            'The id of the starting block. If the comment spans multiple blocks, use the id of the first block.'
-          ),
-        comment: z
-          .string()
-          .describe('A brief comment or explanation for this fragment.'),
-        content: z
-          .string()
-          .describe(
-            String.raw`The original document fragment to be commented on.It can be the entire block, a small part within a block, or span multiple blocks. If spanning multiple blocks, separate them with two \n\n.`
-          ),
+      const result = await generateText({
+        model,
+        prompt: getFormatBlockPrompt(editor, messagesRaw),
       });
+      const text = (result as { text?: string }).text?.trim() ?? '';
+      let formatOp: { align?: 'left' | 'center' | 'right' | 'justify'; indent?: 'increase' | 'decrease' } | undefined;
+      try {
+        const parsed = JSON.parse(text) as { align?: string; indent?: string };
+        if (parsed && typeof parsed === 'object' && (parsed.align || parsed.indent)) {
+          const align = ['left', 'center', 'right', 'justify'].includes(parsed.align ?? '') ? (parsed.align as 'left' | 'center' | 'right' | 'justify') : undefined;
+          const indent = ['increase', 'decrease'].includes(parsed.indent ?? '') ? (parsed.indent as 'increase' | 'decrease') : undefined;
+          if (align || indent) formatOp = { ...(align && { align }), ...(indent && { indent }) };
+        }
+      } catch {
+        // Ignore parse errors
+      }
+      if (formatOp) {
+        writer.write({
+          id: nanoid(),
+          data: {
+            formatBlock: formatOp,
+            status: 'streaming',
+          },
+          type: 'data-formatBlock',
+        });
+      }
+      writer.write({
+        id: nanoid(),
+        data: {
+          formatBlock: null,
+          status: 'finished',
+        },
+        type: 'data-formatBlock',
+      });
+    },
+  });
 
+const insertBlockSchema = z.object({
+  blockType: z.enum(['hr', 'blockquote', 'callout', 'p', 'h1', 'h2', 'h3']),
+  at: z.enum(['cursor', 'afterSelection']),
+  content: z.string().optional(),
+  icon: z.string().optional(),
+});
+
+const getInsertBlockTool = (
+  editor: SlateEditor,
+  {
+    messagesRaw,
+    model,
+    writer,
+  }: {
+    messagesRaw: ChatMessage[];
+    model: LanguageModel;
+    writer: UIMessageStreamWriter<ChatMessage>;
+  }
+) =>
+  tool({
+    description: 'Insert block elements (divider, blockquote, callout, paragraph, heading) at cursor or after selection',
+    parameters: z.object({ _: z.string().optional() }),
+    // @ts-ignore - AI SDK v5 tool execute overload
+    execute: async () => {
       const result = streamText({
         model,
-        output: (Output as unknown as { array: (opts: { element: typeof commentSchema }) => unknown }).array({ element: commentSchema }),
-        prompt: getCommentPrompt(editor, {
-          messages: messagesRaw,
+        output: (Output as unknown as { array: (opts: { element: typeof insertBlockSchema }) => unknown }).array({
+          element: insertBlockSchema,
         }),
+        prompt: getInsertBlockPrompt(editor, messagesRaw),
       } as Parameters<typeof streamText>[0]);
       const partialOutputStream = (result as { partialOutputStream?: AsyncIterable<unknown> }).partialOutputStream;
       if (!partialOutputStream) throw new Error('partialOutputStream not available');
@@ -236,29 +300,30 @@ const getCommentTool = (
       for await (const partialArray of partialOutputStream) {
         const arr = partialArray as unknown[];
         for (let i = lastLength; i < arr.length; i++) {
-          const comment = arr[i] as { blockId: string; comment: string; content: string };
-          const commentDataId = nanoid();
-
+          const op = arr[i] as { blockType: string; at: string; content?: string; icon?: string };
+          const insertBlock = {
+            ...op,
+            at: (op.at === 'afterSelection' ? 'afterSelection' : 'cursor') as 'cursor' | 'afterSelection',
+          };
           writer.write({
-            id: commentDataId,
+            id: nanoid(),
             data: {
-              comment,
+              insertBlock,
               status: 'streaming',
             },
-            type: 'data-comment',
+            type: 'data-insertBlock',
           });
         }
-
         lastLength = arr.length;
       }
 
       writer.write({
         id: nanoid(),
         data: {
-          comment: null,
+          insertBlock: null,
           status: 'finished',
         },
-        type: 'data-comment',
+        type: 'data-insertBlock',
       });
     },
   });

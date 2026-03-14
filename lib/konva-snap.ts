@@ -5,7 +5,7 @@
 
 export type Bounds = { x: number; y: number; w: number; h: number; cx: number; cy: number };
 
-const SNAP_THRESHOLD = 8;
+const SNAP_THRESHOLD = 10;
 
 /** Collect all vertical and horizontal guide positions from bounds and stage size */
 function getGuidePositions(otherBounds: Bounds[], stageWidth: number, stageHeight: number) {

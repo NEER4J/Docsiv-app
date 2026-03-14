@@ -3,31 +3,37 @@
 import * as React from 'react';
 
 import { type UseChatHelpers, useChat as useBaseChat } from '@ai-sdk/react';
-import {
-  AIChatPlugin,
-  aiCommentToRange,
-  applyTableCellSuggestion,
-} from '@platejs/ai/react';
-import { getCommentKey, getTransientCommentKey } from '@platejs/comment';
-import { deserializeMd } from '@platejs/markdown';
+import { AIChatPlugin, applyTableCellSuggestion } from '@platejs/ai/react';
+import { IndentPlugin } from '@platejs/indent/react';
 import { BlockSelectionPlugin } from '@platejs/selection/react';
 import { type UIMessage, DefaultChatTransport } from 'ai';
-import { type TNode, KEYS, nanoid, NodeApi, TextApi } from 'platejs';
 import { type PlateEditor, useEditorRef, usePluginOption } from 'platejs/react';
 
 import { aiChatPlugin } from '@/components/platejs/editor/plugins/ai-kit';
-
-import { discussionPlugin } from './plugins/discussion-kit';
+import { insertBlock } from '@/components/platejs/editor/transforms';
 import { withAIBatch } from '@platejs/ai';
 
-export type ToolName = 'comment' | 'edit' | 'generate';
+export type ToolName = 'edit' | 'generate' | 'insertBlock' | 'formatBlock';
 
-export type TComment = {
-  comment: {
-    blockId: string;
-    comment: string;
-    content: string;
-  } | null;
+export type TFormatBlock = {
+  align?: 'left' | 'center' | 'right' | 'justify';
+  indent?: 'increase' | 'decrease';
+};
+
+export type TInsertBlock = {
+  blockType: string;
+  at: 'cursor' | 'afterSelection';
+  content?: string;
+  icon?: string;
+};
+
+export type TInsertBlockUpdate = {
+  insertBlock: TInsertBlock | null;
+  status: 'finished' | 'streaming';
+};
+
+export type TFormatBlockUpdate = {
+  formatBlock: TFormatBlock | null;
   status: 'finished' | 'streaming';
 };
 
@@ -41,7 +47,8 @@ export type TTableCellUpdate = {
 
 export type MessageDataPart = {
   toolName: ToolName;
-  comment?: TComment;
+  formatBlock?: TFormatBlockUpdate;
+  insertBlock?: TInsertBlockUpdate;
   table?: TTableCellUpdate;
 };
 
@@ -52,6 +59,7 @@ export type ChatMessage = UIMessage<{}, MessageDataPart>;
 export const useChat = () => {
   const editor = useEditorRef();
   const options = usePluginOption(aiChatPlugin, 'chatOptions');
+  const insertBlockRunRef = React.useRef(false);
 
   const _abortFakeStream = () => {};
 
@@ -74,7 +82,61 @@ export const useChat = () => {
     }),
     onData(data) {
       if (data.type === 'data-toolName') {
-        editor.setOption(AIChatPlugin, 'toolName', data.data as ToolName);
+        // AIChatPlugin option type is narrower; we pass extended ToolName for insertBlock/formatBlock
+        editor.setOption(AIChatPlugin, 'toolName', data.data as never);
+      }
+
+      if (data.type === 'data-formatBlock' && data.data) {
+        const payload = data.data as TFormatBlockUpdate;
+        if (payload.status === 'finished') {
+          editor.getApi(BlockSelectionPlugin).blockSelection.deselect();
+          return;
+        }
+        const op = payload.formatBlock;
+        if (!op) return;
+        withAIBatch(editor, () => {
+          if (op.align) {
+            editor.getTransforms(BlockSelectionPlugin).blockSelection.setNodes({ align: op.align });
+          }
+          if (op.indent) {
+            try {
+              const indentTf = editor.getTransforms(IndentPlugin) as { indent?: { increase?: () => void; decrease?: () => void } };
+              if (op.indent === 'increase') indentTf.indent?.increase?.();
+              else indentTf.indent?.decrease?.();
+            } catch {
+              // Indent plugin transform not available
+            }
+          }
+        });
+      }
+
+      if (data.type === 'data-insertBlock' && data.data) {
+        const payload = data.data as TInsertBlockUpdate;
+        if (payload.status === 'finished') {
+          insertBlockRunRef.current = false;
+          editor.getApi(BlockSelectionPlugin).blockSelection.deselect();
+          return;
+        }
+        const op = payload.insertBlock;
+        if (!op) return;
+        withAIBatch(editor, () => {
+          if (!insertBlockRunRef.current) {
+            insertBlockRunRef.current = true;
+            const chatSelection = editor.getOption(AIChatPlugin, 'chatSelection');
+            if (chatSelection) {
+              const point = op.at === 'afterSelection' ? chatSelection.focus : chatSelection.anchor;
+              const blockEntry = editor.api.block({ at: point });
+              if (blockEntry) {
+                const [, path] = blockEntry;
+                editor.tf.select(path);
+              }
+            }
+          }
+          insertBlock(editor, op.blockType);
+          if (op.content && op.content.trim()) {
+            editor.tf.insertText(op.content.trim());
+          }
+        });
       }
 
       if (data.type === 'data-table' && data.data) {
@@ -93,62 +155,6 @@ export const useChat = () => {
         });
       }
 
-      if (data.type === 'data-comment' && data.data) {
-        const commentData = data.data as TComment;
-
-        if (commentData.status === 'finished') {
-          editor.getApi(BlockSelectionPlugin).blockSelection.deselect();
-          return;
-        }
-
-        const aiComment = commentData.comment!;
-        const range = aiCommentToRange(editor, aiComment);
-
-        if (!range) return console.warn('No range found for AI comment');
-
-        const discussions =
-          editor.getOption(discussionPlugin, 'discussions') || [];
-
-        const discussionId = nanoid();
-
-        const newComment = {
-          id: nanoid(),
-          contentRich: [{ children: [{ text: aiComment.comment }], type: 'p' }],
-          createdAt: new Date(),
-          discussionId,
-          isEdited: false,
-          userId: editor.getOption(discussionPlugin, 'currentUserId'),
-        };
-
-        const newDiscussion = {
-          id: discussionId,
-          comments: [newComment],
-          createdAt: new Date(),
-          documentContent: deserializeMd(editor, aiComment.content)
-            .map((node: TNode) => NodeApi.string(node))
-            .join('\n'),
-          isResolved: false,
-          userId: editor.getOption(discussionPlugin, 'currentUserId'),
-        };
-
-        const updatedDiscussions = [...discussions, newDiscussion];
-        editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
-
-        editor.tf.withMerging(() => {
-          editor.tf.setNodes(
-            {
-              [getCommentKey(newDiscussion.id)]: true,
-              [getTransientCommentKey()]: true,
-              [KEYS.comment]: true,
-            },
-            {
-              at: range,
-              match: TextApi.isText,
-              split: true,
-            }
-          );
-        });
-      }
     },
 
     ...options,

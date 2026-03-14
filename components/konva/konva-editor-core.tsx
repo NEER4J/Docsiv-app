@@ -771,8 +771,23 @@ const KonvaEditorCoreInner = (
         cy: rect.y + rect.height / 2,
       };
       const otherBounds: Bounds[] = shapes
-        .filter((_, i) => i !== draggingIndex)
-        .map((s) => getShapeBounds(s));
+        .map((s, i) => (i === draggingIndex ? null : { shape: s, index: i }))
+        .filter((entry): entry is { shape: KonvaShapeDesc; index: number } => entry != null)
+        .map(({ shape: s, index: i }) => {
+          const node = nodeMapRef.current.get(getStableId(s, i));
+          if (node) {
+            const r = node.getClientRect();
+            return {
+              x: r.x,
+              y: r.y,
+              w: r.width,
+              h: r.height,
+              cx: r.x + r.width / 2,
+              cy: r.y + r.height / 2,
+            };
+          }
+          return getShapeBounds(s);
+        });
       const result = computeSnap(movingBounds, otherBounds, width, height);
       // Circle/Ellipse use center as position; Rect/Text/Image use top-left
       const isCenterPosition = node.getClassName?.() === 'Circle' || node.getClassName?.() === 'Ellipse';
@@ -819,6 +834,15 @@ const KonvaEditorCoreInner = (
         className === 'Text' || className === 'Icon' ? node.getClientRect() : null;
       node.scaleX(1);
       node.scaleY(1);
+      // Apply new width/height to the node immediately so it doesn't jump before React re-renders (Konva Text/Icon resize pattern)
+      if ((className === 'Text' || className === 'Icon') && scaledRect) {
+        const w = Math.max(5, scaledRect.width);
+        const h = Math.max(5, scaledRect.height);
+        node.width(w);
+        node.height(h);
+        transformerRef.current?.forceUpdate();
+        node.getLayer()?.batchDraw();
+      }
       setPages((prev) => {
         const next = [...prev];
         const page = next[currentIndex] ?? { layer: { children: [] } };
@@ -1122,6 +1146,13 @@ const KonvaEditorCoreInner = (
       if (readOnly) return;
       const target = e.target as HTMLElement;
       if (target.closest('input, textarea, [contenteditable], select')) return;
+      // Only handle shortcuts when focus is in the editor (root or any descendant). The editor root has tabIndex={0} and receives focus on canvas click; keydown target is then the root, not the canvas container.
+      const inEditor =
+        (editorRootRef.current && (editorRootRef.current === target || editorRootRef.current.contains(target))) ||
+        canvasContainerRef.current?.contains(target) ||
+        target === document.body ||
+        target === document.documentElement;
+      if (!inEditor) return;
       const isMac = typeof navigator !== 'undefined' && /mac|darwin/i.test(navigator.platform);
       const mod = isMac ? e.metaKey : e.ctrlKey;
 
@@ -1207,6 +1238,31 @@ const KonvaEditorCoreInner = (
   const handleCancelTextEdit = useCallback(() => {
     setEditingTextId(null);
   }, []);
+
+  const KONVA_DRAG_TYPE = 'Rect|Text|Image|Circle|Ellipse|Line|Arrow|Star|RegularPolygon|Icon|Video';
+  const handleStageDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      if (readOnly) return;
+      const raw = e.dataTransfer.getData('application/json');
+      if (!raw) return;
+      let data: { type: string; attrs?: Record<string, unknown> };
+      try {
+        data = JSON.parse(raw) as { type: string; attrs?: Record<string, unknown> };
+      } catch {
+        return;
+      }
+      const { type, attrs = {} } = data;
+      if (!type || !KONVA_DRAG_TYPE.split('|').includes(type)) return;
+      const stage = stageRef.current;
+      if (!stage) return;
+      stage.setPointersPositions(e.nativeEvent);
+      const pos = stage.getPointerPosition();
+      if (!pos) return;
+      addShape(type as Parameters<typeof addShape>[0], { ...attrs, x: pos.x, y: pos.y });
+    },
+    [readOnly, addShape]
+  );
 
   const editingShape = editingTextId
     ? shapes.find((s, i) => getStableId(s, i) === editingTextId)
@@ -1527,6 +1583,9 @@ const KonvaEditorCoreInner = (
               transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: 'center center',
             }}
+            onDragOver={(e) => e.preventDefault()}
+            onDragEnter={(e) => e.preventDefault()}
+            onDrop={handleStageDrop}
           >
             <ContextMenu>
             <ContextMenuTrigger asChild>

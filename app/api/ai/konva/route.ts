@@ -2,10 +2,9 @@ import type { NextRequest } from 'next/server';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText, type CoreMessage } from 'ai';
 import { NextResponse } from 'next/server';
+import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { getKonvaAiSystemPrompt } from './prompt';
-
-const DEFAULT_MODEL = 'gemini-2.0-flash';
 
 export async function POST(req: NextRequest) {
   let body: {
@@ -118,7 +117,7 @@ export async function POST(req: NextRequest) {
   }
 
   const google = createGoogleGenerativeAI({ apiKey });
-  const modelId = typeof body.model === 'string' && body.model.startsWith('google/') ? body.model.slice(7) : DEFAULT_MODEL;
+  const modelId = typeof body.model === 'string' && body.model.startsWith('google/') ? body.model.slice(7) : DEFAULT_AI_MODEL;
 
   try {
     const result = await generateText({
