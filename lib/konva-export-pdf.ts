@@ -114,6 +114,9 @@ async function renderPageToDataURL(
           width: (attrs.width as number) ?? 100,
           height: (attrs.height as number) ?? 50,
           fill: (attrs.fill as string) ?? '#e5e5e5',
+          cornerRadius: (attrs.cornerRadius as number) ?? 0,
+          stroke: attrs.stroke as string | undefined,
+          strokeWidth: (attrs.strokeWidth as number) ?? 0,
         });
         layer.add(rect);
       } else if (shape.className === 'Text') {
@@ -122,7 +125,14 @@ async function renderPageToDataURL(
           y: (attrs.y as number) ?? 0,
           text: (attrs.text as string) ?? 'Text',
           fontSize: (attrs.fontSize as number) ?? 16,
+          fontFamily: (attrs.fontFamily as string) ?? 'Arial',
+          fontStyle: (attrs.fontStyle as string) ?? 'normal',
           fill: (attrs.fill as string) ?? '#171717',
+          width: attrs.width != null ? (attrs.width as number) : undefined,
+          wrap: (attrs.wrap as string) ?? 'word',
+          align: (attrs.align as string) ?? 'left',
+          lineHeight: (attrs.lineHeight as number) ?? 1.2,
+          rotation: (attrs.rotation as number) ?? 0,
         });
         layer.add(text);
       } else if (shape.className === 'Image' && attrs.src) {

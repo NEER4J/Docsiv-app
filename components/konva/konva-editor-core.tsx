@@ -19,9 +19,9 @@ import {
   SLIDE_WIDTH_PX,
   SLIDE_HEIGHT_PX,
 } from '@/lib/konva-content';
-import { createPatternCanvas } from '@/lib/konva-background-patterns';
 import { clonePages, type PageOrSlide, HISTORY_LIMIT } from '@/lib/konva-editor-state';
 import { KonvaShapeRenderer } from '@/components/konva/konva-shape-renderer';
+import { KonvaBackgroundLayer as KonvaBackgroundLayerShared } from '@/components/konva/konva-background-layer';
 import { KonvaLeftSidebar, type KonvaLeftTabId } from '@/components/konva/konva-left-sidebar';
 import { KonvaPropertiesPanel } from '@/components/konva/konva-properties-panel';
 import { KonvaLayersPanel } from '@/components/konva/konva-layers-panel';
@@ -39,6 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { renderPageToPngDataURL } from '@/lib/konva-export-pdf';
 import { updateDocumentContent, createDocumentVersion, uploadDocumentThumbnail } from '@/lib/actions/documents';
 import { computeSnap, type Bounds } from '@/lib/konva-snap';
@@ -66,91 +67,15 @@ function KonvaBackgroundLayer({
   isCurrentPage?: boolean;
   onBackgroundImageDragEnd?: (offsetX: number, offsetY: number) => void;
 }) {
-  const [patternCanvas, setPatternCanvas] = useState<HTMLCanvasElement | null>(null);
-  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
-
-  useEffect(() => {
-    if (background.type === 'pattern') {
-      setPatternCanvas(createPatternCanvas(background.patternId));
-    } else {
-      setPatternCanvas(null);
-    }
-  }, [background.type, background.type === 'pattern' ? background.patternId : '']);
-
-  useEffect(() => {
-    if (background.type === 'image' && background.imageUrl) {
-      const img = new window.Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => setBgImage(img);
-      img.onerror = () => setBgImage(null);
-      img.src = background.imageUrl;
-      return () => {
-        img.src = '';
-      };
-    } else {
-      setBgImage(null);
-    }
-  }, [background.type, background.type === 'image' ? background.imageUrl : '']);
-
-  if (background.type === 'solid') {
-    return (
-      <Rect x={0} y={0} width={width} height={height} fill={background.color} listening={false} />
-    );
-  }
-  if (background.type === 'pattern' && patternCanvas) {
-    return (
-      <Rect
-        x={0}
-        y={0}
-        width={width}
-        height={height}
-        fillPatternImage={patternCanvas as unknown as HTMLImageElement}
-        fillPatternRepeat="repeat"
-        listening={false}
-      />
-    );
-  }
-  if (background.type === 'image' && bgImage) {
-    const nw = bgImage.naturalWidth || width;
-    const nh = bgImage.naturalHeight || height;
-    const scale = Math.max(width / nw, height / nh);
-    const drawWidth = nw * scale;
-    const drawHeight = nh * scale;
-    const offsetX = background.offsetX ?? 0;
-    const offsetY = background.offsetY ?? 0;
-    const imgX = width / 2 - drawWidth / 2 + offsetX;
-    const imgY = height / 2 - drawHeight / 2 + offsetY;
-    const canDrag = isCurrentPage && !!onBackgroundImageDragEnd;
-
-    return (
-      <Group
-        clipFunc={(ctx) => {
-          ctx.rect(0, 0, width, height);
-        }}
-        listening={false}
-      >
-        <Image
-          x={imgX}
-          y={imgY}
-          width={drawWidth}
-          height={drawHeight}
-          image={bgImage}
-          listening={canDrag}
-          draggable={canDrag}
-          onDragEnd={(e) => {
-            if (!onBackgroundImageDragEnd) return;
-            const node = e.target;
-            const newX = node.x();
-            const newY = node.y();
-            const newOffsetX = newX - (width / 2 - drawWidth / 2);
-            const newOffsetY = newY - (height / 2 - drawHeight / 2);
-            onBackgroundImageDragEnd(newOffsetX, newOffsetY);
-          }}
-        />
-      </Group>
-    );
-  }
-  return null;
+  return (
+    <KonvaBackgroundLayerShared
+      background={background}
+      width={width}
+      height={height}
+      interactive={!!isCurrentPage}
+      onBackgroundImageDragEnd={onBackgroundImageDragEnd}
+    />
+  );
 }
 
 function generateShapeId(): string {
@@ -248,6 +173,7 @@ const KonvaEditorCoreInner = (
     clientY: number;
   } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewZoom, setPreviewZoom] = useState(1);
   const [pageThumbnailUrls, setPageThumbnailUrls] = useState<(string | null)[]>([]);
   const viewAllScrollRef = useRef<HTMLDivElement>(null);
   const [canvasCursor, setCanvasCursor] = useState<'grab' | 'default' | 'move' | 'grabbing' | string>('grab');
@@ -1525,7 +1451,10 @@ const KonvaEditorCoreInner = (
     editorRootRef.current?.focus({ preventScroll: true });
   }, []);
 
-  const previewScale = Math.min(420 / width, 520 / height, 0.85);
+  const previewScaleBase = Math.min(420 / width, 520 / height, 0.85);
+  const previewScale = previewScaleBase * previewZoom;
+  const PREVIEW_ZOOM_MIN = 0.5;
+  const PREVIEW_ZOOM_MAX = 2;
 
   return (
     <div
@@ -1533,7 +1462,7 @@ const KonvaEditorCoreInner = (
       className={`flex min-h-0 flex-1 overflow-hidden outline-none ${className}`}
       tabIndex={0}
     >
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+      <Dialog open={previewOpen} onOpenChange={(open) => { setPreviewOpen(open); if (!open) setPreviewZoom(1); }}>
         <DialogContent
           className="max-h-[90vh] max-w-[95vw] overflow-hidden flex flex-col border border-zinc-700 bg-zinc-900 text-zinc-100"
           onPointerDownCapture={(e) => e.target === e.currentTarget && e.preventDefault()}
@@ -1544,10 +1473,10 @@ const KonvaEditorCoreInner = (
             <DialogTitle className="text-zinc-100">Document preview</DialogTitle>
           </DialogHeader>
           <div
-            className="flex-1 overflow-auto rounded border border-zinc-700 bg-zinc-800 p-4"
+            className="flex min-h-0 flex-1 flex-col overflow-auto rounded border border-zinc-700 bg-zinc-800 p-4"
             onContextMenu={(e) => e.preventDefault()}
           >
-            <div className="mx-auto flex flex-col items-center gap-6">
+            <div className="mx-auto flex flex-col items-center gap-6 pb-4">
               {pages.map((page, pageIndex) => {
                 const pageShapes = getChildren(page);
                 const pageBg = (page as { background?: PageBackground })?.background;
@@ -1600,6 +1529,33 @@ const KonvaEditorCoreInner = (
                   </div>
                 );
               })}
+            </div>
+            <div className="sticky bottom-0 left-0 right-0 flex justify-center border-t border-zinc-700 bg-zinc-900/95 py-2 backdrop-blur">
+              <div className="flex items-center gap-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0 border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                  onClick={() => setPreviewZoom((z) => Math.max(PREVIEW_ZOOM_MIN, z - 0.25))}
+                  aria-label="Zoom out"
+                >
+                  −
+                </Button>
+                <span className="min-w-[3rem] text-center text-xs text-zinc-400">
+                  {Math.round(previewZoom * 100)}%
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0 border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                  onClick={() => setPreviewZoom((z) => Math.min(PREVIEW_ZOOM_MAX, z + 0.25))}
+                  aria-label="Zoom in"
+                >
+                  +
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>

@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
             thinkingBudget: 8192,
           },
         },
-      } as Record<string, unknown>,
+      } as Parameters<typeof generateText>[0]['providerOptions'],
     });
 
     const text = (result.text ?? '').trim();
