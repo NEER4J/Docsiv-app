@@ -4,25 +4,96 @@ const ICONIFY_API = 'https://api.iconify.design';
 
 export type IconPathItem = { d: string; fill?: string | null; stroke?: string | null; strokeWidth?: number };
 
+/** Extract a fill value from an attribute string, checking both fill="..." and style="...fill:...;" */
+function extractFill(attrStr: string): string | null {
+  // Check fill="..." attribute
+  const attrMatch = attrStr.match(/(?:^|\s)fill\s*=\s*["']([^"']+)["']/i)?.[1];
+  if (attrMatch) return attrMatch;
+  // Check style="...fill:...;"
+  const styleMatch = attrStr.match(/style\s*=\s*["']([^"']*)["']/i)?.[1];
+  if (styleMatch) {
+    const fillInStyle = styleMatch.match(/(?:^|;)\s*fill\s*:\s*([^;]+)/i)?.[1]?.trim();
+    if (fillInStyle) return fillInStyle;
+  }
+  return null;
+}
+
+/** Extract a stroke value from an attribute string */
+function extractStroke(attrStr: string): string | null {
+  const attrMatch = attrStr.match(/(?:^|\s)stroke\s*=\s*["']([^"']+)["']/i)?.[1];
+  if (attrMatch) return attrMatch;
+  const styleMatch = attrStr.match(/style\s*=\s*["']([^"']*)["']/i)?.[1];
+  if (styleMatch) {
+    const strokeInStyle = styleMatch.match(/(?:^|;)\s*stroke\s*:\s*([^;]+)/i)?.[1]?.trim();
+    if (strokeInStyle) return strokeInStyle;
+  }
+  return null;
+}
+
+/** Resolve fill/stroke: convert currentColor/inherit/none to null */
+function resolveFill(raw: string | null): string | null {
+  if (!raw) return null;
+  const lower = raw.toLowerCase().trim();
+  if (lower === 'currentcolor' || lower === 'inherit') return null;
+  return raw;
+}
+
+function resolveStroke(raw: string | null): string | null {
+  if (!raw) return null;
+  const lower = raw.toLowerCase().trim();
+  if (lower === 'currentcolor' || lower === 'inherit' || lower === 'none') return null;
+  return raw;
+}
+
 /**
  * Parse Iconify icon body (SVG inner content) into path items with d, fill, stroke.
+ * Handles <g fill="..."> inheritance and style="fill:..." attributes.
  * currentColor / inherit become null so the shape's fill/stroke can be used.
  */
 function parseIconBody(body: string): IconPathItem[] {
   const items: IconPathItem[] = [];
-  const pathRe = /<path\s([^>]*)\/?\s*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = pathRe.exec(body)) !== null) {
-    const attrs = m[1];
-    const d = attrs.match(/\sd\s*=\s*["']([^"']+)["']/i)?.[1]?.trim();
-    if (!d) continue;
-    const fillMatch = attrs.match(/\sfill\s*=\s*["']([^"']+)["']/i)?.[1];
-    const strokeMatch = attrs.match(/\sstroke\s*=\s*["']([^"']+)["']/i)?.[1];
-    const strokeWidthMatch = attrs.match(/\sstroke-width\s*=\s*["']?([\d.]+)["']?/i)?.[1];
-    const fill = fillMatch && fillMatch !== 'currentColor' && fillMatch !== 'inherit' ? fillMatch : null;
-    const stroke = strokeMatch && strokeMatch !== 'currentColor' && strokeMatch !== 'inherit' && strokeMatch !== 'none' ? strokeMatch : null;
-    const strokeWidth = strokeWidthMatch ? parseFloat(strokeWidthMatch) : undefined;
-    items.push({ d, fill: fill ?? undefined, stroke: stroke ?? undefined, strokeWidth });
+  const fillStack: (string | null)[] = [null];
+  const strokeStack: (string | null)[] = [null];
+
+  const tagRe = /<(\/?)(\w+)\s*([^>]*?)(\/?)\s*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(body)) !== null) {
+    const isClose = match[1] === '/';
+    const tagName = match[2].toLowerCase();
+    const attrStr = match[3];
+    const selfClose = match[4] === '/';
+
+    if (tagName === 'g') {
+      if (isClose) {
+        if (fillStack.length > 1) fillStack.pop();
+        if (strokeStack.length > 1) strokeStack.pop();
+      } else {
+        const gFill = extractFill(attrStr);
+        const gStroke = extractStroke(attrStr);
+        fillStack.push(resolveFill(gFill) ?? fillStack[fillStack.length - 1] ?? null);
+        strokeStack.push(resolveStroke(gStroke) ?? strokeStack[strokeStack.length - 1] ?? null);
+        // Self-closing <g/> — pop immediately
+        if (selfClose) {
+          if (fillStack.length > 1) fillStack.pop();
+          if (strokeStack.length > 1) strokeStack.pop();
+        }
+      }
+      continue;
+    }
+
+    if (tagName === 'path' && !isClose) {
+      const d = attrStr.match(/(?:^|\s)d\s*=\s*["']([^"']+)["']/i)?.[1]?.trim();
+      if (!d) continue;
+      const pathFill = resolveFill(extractFill(attrStr));
+      const pathStroke = resolveStroke(extractStroke(attrStr));
+      const inheritedFill = fillStack[fillStack.length - 1];
+      const inheritedStroke = strokeStack[strokeStack.length - 1];
+      const fill = pathFill ?? inheritedFill;
+      const stroke = pathStroke ?? inheritedStroke;
+      const strokeWidthMatch = attrStr.match(/stroke-width\s*=\s*["']?([\d.]+)["']?/i)?.[1];
+      const strokeWidth = strokeWidthMatch ? parseFloat(strokeWidthMatch) : undefined;
+      items.push({ d, fill: fill ?? undefined, stroke: stroke ?? undefined, strokeWidth });
+    }
   }
   return items;
 }

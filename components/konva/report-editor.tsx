@@ -18,6 +18,7 @@ export type KonvaReportEditorHandle = {
   getStageRef: () => Konva.Stage | null;
   getContent: () => KonvaStoredContent | null;
   applyContent: (content: KonvaStoredContent) => void;
+  getCurrentPageImage: () => Promise<string | null>;
 };
 
 type KonvaReportEditorProps = {
@@ -58,6 +59,7 @@ const ReportEditorInner = (
       if (content.report) setPageSize(getKonvaReportPageSize(content));
       coreRef.current?.setContent(content);
     },
+    getCurrentPageImage: () => coreRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
   }));
 
   return (

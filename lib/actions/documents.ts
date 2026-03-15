@@ -707,3 +707,42 @@ export async function claimDocumentAccessViaLink(
     accessType: d?.access_type ?? undefined,
   };
 }
+
+// ---- Document attachments (Konva Media tab persistence) ----
+
+export type DocumentAttachmentRow = {
+  id: string;
+  document_id: string;
+  url: string;
+  name: string;
+  type: 'image' | 'video' | 'file';
+  created_at: string;
+};
+
+export async function listDocumentAttachments(
+  documentId: string
+): Promise<{ attachments: DocumentAttachmentRow[]; error?: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('document_attachments')
+    .select('id, document_id, url, name, type, created_at')
+    .eq('document_id', documentId)
+    .order('created_at', { ascending: true });
+  if (error) return { attachments: [], error: error.message };
+  return { attachments: (data ?? []) as DocumentAttachmentRow[] };
+}
+
+export async function addDocumentAttachment(
+  documentId: string,
+  payload: { url: string; name: string; type: 'image' | 'video' | 'file' }
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from('document_attachments').insert({
+    document_id: documentId,
+    url: payload.url,
+    name: payload.name,
+    type: payload.type,
+  });
+  if (error) return { error: error.message };
+  return {};
+}

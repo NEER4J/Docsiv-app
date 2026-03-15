@@ -17,6 +17,7 @@ export type KonvaPresentationEditorHandle = {
   getStageRef: () => Konva.Stage | null;
   getContent: () => KonvaStoredContent | null;
   applyContent: (content: KonvaStoredContent) => void;
+  getCurrentPageImage: () => Promise<string | null>;
 };
 
 type KonvaPresentationEditorProps = {
@@ -54,6 +55,7 @@ const PresentationEditorInner = (
       if (!content || content.editor !== 'konva') return;
       if (content.presentation) coreRef.current?.setContent(content);
     },
+    getCurrentPageImage: () => coreRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
   }));
 
   return (

@@ -163,6 +163,7 @@ export type KonvaEditorCoreHandle = {
   getStageRef: () => Konva.Stage | null;
   getContent: () => KonvaStoredContent;
   setContent: (content: KonvaStoredContent) => void;
+  getCurrentPageImage: () => Promise<string | null>;
 };
 
 export type KonvaEditorCoreProps = {
@@ -209,7 +210,7 @@ const KonvaEditorCoreInner = (
   const editInputRef = useRef<HTMLTextAreaElement>(null);
 
   const getInitialPages = useCallback((): PageOrSlide[] => {
-    const normalize = (item: { layer?: KonvaNodeJSON }): PageOrSlide => {
+    const normalize = (item: { layer?: KonvaNodeJSON; background?: PageBackground }): PageOrSlide => {
       const layer = item.layer as { children?: KonvaShapeDesc[] } | undefined;
       return {
         layer: {
@@ -217,6 +218,7 @@ const KonvaEditorCoreInner = (
           attrs: {},
           className: 'Layer',
         },
+        ...(item.background ? { background: item.background } : {}),
       };
     };
     if (mode === 'report') {
@@ -246,12 +248,16 @@ const KonvaEditorCoreInner = (
     clientY: number;
   } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [pageThumbnailUrls, setPageThumbnailUrls] = useState<(string | null)[]>([]);
   const viewAllScrollRef = useRef<HTMLDivElement>(null);
   const [canvasCursor, setCanvasCursor] = useState<'grab' | 'default' | 'move' | 'grabbing' | string>('grab');
   const [guideLines, setGuideLines] = useState<{ vertical: number[]; horizontal: number[] }>({ vertical: [], horizontal: [] });
   const [drawMode, setDrawMode] = useState<{ color: string; strokeWidth: number } | null>(null);
   const [currentDrawPoints, setCurrentDrawPoints] = useState<number[]>([]);
   const panStartRef = useRef<{ x: number; y: number } | null>(null);
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const marqueeEndRef = useRef<{ x: number; y: number } | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   useEffect(() => {
     if (!viewAllPages) setViewAllPanStart(null);
@@ -363,6 +369,20 @@ const KonvaEditorCoreInner = (
     };
   }, []);
 
+  /** Convert screen coords to stage coords using the stage's canvas element */
+  const screenToStage = useCallback(
+    (clientX: number, clientY: number): { x: number; y: number } | null => {
+      const canvas = stageRef.current?.container()?.querySelector('canvas') as HTMLCanvasElement | null;
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(width, ((clientX - rect.left) / rect.width) * width)),
+        y: Math.max(0, Math.min(height, ((clientY - rect.top) / rect.height) * height)),
+      };
+    },
+    [width, height]
+  );
+
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (readOnly) return;
@@ -371,9 +391,30 @@ const KonvaEditorCoreInner = (
       if (startPan) {
         panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
         setIsPanning(true);
+        return;
+      }
+      // Start marquee if clicking on empty canvas area (no shape under cursor)
+      if (onCanvas && !drawMode) {
+        const pos = screenToStage(e.clientX, e.clientY);
+        const stage = stageRef.current;
+        if (pos && stage) {
+          const hit = stage.getIntersection({ x: pos.x, y: pos.y });
+          const hitIsEmpty = !hit || (hit as unknown) === stage;
+          if (hitIsEmpty) {
+            marqueeStartRef.current = { x: pos.x, y: pos.y };
+            marqueeEndRef.current = null;
+            // Register window-level mouseup immediately so it fires even if released
+            // before React's useEffect cycle (avoids visual artifact of stuck marquee rect)
+            window.addEventListener(
+              'mouseup',
+              () => { marqueeFinishRef.current?.(); },
+              { once: true }
+            );
+          }
+        }
       }
     },
-    [readOnly, pan]
+    [readOnly, pan, drawMode, screenToStage]
   );
 
   const handleCanvasMouseMove = useCallback(
@@ -384,6 +425,23 @@ const KonvaEditorCoreInner = (
           x: e.clientX - panStartRef.current.x,
           y: e.clientY - panStartRef.current.y,
         });
+        return;
+      }
+      // Marquee tracking
+      if (marqueeStartRef.current) {
+        const pos = screenToStage(e.clientX, e.clientY);
+        if (pos) {
+          const start = marqueeStartRef.current;
+          if (Math.abs(pos.x - start.x) > 3 || Math.abs(pos.y - start.y) > 3) {
+            marqueeEndRef.current = { x: pos.x, y: pos.y };
+            setMarqueeRect({
+              x: Math.min(start.x, pos.x),
+              y: Math.min(start.y, pos.y),
+              width: Math.abs(pos.x - start.x),
+              height: Math.abs(pos.y - start.y),
+            });
+          }
+        }
         return;
       }
       const container = canvasContainerRef.current;
@@ -405,8 +463,10 @@ const KonvaEditorCoreInner = (
       }
       setCanvasCursor('grab');
     },
-    [readOnly, width, height, getCursorForStagePoint]
+    [readOnly, width, height, getCursorForStagePoint, screenToStage]
   );
+
+  const marqueeFinishRef = useRef<(() => void) | null>(null);
 
   const handleCanvasMouseUp = useCallback(() => {
     panStartRef.current = null;
@@ -528,6 +588,18 @@ const KonvaEditorCoreInner = (
     [documentId, workspaceId, mode, pages, width, height, readOnly, onSaveStatus, buildStoredContent]
   );
 
+  const getCurrentPageImage = useCallback(async (): Promise<string | null> => {
+    const page = pages[currentIndex];
+    if (!page) return null;
+    const shapes = getChildren(page);
+    const background = (page as { background?: PageBackground })?.background;
+    try {
+      return await renderPageToPngDataURL(shapes, width, height, 2, background ?? undefined);
+    } catch {
+      return null;
+    }
+  }, [pages, currentIndex, width, height]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -536,9 +608,38 @@ const KonvaEditorCoreInner = (
       getStageRef: () => stageRef.current ?? null,
       getContent,
       setContent,
+      getCurrentPageImage,
     }),
-    [persistContent, getContent, setContent]
+    [persistContent, getContent, setContent, getCurrentPageImage]
   );
+
+  // Generate thumbnail data URLs for the Pages tab (sidebar previews)
+  useEffect(() => {
+    let cancelled = false;
+    const n = pages.length;
+    if (n === 0) {
+      setPageThumbnailUrls([]);
+      return;
+    }
+    setPageThumbnailUrls((prev) => (prev.length === n ? prev : Array(n).fill(null)));
+    Promise.all(
+      pages.map(async (page) => {
+        if (cancelled) return null;
+        const shapes = getChildren(page);
+        const background = (page as { background?: PageBackground })?.background;
+        try {
+          return await renderPageToPngDataURL(shapes, width, height, 0.5, background ?? undefined);
+        } catch {
+          return null;
+        }
+      })
+    ).then((urls) => {
+      if (!cancelled) setPageThumbnailUrls(urls);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pages, width, height]);
 
   const goToPage = useCallback((index: number) => {
     setCurrentIndex((i) => Math.max(0, Math.min(index, pages.length - 1)));
@@ -628,11 +729,11 @@ const KonvaEditorCoreInner = (
             ...base,
             paths: defaultAttrs.paths as Array<{ d: string; fill?: string | null; stroke?: string | null; strokeWidth?: number }> | undefined,
             pathData: (defaultAttrs.pathData as string) ?? '',
-            fill: (defaultAttrs.fill as string) ?? '#171717',
+            ...('fill' in defaultAttrs && defaultAttrs.fill != null ? { fill: defaultAttrs.fill as string } : !defaultAttrs.paths ? { fill: '#171717' } : {}),
             stroke: (defaultAttrs.stroke as string) ?? '',
             strokeWidth: (defaultAttrs.strokeWidth as number) ?? 0,
-            width: (defaultAttrs.width as number) ?? 24,
-            height: (defaultAttrs.height as number) ?? 24,
+            width: (defaultAttrs.width as number) ?? 48,
+            height: (defaultAttrs.height as number) ?? 48,
             viewBoxSize: (defaultAttrs.viewBoxSize as number) ?? 256,
           };
           break;
@@ -708,8 +809,18 @@ const KonvaEditorCoreInner = (
   useEffect(() => {
     const tr = transformerRef.current;
     if (!tr) return;
+    // Build a set of locked shape IDs so we exclude them from the Transformer
+    const lockedIds = new Set<string>();
+    for (const s of shapes) {
+      const a = s.attrs as Record<string, unknown>;
+      if (a.locked) {
+        const idx = shapes.indexOf(s);
+        lockedIds.add(getStableId(s, idx));
+      }
+    }
     const attach = () => {
       const nodes = selectedIds
+        .filter((id) => !lockedIds.has(id))
         .map((id) => nodeMapRef.current.get(id))
         .filter((n): n is Konva.Node => n != null);
       tr.nodes(nodes);
@@ -720,7 +831,7 @@ const KonvaEditorCoreInner = (
       attach();
     });
     return () => cancelAnimationFrame(t);
-  }, [selectedIds]);
+  }, [selectedIds, shapes]);
 
   const checkDeselect = useCallback((e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
     const clickedOnEmpty = e.target === e.target.getStage();
@@ -756,6 +867,33 @@ const KonvaEditorCoreInner = (
     }
     return { x, y, w: shapeW, h: shapeH, cx: x + shapeW / 2, cy: y + shapeH / 2 };
   }, []);
+
+  // Keep marquee finish logic in a ref so handleCanvasMouseUp (defined earlier) can use it
+  marqueeFinishRef.current = () => {
+    const start = marqueeStartRef.current;
+    const end = marqueeEndRef.current;
+    if (start && end && (Math.abs(end.x - start.x) > 3 || Math.abs(end.y - start.y) > 3)) {
+      const rx1 = Math.min(start.x, end.x);
+      const ry1 = Math.min(start.y, end.y);
+      const rx2 = Math.max(start.x, end.x);
+      const ry2 = Math.max(start.y, end.y);
+      const selected = shapes
+        .map((s, i) => ({ shape: s, id: getStableId(s, i) }))
+        .filter(({ shape }) => {
+          const a = shape.attrs as Record<string, unknown>;
+          if (a.locked || a.visible === false) return false;
+          const b = getShapeBounds(shape);
+          return !(b.x + b.w < rx1 || b.x > rx2 || b.y + b.h < ry1 || b.y > ry2);
+        })
+        .map(({ id }) => id);
+      setSelectedIds(selected.length > 0 ? selected : []);
+    } else if (start) {
+      setSelectedIds([]);
+    }
+    marqueeStartRef.current = null;
+    marqueeEndRef.current = null;
+    setMarqueeRect(null);
+  };
 
   const handleDragMove = useCallback(
     (e: Konva.KonvaEventObject<DragEvent>, draggingIndex: number) => {
@@ -807,13 +945,18 @@ const KonvaEditorCoreInner = (
       pushHistory();
       const shapeId = getStableId(shapes[index], index);
       const node = nodeMapRef.current.get(shapeId) ?? e.target;
+      const newX = Number(node.x());
+      const newY = Number(node.y());
+      if (!Number.isFinite(newX) || !Number.isFinite(newY)) return;
       setPages((prev) => {
         const next = [...prev];
         const page = next[currentIndex] ?? { layer: { children: [] } };
         const layer = page.layer as { children: KonvaShapeDesc[] };
         const children = [...(Array.isArray(layer?.children) ? layer.children : [])];
         const s = children[index];
-        if (s?.attrs) children[index] = { ...s, attrs: { ...s.attrs, x: node.x(), y: node.y() } };
+        if (!s) return next;
+        const existingAttrs = (s.attrs && typeof s.attrs === 'object' ? s.attrs : {}) as Record<string, unknown>;
+        children[index] = { ...s, attrs: { ...existingAttrs, x: newX, y: newY } };
         next[currentIndex] = { ...page, layer: { ...layer, children } };
         return next;
       });
@@ -826,20 +969,52 @@ const KonvaEditorCoreInner = (
       if (readOnly) return;
       pushHistory();
       const node = e.target;
-      const scaleX = node.scaleX();
-      const scaleY = node.scaleY();
+      const rawScaleX = node.scaleX();
+      const rawScaleY = node.scaleY();
       const className = shapes[index]?.className;
-      // Get scaled rect for Text/Icon *before* resetting scale so we capture the visual size
-      const scaledRect =
-        className === 'Text' || className === 'Icon' ? node.getClientRect() : null;
-      node.scaleX(1);
-      node.scaleY(1);
-      // Apply new width/height to the node immediately so it doesn't jump before React re-renders (Konva Text/Icon resize pattern)
-      if ((className === 'Text' || className === 'Icon') && scaledRect) {
+      const attrs = (shapes[index]?.attrs ?? {}) as Record<string, unknown>;
+
+      // For Icon Groups, the node's scale includes the base icon scale (width/viewBoxSize).
+      // We need the Transformer's scale factor relative to the base scale.
+      let scaleX = rawScaleX;
+      let scaleY = rawScaleY;
+      if (className === 'Icon') {
+        const viewBoxSize = (attrs.viewBoxSize as number) ?? 256;
+        const prevW = (attrs.width as number) ?? 48;
+        const prevH = (attrs.height as number) ?? 48;
+        const baseScaleX = prevW / viewBoxSize;
+        const baseScaleY = prevH / viewBoxSize;
+        // transformFactor = rawScale / baseScale
+        scaleX = baseScaleX > 0 ? rawScaleX / baseScaleX : rawScaleX;
+        scaleY = baseScaleY > 0 ? rawScaleY / baseScaleY : rawScaleY;
+      }
+
+      // Get scaled rect for Text *before* resetting scale so we capture the visual size
+      const scaledRect = className === 'Text' ? node.getClientRect() : null;
+
+      if (className !== 'Icon') {
+        // For non-Icon shapes, reset scale to 1 (standard pattern)
+        node.scaleX(1);
+        node.scaleY(1);
+      }
+
+      if (className === 'Text' && scaledRect) {
         const w = Math.max(5, scaledRect.width);
         const h = Math.max(5, scaledRect.height);
         node.width(w);
         node.height(h);
+        transformerRef.current?.forceUpdate();
+        node.getLayer()?.batchDraw();
+      }
+      // Icon is a Group — restore the correct scale ratio for display until React re-renders.
+      if (className === 'Icon') {
+        const viewBoxSize = (attrs.viewBoxSize as number) ?? 256;
+        const prevW = (attrs.width as number) ?? 48;
+        const prevH = (attrs.height as number) ?? 48;
+        const newW = Math.max(5, prevW * scaleX);
+        const newH = Math.max(5, prevH * scaleY);
+        node.scaleX(newW / viewBoxSize);
+        node.scaleY(newH / viewBoxSize);
         transformerRef.current?.forceUpdate();
         node.getLayer()?.batchDraw();
       }
@@ -865,9 +1040,12 @@ const KonvaEditorCoreInner = (
         } else if (className === 'Video') {
           base.width = Math.max(40, ((a.width as number) ?? 320) * scaleX);
           base.height = Math.max(30, ((a.height as number) ?? 180) * scaleY);
-        } else if ((className === 'Text' || className === 'Icon') && scaledRect) {
+        } else if (className === 'Text' && scaledRect) {
           base.width = Math.max(5, scaledRect.width);
           base.height = Math.max(5, scaledRect.height);
+        } else if (className === 'Icon') {
+          base.width = Math.max(5, ((a.width as number) ?? 48) * scaleX);
+          base.height = Math.max(5, ((a.height as number) ?? 48) * scaleY);
         } else if (className === 'Line') {
           const points = (a.points as number[] | undefined) ?? [0, 0, 150, 0];
           const newPoints = points.map((p, i) => (i % 2 === 0 ? p * scaleX : p * scaleY));
@@ -1294,6 +1472,9 @@ const KonvaEditorCoreInner = (
   const handleToggleLock = useCallback(
     (id: string, locked: boolean) => {
       updateShapeAttrs([id], { locked });
+      if (locked) {
+        setSelectedIds((prev) => prev.filter((sid) => sid !== id));
+      }
     },
     [updateShapeAttrs]
   );
@@ -1438,6 +1619,7 @@ const KonvaEditorCoreInner = (
           documentTitle={documentTitle}
           pageLabel={mode === 'report' ? 'Page' : 'Slide'}
           thumbAspectRatio={thumbAspectRatio}
+          pageThumbnailUrls={pageThumbnailUrls}
           readOnly={readOnly}
           layersPanel={layersPanelContent}
           activeLeftTab={activeLeftTab}
@@ -1601,7 +1783,6 @@ const KonvaEditorCoreInner = (
                     width={width}
                     height={height}
                     style={{ border: '1px solid #d4d4d4' }}
-                    onMouseDown={checkDeselect}
                     onTouchStart={checkDeselect}
                   >
             {(() => {
@@ -1710,6 +1891,20 @@ const KonvaEditorCoreInner = (
                 />
               )}
             </Layer>
+            {marqueeRect && !readOnly && (
+              <Layer listening={false}>
+                <Rect
+                  x={marqueeRect.x}
+                  y={marqueeRect.y}
+                  width={marqueeRect.width}
+                  height={marqueeRect.height}
+                  fill="rgba(37, 99, 235, 0.08)"
+                  stroke="#2563eb"
+                  strokeWidth={1}
+                  dash={[6, 3]}
+                />
+              </Layer>
+            )}
             {!readOnly && (guideLines.vertical.length > 0 || guideLines.horizontal.length > 0) && (
               <Layer listening={false}>
                 {guideLines.vertical.map((x, i) => (

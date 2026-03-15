@@ -211,18 +211,44 @@ async function renderPageToDataURL(
           fill: '#1f2937',
         });
         layer.add(rect);
-      } else if (shape.className === 'Icon' && attrs.pathData) {
+      } else if (shape.className === 'Icon') {
         const w = (attrs.width as number) ?? 24;
         const h = (attrs.height as number) ?? 24;
-        const path = new Konva.Path({
-          x: (attrs.x as number) ?? 0,
-          y: (attrs.y as number) ?? 0,
-          data: attrs.pathData as string,
-          scaleX: w / 256,
-          scaleY: h / 256,
-          fill: (attrs.fill as string) ?? '#171717',
-        });
-        layer.add(path);
+        const viewBoxSize = (attrs.viewBoxSize as number) ?? 256;
+        const scaleX = w / viewBoxSize;
+        const scaleY = h / viewBoxSize;
+        const fill = (attrs.fill as string) ?? '#171717';
+        const stroke = attrs.stroke as string | undefined;
+        const strokeWidth = (attrs.strokeWidth as number) ?? 0;
+        const x = (attrs.x as number) ?? 0;
+        const y = (attrs.y as number) ?? 0;
+
+        if (attrs.pathData) {
+          const path = new Konva.Path({
+            x,
+            y,
+            data: attrs.pathData as string,
+            scaleX,
+            scaleY,
+            fill,
+            stroke: stroke || undefined,
+            strokeWidth,
+          });
+          layer.add(path);
+        } else if (Array.isArray(attrs.paths) && attrs.paths.length > 0) {
+          const group = new Konva.Group({ x, y, scaleX, scaleY });
+          const pathList = attrs.paths as Array<{ d: string; fill?: string | null; stroke?: string | null; strokeWidth?: number }>;
+          for (const p of pathList) {
+            const path = new Konva.Path({
+              data: p.d,
+              fill: (p.fill as string) ?? fill,
+              stroke: (p.stroke as string) ?? stroke,
+              strokeWidth: p.strokeWidth ?? strokeWidth,
+            });
+            group.add(path);
+          }
+          layer.add(group);
+        }
       }
     }
 

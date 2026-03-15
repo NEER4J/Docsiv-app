@@ -32,6 +32,7 @@ function useStableId(shapeId: string, setNodeRef: (id: string, node: Konva.Node 
 function KonvaImageNode({
   attrs,
   readOnly,
+  locked,
   idx,
   onDragMove,
   onDragEnd,
@@ -44,6 +45,7 @@ function KonvaImageNode({
 }: {
   attrs: Record<string, unknown>;
   readOnly: boolean;
+  locked: boolean;
   idx: number;
   onDragMove?: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
@@ -91,7 +93,8 @@ function KonvaImageNode({
       stroke={isSelected ? '#2563eb' : undefined}
       strokeWidth={isSelected ? 2 : 0}
       visible={visible}
-      draggable={!readOnly}
+      listening={!readOnly && !locked}
+      draggable={!readOnly && !locked}
       onClick={onSelect}
       onTap={onSelect}
       onDragMove={onDragMove}
@@ -149,6 +152,7 @@ export function KonvaShapeRenderer({
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         rotation={(attrs.rotation as number) ?? 0}
         visible={visible}
+        listening={!readOnly && !locked}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
@@ -181,6 +185,7 @@ export function KonvaShapeRenderer({
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         rotation={(attrs.rotation as number) ?? 0}
         visible={visible}
+        listening={!readOnly && !locked}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
@@ -206,6 +211,7 @@ export function KonvaShapeRenderer({
         strokeWidth={(attrs.strokeWidth as number) ?? 0}
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         visible={visible}
+        listening={!readOnly && !locked}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
@@ -230,6 +236,7 @@ export function KonvaShapeRenderer({
         strokeWidth={(attrs.strokeWidth as number) ?? 0}
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         visible={visible}
+        listening={!readOnly && !locked}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
@@ -255,6 +262,7 @@ export function KonvaShapeRenderer({
         lineJoin="round"
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         visible={visible}
+        listening={!readOnly && !locked}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
@@ -279,6 +287,7 @@ export function KonvaShapeRenderer({
         fill={(attrs.fill as string) ?? '#171717'}
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         visible={visible}
+        listening={!readOnly && !locked}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
@@ -304,6 +313,7 @@ export function KonvaShapeRenderer({
         strokeWidth={(attrs.strokeWidth as number) ?? 0}
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         visible={visible}
+        listening={!readOnly && !locked}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
@@ -329,6 +339,7 @@ export function KonvaShapeRenderer({
         strokeWidth={(attrs.strokeWidth as number) ?? 0}
         opacity={attrs.opacity != null ? (attrs.opacity as number) : 1}
         visible={visible}
+        listening={!readOnly && !locked}
         draggable={!readOnly && !locked}
         onClick={onSelect}
         onTap={onSelect}
@@ -343,8 +354,8 @@ export function KonvaShapeRenderer({
     const ref = useStableId(shapeId, setNodeRef);
     const paths = attrs.paths as Array<{ d: string; fill?: string | null; stroke?: string | null; strokeWidth?: number }> | undefined;
     const pathData = (attrs.pathData as string) ?? '';
-    const w = (attrs.width as number) ?? 24;
-    const h = (attrs.height as number) ?? 24;
+    const w = (attrs.width as number) ?? 48;
+    const h = (attrs.height as number) ?? 48;
     const viewBoxSize = (attrs.viewBoxSize as number) ?? 256;
     const scaleX = w / viewBoxSize;
     const scaleY = h / viewBoxSize;
@@ -353,66 +364,26 @@ export function KonvaShapeRenderer({
     const shapeStrokeWidth = (attrs.strokeWidth as number) ?? 0;
     const x = (attrs.x as number) ?? 0;
     const y = (attrs.y as number) ?? 0;
+    const rotation = (attrs.rotation as number) ?? 0;
+    const opacity = attrs.opacity != null ? (attrs.opacity as number) : 1;
 
-    if (paths?.length) {
-      return (
-        <Group
-          ref={ref as React.RefObject<Konva.Group>}
-          x={x}
-          y={y}
-          scaleX={scaleX}
-          scaleY={scaleY}
-          listening={false}
-          visible={visible}
-          draggable={false}
-          onTransformEnd={handleTransformEnd}
-        >
-          <Rect
-            x={0}
-            y={0}
-            width={viewBoxSize}
-            height={viewBoxSize}
-            fill="transparent"
-            listening={!readOnly && !locked}
-            draggable={!readOnly && !locked}
-            onClick={onSelect}
-            onTap={onSelect}
-            onDragMove={handleDragMove}
-            onDragEnd={(e) => {
-              const g = ref.current;
-              if (g) {
-                const r = e.target as Konva.Rect;
-                g.position({ x: g.x() + r.x(), y: g.y() + r.y() });
-                r.position({ x: 0, y: 0 });
-              }
-              handleDragEnd(e);
-            }}
-          />
-          {paths.map((p, i) => (
-            <Path
-              key={i}
-              data={p.d}
-              fill={p.fill ?? shapeFill}
-              stroke={p.stroke ?? (shapeStroke || undefined)}
-              strokeWidth={p.strokeWidth ?? (shapeStrokeWidth || 0)}
-              listening={false}
-            />
-          ))}
-        </Group>
-      );
-    }
-    if (!pathData) return null;
+    // Unify multi-path and single-path into a single list
+    const pathList = paths?.length
+      ? paths
+      : pathData
+        ? [{ d: pathData, fill: null as string | null, stroke: null as string | null, strokeWidth: undefined as number | undefined }]
+        : null;
+    if (!pathList) return null;
+
     return (
-      <Path
-        ref={ref as React.RefObject<Konva.Path>}
+      <Group
+        ref={ref as React.RefObject<Konva.Group>}
         x={x}
         y={y}
-        data={pathData}
         scaleX={scaleX}
         scaleY={scaleY}
-        fill={shapeFill}
-        stroke={shapeStroke || undefined}
-        strokeWidth={shapeStrokeWidth || 0}
+        rotation={rotation}
+        opacity={opacity}
         listening={!readOnly && !locked}
         visible={visible}
         draggable={!readOnly && !locked}
@@ -421,7 +392,28 @@ export function KonvaShapeRenderer({
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
-      />
+      >
+        {/* Hit-area rect — must listen so the Group receives pointer events */}
+        <Rect
+          x={0}
+          y={0}
+          width={viewBoxSize}
+          height={viewBoxSize}
+          fill="transparent"
+          listening={true}
+          draggable={false}
+        />
+        {pathList.map((p, i) => (
+          <Path
+            key={i}
+            data={p.d}
+            fill={p.fill ?? shapeFill}
+            stroke={p.stroke ?? (shapeStroke || undefined)}
+            strokeWidth={p.strokeWidth ?? (shapeStrokeWidth || 0)}
+            listening={false}
+          />
+        ))}
+      </Group>
     );
   }
 
@@ -465,6 +457,7 @@ export function KonvaShapeRenderer({
       <KonvaImageNode
         attrs={attrs}
         readOnly={readOnly}
+        locked={locked}
         idx={_index}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}

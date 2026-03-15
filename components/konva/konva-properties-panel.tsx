@@ -471,8 +471,19 @@ function PropertiesPanelContent({
       {hasImage && !isMultiple && (
         <div className="space-y-1">
           <p className={SECTION_HEADER}>Image</p>
-          <div className="truncate rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 font-mono text-[10px] text-zinc-400">
-            {(attrs.src as string) ? 'Image loaded' : 'No image'}
+          <div className="space-y-1">
+            <Label className={LABEL_CLASS}>Image URL</Label>
+            <Input
+              type="url"
+              value={(attrs.src as string) ?? ''}
+              onChange={(e) => update('src', e.target.value)}
+              placeholder="Paste URL or leave empty for placeholder"
+              disabled={readOnly}
+              className={`min-h-7 text-[11px] ${INPUT_CLASS}`}
+            />
+            <p className="text-[10px] text-zinc-500">
+              {(attrs.src as string) ? 'Image loads from URL above.' : 'Add a URL to show an image, or use a placeholder until you set one.'}
+            </p>
           </div>
         </div>
       )}

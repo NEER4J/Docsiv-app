@@ -32,8 +32,10 @@ export type KonvaLayersPanelProps = {
   dark?: boolean;
 };
 
-function shapeIcon(className: string, dark: boolean) {
-  const iconClass = dark ? 'size-4 text-zinc-400' : 'size-4 text-muted-foreground';
+function shapeIcon(className: string, dark: boolean, isSelected: boolean) {
+  const iconClass = isSelected
+    ? dark ? 'size-4 text-blue-400' : 'size-4 text-primary'
+    : dark ? 'size-4 text-zinc-400' : 'size-4 text-muted-foreground';
   switch (className) {
     case 'Text':
       return <TextT className={iconClass} />;
@@ -142,8 +144,13 @@ export function KonvaLayersPanel({
               }}
               className={cn(
                 'flex items-center gap-1.5 rounded px-2 py-1.5 text-sm transition-colors',
-                isSelected && (dark ? 'bg-primary/20' : 'bg-primary/10'),
-                dark && 'text-zinc-200',
+                isSelected
+                  ? dark
+                    ? 'bg-blue-500/20 border-l-2 border-l-blue-500 text-blue-100'
+                    : 'bg-primary/15 border-l-2 border-l-primary text-primary font-medium'
+                  : dark
+                    ? 'text-zinc-200 border-l-2 border-l-transparent'
+                    : 'border-l-2 border-l-transparent',
                 isDragging && 'opacity-50',
                 isDropTarget && (dark ? 'ring-1 ring-inset ring-blue-500' : 'ring-1 ring-inset ring-primary')
               )}
@@ -165,7 +172,7 @@ export function KonvaLayersPanel({
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 onClick={() => onSelect(id)}
               >
-                {shapeIcon(shape.className, dark)}
+                {shapeIcon(shape.className, dark, isSelected)}
                 <span className="truncate font-body text-xs">{label}</span>
               </button>
               {canReorder && (

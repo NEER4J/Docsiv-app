@@ -234,6 +234,7 @@ export function DocumentEditorView({
       api.register({
         getContent: () => konvaReportRef.current?.getContent() ?? null,
         applyContent: (content) => konvaReportRef.current?.applyContent(content),
+        getCurrentPageImage: () => konvaReportRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
         mode: 'report',
         pageWidthPx: size.widthPx,
         pageHeightPx: size.heightPx,
@@ -242,6 +243,7 @@ export function DocumentEditorView({
         konvaAiRef.current?.register({
           getContent: () => konvaReportRef.current?.getContent() ?? null,
           applyContent: (content) => konvaReportRef.current?.applyContent(content),
+          getCurrentPageImage: () => konvaReportRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
           mode: 'report',
           pageWidthPx: size.widthPx,
           pageHeightPx: size.heightPx,
@@ -256,12 +258,14 @@ export function DocumentEditorView({
       api.register({
         getContent: () => konvaPresentationRef.current?.getContent() ?? null,
         applyContent: (content) => konvaPresentationRef.current?.applyContent(content),
+        getCurrentPageImage: () => konvaPresentationRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
         mode: 'presentation',
       });
       const t = setTimeout(() => {
         konvaAiRef.current?.register({
           getContent: () => konvaPresentationRef.current?.getContent() ?? null,
           applyContent: (content) => konvaPresentationRef.current?.applyContent(content),
+          getCurrentPageImage: () => konvaPresentationRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
           mode: 'presentation',
         });
       }, 300);

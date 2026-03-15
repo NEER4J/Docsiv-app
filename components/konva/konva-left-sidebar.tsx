@@ -55,6 +55,7 @@ import {
   findPresetByDimensions,
 } from '@/lib/page-sizes';
 import { uploadDocumentAttachment } from '@/lib/storage/upload';
+import { listDocumentAttachments, addDocumentAttachment } from '@/lib/actions/documents';
 import { toast } from 'sonner';
 import type { PageBackground, KonvaStoredContent, KonvaAiChatMessage } from '@/lib/konva-content';
 import { BACKGROUND_PATTERNS } from '@/lib/konva-background-patterns';
@@ -119,6 +120,8 @@ export type KonvaLeftSidebarProps = {
   documentTitle?: string;
   pageLabel: string;
   thumbAspectRatio: string;
+  /** Data URLs for each page thumbnail (sidebar Pages tab preview) */
+  pageThumbnailUrls?: (string | null)[];
   readOnly?: boolean;
   layersPanel?: React.ReactNode;
   activeLeftTab: KonvaLeftTabId;
@@ -191,6 +194,7 @@ export function KonvaLeftSidebar({
   onExportPng,
   pageLabel,
   thumbAspectRatio,
+  pageThumbnailUrls = [],
   readOnly = false,
   layersPanel,
   activeLeftTab,
@@ -213,6 +217,22 @@ export function KonvaLeftSidebar({
   const [stripCollapsed, setStripCollapsed] = useState(false);
   const [sessionUploads, setSessionUploads] = useState<{ url: string; name: string; type: string }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Load persisted document attachments when document opens
+  useEffect(() => {
+    if (!documentId) return;
+    let cancelled = false;
+    (async () => {
+      const { attachments, error } = await listDocumentAttachments(documentId);
+      if (cancelled || error) return;
+      setSessionUploads(
+        attachments.map((a) => ({ url: a.url, name: a.name, type: a.type }))
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
   const [unsplashQuery, setUnsplashQuery] = useState('');
   const [unsplashSearchTerm, setUnsplashSearchTerm] = useState('');
   const [unsplashResults, setUnsplashResults] = useState<
@@ -243,10 +263,44 @@ export function KonvaLeftSidebar({
   const [aiMessages, setAiMessages] = useState<KonvaAiChatMessage[]>([]);
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiThinkingStep, setAiThinkingStep] = useState(0);
+  const [aiExtendedIndex, setAiExtendedIndex] = useState(0);
   const [aiAttachedImages, setAiAttachedImages] = useState<Array<{ dataUrl: string; name: string }>>([]);
   const aiMessagesEndRef = useRef<HTMLDivElement>(null);
   const aiTextareaRef = useRef<HTMLTextAreaElement>(null);
   const aiFileInputRef = useRef<HTMLInputElement>(null);
+
+  const AI_THINKING_STEPS = ['Thinking about it…', 'Generating…', 'Refining…'] as const;
+  const AI_EXTENDED_STEPS = ['Adding polish…', 'Almost there…', 'Finalizing…', 'Double-checking…'] as const;
+  const STEP_INTERVAL_MS = 10000;
+  const EXTENDED_STEP_INTERVAL_MS = 8000;
+
+  useEffect(() => {
+    if (!aiLoading) {
+      setAiThinkingStep(0);
+      setAiExtendedIndex(0);
+      return;
+    }
+    setAiThinkingStep(0);
+    setAiExtendedIndex(0);
+    const mainInterval = setInterval(() => {
+      setAiThinkingStep((s) => {
+        if (s < 2) return s + 1;
+        if (s === 2) {
+          setAiExtendedIndex(0);
+          return 3;
+        }
+        return s;
+      });
+    }, STEP_INTERVAL_MS);
+    const extendedInterval = setInterval(() => {
+      setAiExtendedIndex((i) => (i + 1) % AI_EXTENDED_STEPS.length);
+    }, EXTENDED_STEP_INTERVAL_MS);
+    return () => {
+      clearInterval(mainInterval);
+      clearInterval(extendedInterval);
+    };
+  }, [aiLoading]);
 
   useEffect(() => {
     aiMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -409,7 +463,9 @@ export function KonvaLeftSidebar({
             toast.error(result.error);
             continue;
           }
+          const attachmentType = imageTypes.includes(file.type) ? 'image' : videoTypes.includes(file.type) ? 'video' : 'file';
           setSessionUploads((prev) => [...prev, { url: result.url, name: result.name, type: file.type }]);
+          await addDocumentAttachment(documentId, { url: result.url, name: result.name, type: attachmentType });
         } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Upload failed');
         }
@@ -649,12 +705,12 @@ export function KonvaLeftSidebar({
             <h3 className="mb-2 text-xs font-medium text-zinc-400">Text elements</h3>
             <div className="flex flex-col gap-1.5">
               {[
-                { label: 'Heading 1', fontSize: 32, fontStyle: 'bold' as const, text: 'Heading 1' },
-                { label: 'Heading 2', fontSize: 26, fontStyle: 'bold' as const, text: 'Heading 2' },
-                { label: 'Heading 3', fontSize: 22, fontStyle: 'bold' as const, text: 'Heading 3' },
-                { label: 'Heading 4', fontSize: 18, fontStyle: 'bold' as const, text: 'Heading 4' },
-                { label: 'Heading 5', fontSize: 16, fontStyle: 'bold' as const, text: 'Heading 5' },
-                { label: 'Heading 6', fontSize: 14, fontStyle: 'bold' as const, text: 'Heading 6' },
+                { label: 'Heading 1', fontSize: 40, fontStyle: 'bold' as const, text: 'Heading 1' },
+                { label: 'Heading 2', fontSize: 32, fontStyle: 'bold' as const, text: 'Heading 2' },
+                { label: 'Heading 3', fontSize: 26, fontStyle: 'bold' as const, text: 'Heading 3' },
+                { label: 'Heading 4', fontSize: 22, fontStyle: 'bold' as const, text: 'Heading 4' },
+                { label: 'Heading 5', fontSize: 18, fontStyle: 'bold' as const, text: 'Heading 5' },
+                { label: 'Heading 6', fontSize: 12, fontStyle: 'bold' as const, text: 'Heading 6' },
                 { label: 'Subtitle', fontSize: 18, fontStyle: 'normal' as const, text: 'Subtitle' },
                 { label: 'Paragraph', fontSize: 14, fontStyle: 'normal' as const, text: 'Paragraph' },
                 { label: 'Caption', fontSize: 12, fontStyle: 'normal' as const, text: 'Caption', fill: '#71717a' },
@@ -943,7 +999,18 @@ export function KonvaLeftSidebar({
                   <div
                     className="shrink-0 overflow-hidden rounded-sm bg-white"
                     style={{ width: 80, aspectRatio: thumbAspectRatio }}
-                  />
+                  >
+                    {pageThumbnailUrls[i] ? (
+                      <img
+                        src={pageThumbnailUrls[i]!}
+                        alt=""
+                        className="h-full w-full object-cover object-left-top"
+                        style={{ aspectRatio: thumbAspectRatio }}
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-zinc-100" style={{ aspectRatio: thumbAspectRatio }} />
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
@@ -962,7 +1029,24 @@ export function KonvaLeftSidebar({
 
         {activeLeftTab === 'ai' && (
           <div className="flex flex-1 flex-col overflow-hidden p-2">
-            <h3 className="mb-2 text-xs font-medium text-zinc-400">AI Assistant</h3>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-xs font-medium text-zinc-400">AI Assistant</h3>
+              {(aiMessages.length > 0 || aiAttachedImages.length > 0 || aiInput.trim()) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-[10px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                  onClick={() => {
+                    setAiMessages([]);
+                    setAiInput('');
+                    setAiAttachedImages([]);
+                  }}
+                >
+                  Reset
+                </Button>
+              )}
+            </div>
             {!(konvaAi?.getContent && konvaAi?.applyContent && konvaAi?.mode) ? (
               <p className="text-[10px] text-zinc-500 mb-2">Preparing editor… Try again in a moment.</p>
             ) : (
@@ -973,41 +1057,103 @@ export function KonvaLeftSidebar({
             <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
               <div className="flex-1 overflow-y-auto flex flex-col gap-2 mb-2">
                 {aiMessages.length === 0 && (
-                  <p className="text-[10px] text-zinc-500">
-                    e.g. &quot;Add a title page&quot;, &quot;What&apos;s on this page?&quot;, &quot;Suggest improvements&quot;
-                  </p>
+                  <>
+                    <p className="text-[10px] text-zinc-500">
+                      Try a suggestion or type your own:
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        'Add a title page',
+                        "What's on this page?",
+                        'Suggest improvements',
+                        'Make it more professional',
+                        'Add a summary section',
+                        'Simplify the layout',
+                      ].map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-[10px] text-zinc-300 hover:border-zinc-500 hover:bg-zinc-700"
+                          onClick={() => {
+                            setAiInput(suggestion);
+                            aiTextareaRef.current?.focus();
+                          }}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
                 {aiMessages.map((m, i) => (
                   <div
                     key={i}
-                    className={`rounded border p-2 text-[11px] ${
-                      m.role === 'user'
-                        ? 'border-zinc-600 bg-zinc-800 text-zinc-200 ml-2'
-                        : 'border-zinc-700 bg-zinc-800/80 text-zinc-400'
-                    }`}
+                    className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
                   >
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <span className="text-[10px] font-medium text-zinc-500">
-                        {m.role === 'user' ? 'You' : 'Assistant'}
-                      </span>
-                      {m.role === 'assistant' && m.action === 'edit' && (
-                        <span className="text-[9px] text-emerald-400">✓ Edited</span>
+                    <div
+                      className={`rounded-2xl px-2.5 py-1.5 text-[11px] max-w-[92%] ${
+                        m.role === 'user'
+                          ? 'border border-zinc-600 bg-zinc-700 text-zinc-200'
+                          : 'border border-zinc-700 bg-zinc-800/90 text-zinc-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[9px] font-medium text-zinc-500 shrink-0">
+                          {m.role === 'user' ? 'You' : 'Assistant'}
+                        </span>
+                        {m.role === 'assistant' && m.action === 'edit' && (
+                          <span className="text-[9px] text-emerald-400 shrink-0">✓ Edited</span>
+                        )}
+                      </div>
+                      <div className="max-h-[120px] overflow-y-auto overflow-x-hidden">
+                        <span className="whitespace-pre-wrap break-words">{m.content}</span>
+                      </div>
+                      {m.images && m.images.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {m.images.map((src, j) => (
+                            <img key={j} src={src} alt="attached" className="h-8 w-8 rounded object-cover border border-zinc-600" />
+                          ))}
+                        </div>
                       )}
                     </div>
-                    <span className="whitespace-pre-wrap">{m.content}</span>
-                    {m.images && m.images.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {m.images.map((src, j) => (
-                          <img key={j} src={src} alt="attached" className="h-10 w-10 rounded object-cover border border-zinc-600" />
-                        ))}
-                      </div>
-                    )}
                   </div>
                 ))}
                 {aiLoading && (
-                  <div className="flex items-center gap-2 rounded border border-zinc-700 bg-zinc-800/80 p-2 text-[11px] text-zinc-500">
-                    <Sparkle className="size-3.5 shrink-0 animate-pulse" weight="fill" />
-                    Thinking…
+                  <div className="flex max-w-[92%] flex-col gap-0 rounded-2xl border border-zinc-700 bg-zinc-800/90 px-2.5 py-2">
+                    <div className="flex items-center gap-2 pb-1.5">
+                      <Sparkle className="size-3.5 shrink-0 animate-pulse text-zinc-400" weight="fill" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                        Working on it
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      {AI_THINKING_STEPS.map((label, i) => {
+                        const isDone = i < aiThinkingStep;
+                        const isCurrent = i === aiThinkingStep && aiThinkingStep < 3;
+                        return (
+                          <div
+                            key={i}
+                            className={`flex items-center gap-2 py-0.5 ${
+                              isCurrent ? 'text-zinc-300' : isDone ? 'text-zinc-500' : 'text-zinc-600'
+                            }`}
+                          >
+                            <span
+                              className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
+                                isDone ? 'bg-emerald-500' : isCurrent ? 'bg-zinc-400 animate-pulse' : 'bg-zinc-700'
+                              }`}
+                              aria-hidden
+                            />
+                            <span className="text-[11px]">{label}</span>
+                          </div>
+                        );
+                      })}
+                      {aiThinkingStep >= 3 && (
+                        <div className="flex items-center gap-2 border-t border-zinc-700 pt-1.5 mt-0.5 text-zinc-300">
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400 animate-pulse" aria-hidden />
+                          <span className="text-[11px]">{AI_EXTENDED_STEPS[aiExtendedIndex]}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
                 <div ref={aiMessagesEndRef} />
@@ -1030,7 +1176,7 @@ export function KonvaLeftSidebar({
                 </div>
               )}
               <form
-                className="flex gap-1.5 shrink-0"
+                className="shrink-0 w-full rounded border border-zinc-700 bg-zinc-800 overflow-hidden"
                 onSubmit={(e) => {
                   e.preventDefault();
                   handleAiSubmit(e);
@@ -1044,40 +1190,61 @@ export function KonvaLeftSidebar({
                   className="hidden"
                   onChange={handleAiImageAttach}
                 />
-                <div className="flex min-w-0 flex-1 items-end gap-0.5 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-1">
-                  <button
-                    type="button"
-                    className="shrink-0 p-0.5 text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
-                    onClick={() => aiFileInputRef.current?.click()}
-                    disabled={aiLoading || aiAttachedImages.length >= 4}
-                    aria-label="Attach image"
-                  >
-                    <UploadSimple className="size-3.5" />
-                  </button>
-                  <textarea
-                    ref={aiTextareaRef}
-                    placeholder="Ask about or edit the design..."
-                    className="min-h-[20px] max-h-[120px] flex-1 resize-none bg-transparent text-xs text-zinc-200 outline-none placeholder:text-zinc-500 disabled:opacity-50"
-                    rows={1}
-                    value={aiInput}
-                    onChange={(e) => setAiInput(e.target.value)}
-                    disabled={aiLoading}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                <textarea
+                  ref={aiTextareaRef}
+                  placeholder="Ask about or edit the design... (Ctrl+V to paste image from clipboard)"
+                  className="min-h-[72px] max-h-[120px] w-full resize-none border-0 bg-transparent px-3 py-2 text-xs text-zinc-200 outline-none placeholder:text-zinc-500 disabled:opacity-50"
+                  rows={3}
+                  value={aiInput}
+                  onChange={(e) => setAiInput(e.target.value)}
+                  disabled={aiLoading}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items || aiAttachedImages.length >= 4) return;
+                    for (const item of items) {
+                      if (item.type.startsWith('image/')) {
                         e.preventDefault();
-                        handleAiSubmit(e as unknown as React.FormEvent);
+                        const file = item.getAsFile();
+                        if (!file) continue;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const dataUrl = reader.result as string;
+                          setAiAttachedImages((prev) => (prev.length >= 4 ? prev : [...prev, { dataUrl, name: 'Pasted image' }]));
+                        };
+                        reader.readAsDataURL(file);
+                        break;
                       }
-                    }}
-                  />
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleAiSubmit(e as unknown as React.FormEvent);
+                    }
+                  }}
+                />
+                <div className="flex items-center justify-between border-t border-zinc-700 px-1.5 py-1">
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300 disabled:opacity-50"
+                      onClick={() => aiFileInputRef.current?.click()}
+                      disabled={aiLoading || aiAttachedImages.length >= 4}
+                      aria-label="Attach image"
+                      title="Upload image (or Ctrl+V to paste)"
+                    >
+                      <UploadSimple className="size-3.5" />
+                    </button>
+                  </div>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="h-7 bg-zinc-100 text-zinc-900 hover:bg-zinc-200 px-3"
+                    disabled={aiLoading || (!aiInput.trim() && aiAttachedImages.length === 0) || !konvaAi?.getContent || !konvaAi?.applyContent || !konvaAi?.mode}
+                  >
+                    {aiLoading ? '…' : 'Send'}
+                  </Button>
                 </div>
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="h-auto shrink-0 self-end bg-zinc-100 text-zinc-900 hover:bg-zinc-200 px-3 py-1.5"
-                  disabled={aiLoading || (!aiInput.trim() && aiAttachedImages.length === 0) || !konvaAi?.getContent || !konvaAi?.applyContent || !konvaAi?.mode}
-                >
-                  {aiLoading ? '…' : 'Send'}
-                </Button>
               </form>
             </div>
           </div>
@@ -1331,8 +1498,8 @@ export function KonvaLeftSidebar({
                     <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Your uploads</p>
                     <div className="grid grid-cols-2 gap-1.5">
                       {sessionUploads.map((u, i) => {
-                        const isImage = u.type.startsWith('image/');
-                        const isVideo = u.type.startsWith('video/');
+                        const isImage = u.type === 'image' || u.type.startsWith('image/');
+                        const isVideo = u.type === 'video' || u.type.startsWith('video/');
                         return (
                           <div
                             key={`${u.url}-${i}`}
@@ -1475,7 +1642,7 @@ export function KonvaLeftSidebar({
                                   type="button"
                                   size="sm"
                                   variant="ghost"
-                                  className="h-6 text-xs text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300"
+                                  className="min-h-7 w-full justify-center py-1.5 text-[11px] leading-snug text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300"
                                   onClick={() => onSetPageBackground(currentPageIndex, { type: 'image', imageUrl: photo.urls.regular })}
                                 >
                                   Use as background
@@ -1623,14 +1790,15 @@ export function KonvaLeftSidebar({
                             return;
                           }
                           const hasStroke = data.paths?.some((p: { stroke?: string }) => p.stroke);
-                          const iconAttrs = {
+                          const hasCustomFills = data.paths?.some((p: { fill?: string }) => p.fill);
+                          const iconAttrs: Record<string, unknown> = {
                             paths: data.paths,
                             pathData: data.pathData,
                             viewBoxSize: data.viewBoxSize ?? 24,
-                            fill: '#171717',
+                            ...(hasCustomFills ? {} : { fill: '#171717' }),
                             ...(hasStroke && { stroke: '#000000', strokeWidth: 1 }),
-                            width: 24,
-                            height: 24,
+                            width: 48,
+                            height: 48,
                           };
                           setIconCache((prev) => ({ ...prev, [iconName]: iconAttrs }));
                           onAddShape('Icon', iconAttrs);
@@ -1784,10 +1952,10 @@ export function KonvaLeftSidebar({
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Image</Label>
                   <p className="text-[10px] text-zinc-500">Use an uploaded image as background.</p>
-                  {sessionUploads.filter((u) => u.type.startsWith('image/')).length > 0 ? (
+                  {sessionUploads.filter((u) => u.type === 'image' || u.type.startsWith('image/')).length > 0 ? (
                     <div className="grid grid-cols-2 gap-1.5">
                       {sessionUploads
-                        .filter((u) => u.type.startsWith('image/'))
+                        .filter((u) => u.type === 'image' || u.type.startsWith('image/'))
                         .map((u, i) => (
                           <button
                             key={`${u.url}-${i}`}

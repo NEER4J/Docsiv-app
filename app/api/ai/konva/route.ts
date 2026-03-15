@@ -122,23 +122,50 @@ export async function POST(req: NextRequest) {
   try {
     const result = await generateText({
       abortSignal: req.signal,
-      maxOutputTokens: 32768,
+      maxOutputTokens: 65536,
       model: google(modelId),
       messages: conversationMessages,
       system: getKonvaAiSystemPrompt(modeVal, pageWidthPx, pageHeightPx),
       temperature: 0.2,
+      providerOptions: {
+        google: {
+          thinkingConfig: {
+            thinkingBudget: 8192,
+          },
+        },
+      } as Record<string, unknown>,
     });
 
     const text = (result.text ?? '').trim();
-    const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+    // Strip markdown fences
+    let stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+    // Extract JSON object if there's extra text before it
+    if (!stripped.startsWith('{')) {
+      const jsonStart = stripped.indexOf('{');
+      if (jsonStart >= 0) stripped = stripped.slice(jsonStart);
+    }
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(stripped);
     } catch {
-      return NextResponse.json(
-        { error: 'Model returned invalid JSON', detail: text.slice(0, 500) },
-        { status: 422 }
-      );
+      // Attempt to recover truncated JSON by closing open braces/brackets
+      const recovered = tryRecoverTruncatedJson(stripped);
+      if (recovered) {
+        try {
+          parsed = JSON.parse(recovered);
+        } catch {
+          // Still failed — fall through
+        }
+      }
+      if (!parsed) {
+        return NextResponse.json(
+          { error: 'Model returned invalid JSON', detail: text.slice(0, 500) },
+          { status: 422 }
+        );
+      }
     }
 
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -187,6 +214,31 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/** Try to recover truncated JSON by closing open braces/brackets/strings */
+function tryRecoverTruncatedJson(text: string): string | null {
+  if (!text.startsWith('{') && !text.startsWith('[')) return null;
+  let braceCount = 0;
+  let bracketCount = 0;
+  let inString = false;
+  let escape = false;
+  for (const ch of text) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') braceCount++;
+    else if (ch === '}') braceCount--;
+    else if (ch === '[') bracketCount++;
+    else if (ch === ']') bracketCount--;
+  }
+  if (braceCount === 0 && bracketCount === 0 && !inString) return null; // already balanced, nothing to recover
+  let result = text;
+  if (inString) result += '"';
+  while (bracketCount > 0) { result += ']'; bracketCount--; }
+  while (braceCount > 0) { result += '}'; braceCount--; }
+  return result;
 }
 
 /** Validate and sanitize the document structure for a given mode. Returns { error } if invalid. */
