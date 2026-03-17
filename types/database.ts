@@ -22,6 +22,7 @@ export interface Workspace {
   name: string;
   handle: string;
   logo_url: string | null;
+  favicon_url: string | null;
   tagline: string | null;
   website_url: string | null;
   contact_email: string | null;
@@ -37,6 +38,8 @@ export interface Workspace {
   default_currency: string | null;
   default_language: string | null;
   custom_domain: string | null;
+  domain_verified: boolean;
+  custom_domain_verified_at: string | null;
   hide_docsiv_branding: boolean;
   custom_email_from: string | null;
   plan: WorkspacePlan;

@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { APP_CONFIG } from "@/config/app-config";
 import { getMyWorkspaces, getWorkspaceTeam } from "@/lib/actions/onboarding";
 import { TeamsView } from "./teams-view";
-
-const WORKSPACE_ID_COOKIE = "workspace_id";
+import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
 
 export const metadata: Metadata = {
   title: `Team – ${APP_CONFIG.name}`,
@@ -12,12 +10,11 @@ export const metadata: Metadata = {
 };
 
 export default async function TeamsPage() {
-  const cookieStore = await cookies();
-  const savedWorkspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value;
   const { workspaces } = await getMyWorkspaces();
+  const context = await getCurrentWorkspaceContext();
   const currentWorkspaceId =
-    savedWorkspaceId && workspaces.some((w) => w.id === savedWorkspaceId)
-      ? savedWorkspaceId
+    context.workspaceId && workspaces.some((w) => w.id === context.workspaceId)
+      ? context.workspaceId
       : workspaces[0]?.id ?? null;
 
   if (!currentWorkspaceId) {

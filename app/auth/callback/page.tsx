@@ -24,16 +24,16 @@ export default async function AuthCallback({
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
       const loginUrl = next !== '/dashboard/documents'
-        ? `/auth/login?error=callback_error&next=${encodeURIComponent(next)}`
-        : '/auth/login?error=callback_error'
+        ? `/login?error=callback_error&next=${encodeURIComponent(next)}`
+        : '/login?error=callback_error'
       redirect(loginUrl)
     }
   } else {
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError || !user) {
       const loginUrl = next !== '/dashboard/documents'
-        ? `/auth/login?error=no_code&next=${encodeURIComponent(next)}`
-        : '/auth/login?error=no_code'
+        ? `/login?error=no_code&next=${encodeURIComponent(next)}`
+        : '/login?error=no_code'
       redirect(loginUrl)
     }
   }
@@ -41,8 +41,8 @@ export default async function AuthCallback({
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   if (userError || !user) {
     const loginUrl = next !== '/dashboard/documents'
-      ? `/auth/login?error=session_missing&next=${encodeURIComponent(next)}`
-      : '/auth/login?error=session_missing'
+      ? `/login?error=session_missing&next=${encodeURIComponent(next)}`
+      : '/login?error=session_missing'
     redirect(loginUrl)
   }
 

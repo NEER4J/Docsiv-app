@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
 import { APP_CONFIG } from "@/config/app-config";
 import {
   getCurrentUserProfile,
@@ -9,8 +8,8 @@ import {
 } from "@/lib/actions/onboarding";
 import type { Workspace } from "@/types/database";
 import { SettingsView, type SettingsTabId } from "./settings-view";
+import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
 
-const WORKSPACE_ID_COOKIE = "workspace_id";
 const VALID_TABS: SettingsTabId[] = [
   "profile",
   "workspace",
@@ -38,14 +37,13 @@ export default async function SettingsPage({
     : "profile";
 
   const { user, profile } = await getCurrentUserProfile();
-  if (!user) redirect("/auth/login");
+  if (!user) redirect("/login");
 
-  const cookieStore = await cookies();
-  const savedWorkspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value;
+  const context = await getCurrentWorkspaceContext();
   const { workspaces } = await getMyWorkspaces();
   const currentWorkspaceId =
-    savedWorkspaceId && workspaces.some((w) => w.id === savedWorkspaceId)
-      ? savedWorkspaceId
+    context.workspaceId && workspaces.some((w) => w.id === context.workspaceId)
+      ? context.workspaceId
       : workspaces[0]?.id ?? null;
 
   let workspace: Workspace | null = null;

@@ -89,7 +89,7 @@ export function SearchDialog() {
       >
         <Search className="size-4" />
         Search
-        <kbd className="font-ui bg-muted inline-flex h-5 items-center gap-1 rounded-lg border border-border px-1.5 text-[10px] font-medium uppercase tracking-wider select-none">
+        <kbd className="font-ui inline-flex h-5 items-center gap-1 rounded-lg border border-border bg-muted px-1.5 text-[10px] font-medium text-foreground tracking-wider select-none dark:bg-muted-hover dark:text-muted-foreground">
           <span className="text-xs">⌘</span>J
         </kbd>
       </Button>

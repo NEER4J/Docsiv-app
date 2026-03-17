@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { EllipsisVertical, CircleUser, Building2, CreditCard, MessageSquareDot, LogOut, Moon, Sun, Trash2, Plug, ShieldCheck, Settings } from "lucide-react";
+import { EllipsisVertical, CircleUser, Building2, CreditCard, MessageSquareDot, LogOut, Moon, Sun, Trash2, Plug, Settings } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -41,7 +41,7 @@ export function NavUser({
   const isCollapsed = state === "collapsed";
   const { signOut } = useAuth();
   const router = useRouter();
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
   const handleThemeChange = (checked: boolean) => {
@@ -57,7 +57,7 @@ export function NavUser({
       });
     } else {
       toast.success("Signed out successfully");
-      router.push("/auth/login");
+      router.push("/login");
     }
   };
 

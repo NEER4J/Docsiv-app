@@ -15,11 +15,9 @@ import { BlockPlaceholderKit } from '@/components/platejs/editor/plugins/block-p
 import { CalloutKit } from '@/components/platejs/editor/plugins/callout-kit';
 import { CodeBlockKit } from '@/components/platejs/editor/plugins/code-block-kit';
 import { ColumnKit } from '@/components/platejs/editor/plugins/column-kit';
-import { CommentKit } from '@/components/platejs/editor/plugins/comment-kit';
 import { CopilotKit } from '@/components/platejs/editor/plugins/copilot-kit';
 import { CursorOverlayKit } from '@/components/platejs/editor/plugins/cursor-overlay-kit';
 import { DateKit } from '@/components/platejs/editor/plugins/date-kit';
-import { DiscussionKit } from '@/components/platejs/editor/plugins/discussion-kit';
 import { DndKit } from '@/components/platejs/editor/plugins/dnd-kit';
 import { DocxKit } from '@/components/platejs/editor/plugins/docx-kit';
 import { EmojiKit } from '@/components/platejs/editor/plugins/emoji-kit';
@@ -35,7 +33,6 @@ import { MathKit } from '@/components/platejs/editor/plugins/math-kit';
 import { MediaKit } from '@/components/platejs/editor/plugins/media-kit';
 import { MentionKit } from '@/components/platejs/editor/plugins/mention-kit';
 import { SlashKit } from '@/components/platejs/editor/plugins/slash-kit';
-import { SuggestionKit } from '@/components/platejs/editor/plugins/suggestion-kit';
 import { TableKit } from '@/components/platejs/editor/plugins/table-kit';
 import { TocKit } from '@/components/platejs/editor/plugins/toc-kit';
 import { ToggleKit } from '@/components/platejs/editor/plugins/toggle-kit';
@@ -67,11 +64,6 @@ export const EditorKit = [
   ...AlignKit,
   ...LineHeightKit,
 
-  // Collaboration
-  ...DiscussionKit,
-  ...CommentKit,
-  ...SuggestionKit,
-
   // Editing
   ...SlashKit,
   ...AutoformatKit,
@@ -92,19 +84,15 @@ export const EditorKit = [
   ...FloatingToolbarKit,
 ];
 
-/** Read-only viewer kit: base plugins + discussion + comment + suggestion + block selection (no toolbars/slash/dnd/copilot/AI) */
+/** Read-only viewer kit without built-in comments/suggestions. */
 export const ViewerKit = [
   ...BaseEditorKit,
   ...BlockSelectionKit,
-  ...DiscussionKit,
-  ...CommentKit,
-  ...SuggestionKit,
 ];
 
 /** Commenter kit: read-only content + comment controls (floating toolbar for comments) */
 export const CommenterKit = [
   ...ViewerKit,
-  ...FloatingToolbarKit,
   ...CursorOverlayKit,
 ];
 

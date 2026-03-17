@@ -15,8 +15,8 @@ import { createClient } from "@/lib/supabase/server";
 import { SearchDialog } from "@/components/sidebar/search-dialog";
 import { getMyWorkspaces, getCurrentUserProfile, setWorkspaceCookie } from "@/lib/actions/onboarding";
 import { getMyPendingDocumentAccessRequests, getPendingWorkspaceInvitesForMe } from "@/lib/actions/notifications";
-
-const WORKSPACE_ID_COOKIE = "workspace_id";
+import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
+import { getWorkspaceBrandingForWorkspaceId } from "@/lib/workspace-context/branding";
 
 export const metadata: Metadata = {
   title: `Dashboard – ${APP_CONFIG.name}`,
@@ -45,12 +45,11 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
     (user.user_metadata?.avatar_url as string | undefined) ??
     "";
 
-  const cookieStore = await cookies();
-  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
-  let savedWorkspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value ?? null;
+  const context = await getCurrentWorkspaceContext();
+  const defaultOpen = (await cookies()).get("sidebar_state")?.value !== "false";
 
   const { workspaces } = await getMyWorkspaces();
-  const validWorkspaceId = savedWorkspaceId && workspaces.some((w) => w.id === savedWorkspaceId) ? savedWorkspaceId : null;
+  const validWorkspaceId = context.workspaceId && workspaces.some((w) => w.id === context.workspaceId) ? context.workspaceId : null;
   const currentWorkspaceId = validWorkspaceId ?? workspaces[0]?.id ?? null;
 
   // Auto-set workspace cookie when missing or invalid so workspace and docs load without manual selection
@@ -58,9 +57,10 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
     await setWorkspaceCookie(workspaces[0].id).catch(() => {});
   }
 
-  const [accessRes, invitesRes] = await Promise.all([
+  const [accessRes, invitesRes, workspaceBranding] = await Promise.all([
     getMyPendingDocumentAccessRequests(),
     getPendingWorkspaceInvitesForMe(),
+    getWorkspaceBrandingForWorkspaceId(currentWorkspaceId),
   ]);
   const notificationCount = (accessRes.requests?.length ?? 0) + (invitesRes.invites?.length ?? 0);
 
@@ -85,6 +85,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
         }}
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
+        workspaceBranding={workspaceBranding}
         notificationCount={notificationCount}
       />
       <SidebarInset className={cn("min-w-0 max-w-full flex flex-col overflow-hidden")}>

@@ -20,7 +20,7 @@ const FormSchema = z.object({
 function ForgotPasswordContent() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? undefined;
-  const loginHref = next ? `/auth/login?next=${encodeURIComponent(next)}` : "/auth/login";
+  const loginHref = next ? `/login?next=${encodeURIComponent(next)}` : "/login";
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const { resetPassword } = useAuth();
@@ -57,7 +57,7 @@ function ForgotPasswordContent() {
         <div className="space-y-2 text-center">
           <h1 className="text-3xl font-medium">Check your email</h1>
           <p className="text-muted-foreground text-sm">
-            We've sent you a password reset link. Please check your email and follow the instructions.
+            We&apos;ve sent you a password reset link. Please check your email and follow the instructions.
           </p>
         </div>
         <div className="space-y-4">
@@ -76,7 +76,7 @@ function ForgotPasswordContent() {
       <div className="space-y-2 text-center">
         <h1 className="text-3xl font-medium">Forgot your password?</h1>
         <p className="text-muted-foreground text-sm">
-          Enter your email address and we'll send you a link to reset your password.
+            Enter your email address and we&apos;ll send you a link to reset your password.
         </p>
       </div>
       <Form {...form}>

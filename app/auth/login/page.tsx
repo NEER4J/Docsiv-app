@@ -46,13 +46,13 @@ export default async function LoginV2({
       </div>
       <div className="mt-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-muted-foreground lg:hidden">
         <span>Don&apos;t have an account?{" "}
-          <Link className="text-foreground font-medium" href={next ? `/auth/register?next=${encodeURIComponent(next)}` : "/auth/register"}>Register</Link>
+          <Link className="text-foreground font-medium" href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"}>Register</Link>
         </span>
         <span>{APP_CONFIG.copyright}</span>
       </div>
       <div className="hidden lg:block mt-6 text-sm text-muted-foreground text-right">
         Don&apos;t have an account?{" "}
-        <Link className="text-foreground font-medium" href={next ? `/auth/register?next=${encodeURIComponent(next)}` : "/auth/register"}>Register</Link>
+        <Link className="text-foreground font-medium" href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"}>Register</Link>
       </div>
     </div>
   );

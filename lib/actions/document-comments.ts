@@ -25,6 +25,54 @@ export type DocumentCommentUser = {
   avatarUrl: string | null;
 };
 
+export type CommentEditorType = 'konva' | 'plate' | 'univer';
+
+export type KonvaCommentAnchor = {
+  pageId: string;
+  x: number;
+  y: number;
+};
+
+export type PlateCommentAnchor = {
+  path: number[];
+  offsetStart: number;
+  offsetEnd: number;
+};
+
+export type UniverCommentAnchor = {
+  sheetId: string;
+  startRow: number;
+  endRow: number;
+  startCol: number;
+  endCol: number;
+};
+
+export type CommentAnchor = KonvaCommentAnchor | PlateCommentAnchor | UniverCommentAnchor;
+
+export type UnifiedCommentMessage = {
+  id: string;
+  threadId: string;
+  parentId: string | null;
+  contentRich: unknown;
+  userId: string;
+  isEdited: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UnifiedCommentThread = {
+  id: string;
+  documentId: string;
+  editorType: CommentEditorType;
+  anchor: CommentAnchor;
+  createdBy: string;
+  isResolved: boolean;
+  isTrashed?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  messages: UnifiedCommentMessage[];
+};
+
 export async function getDocumentDiscussions(
   documentId: string
 ): Promise<{
@@ -150,6 +198,133 @@ export async function removeDocumentComment(
   const supabase = await createClient();
   const { error } = await supabase.rpc('remove_document_comment', {
     p_comment_id: commentId,
+  });
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function getUnifiedDocumentCommentThreads(
+  documentId: string,
+  params?: {
+    editorType?: CommentEditorType;
+    includeResolved?: boolean;
+  }
+): Promise<{
+  threads: UnifiedCommentThread[];
+  users: Record<string, DocumentCommentUser>;
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('get_document_comment_threads', {
+    p_document_id: documentId,
+    p_editor_type: params?.editorType ?? null,
+    p_include_resolved: params?.includeResolved ?? true,
+  });
+  if (error) return { threads: [], users: {}, error: error.message };
+  const raw = data as {
+    threads?: UnifiedCommentThread[];
+    users?: Record<string, DocumentCommentUser>;
+  } | null;
+  return {
+    threads: Array.isArray(raw?.threads) ? raw.threads : [],
+    users: raw?.users ?? {},
+  };
+}
+
+export async function createUnifiedDocumentCommentThread(
+  documentId: string,
+  params: {
+    editorType: CommentEditorType;
+    anchor: CommentAnchor;
+    contentRich: unknown;
+  }
+): Promise<{ threadId?: string; messageId?: string; error?: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('create_document_comment_thread', {
+    p_document_id: documentId,
+    p_editor_type: params.editorType,
+    p_anchor: params.anchor,
+    p_content_rich: Array.isArray(params.contentRich) ? params.contentRich : [],
+  });
+  if (error) return { error: error.message };
+  const payload = (data ?? {}) as { threadId?: string; messageId?: string };
+  return { threadId: payload.threadId, messageId: payload.messageId };
+}
+
+export async function addUnifiedDocumentCommentMessage(
+  threadId: string,
+  params: {
+    contentRich: unknown;
+    parentId?: string | null;
+  }
+): Promise<{ messageId?: string; error?: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('add_document_comment_message', {
+    p_thread_id: threadId,
+    p_parent_id: params.parentId ?? null,
+    p_content_rich: Array.isArray(params.contentRich) ? params.contentRich : [],
+  });
+  if (error) return { error: error.message };
+  const payload = (data ?? {}) as { messageId?: string };
+  return { messageId: payload.messageId };
+}
+
+export async function updateUnifiedDocumentCommentMessage(
+  messageId: string,
+  contentRich: unknown
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('update_document_comment_message', {
+    p_message_id: messageId,
+    p_content_rich: Array.isArray(contentRich) ? contentRich : [],
+  });
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function deleteUnifiedDocumentCommentMessage(
+  messageId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('delete_document_comment_message', {
+    p_message_id: messageId,
+  });
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function setUnifiedDocumentCommentThreadResolved(
+  threadId: string,
+  resolved: boolean
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('set_document_comment_thread_resolved', {
+    p_thread_id: threadId,
+    p_resolved: resolved,
+  });
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function setUnifiedDocumentCommentThreadTrashed(
+  threadId: string,
+  trashed: boolean
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('set_document_comment_thread_trashed', {
+    p_thread_id: threadId,
+    p_trashed: trashed,
+  });
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function deleteUnifiedDocumentCommentThread(
+  threadId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('delete_document_comment_thread', {
+    p_thread_id: threadId,
   });
   if (error) return { error: error.message };
   return {};

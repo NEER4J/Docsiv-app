@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { APP_CONFIG } from "@/config/app-config";
 import { getMyWorkspaces, setWorkspaceCookie } from "@/lib/actions/onboarding";
 import { getDocuments } from "@/lib/actions/documents";
 import { getClients } from "@/lib/actions/clients";
 import { TrashView } from "./trash-view";
+import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
 
 export const metadata: Metadata = {
   title: `Trash – ${APP_CONFIG.name}`,
@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 };
 
 export default async function TrashPage() {
-  const cookieStore = await cookies();
-  let workspaceId = cookieStore.get("workspace_id")?.value ?? null;
+  const context = await getCurrentWorkspaceContext();
+  let workspaceId = context.workspaceId ?? null;
 
   const { workspaces } = await getMyWorkspaces();
   if (!workspaceId && workspaces.length > 0) {

@@ -6,6 +6,8 @@ import React, {
   useCallback,
   useImperativeHandle,
   forwardRef,
+  useState,
+  useMemo,
 } from 'react';
 import { createUniver, LocaleType, mergeLocales } from '@univerjs/presets';
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core';
@@ -13,12 +15,20 @@ import UniverPresetSheetsCoreEnUS from '@univerjs/preset-sheets-core/locales/en-
 import { UniverSheetsDrawingPreset } from '@univerjs/preset-sheets-drawing';
 import UniverPresetSheetsDrawingEnUS from '@univerjs/preset-sheets-drawing/locales/en-US';
 import { UniverSheetsNotePreset } from '@univerjs/preset-sheets-note';
+import UniverPresetSheetsNoteEnUS from '@univerjs/preset-sheets-note/locales/en-US';
 import { UniverSheetsDataValidationPreset } from '@univerjs/preset-sheets-data-validation';
+import UniverPresetSheetsDataValidationEnUS from '@univerjs/preset-sheets-data-validation/locales/en-US';
 import { UniverSheetsHyperLinkPreset } from '@univerjs/preset-sheets-hyper-link';
+import UniverPresetSheetsHyperLinkEnUS from '@univerjs/preset-sheets-hyper-link/locales/en-US';
 import LuckyExcel from '@mertdeveci55/univer-import-export';
 import { updateDocumentContent, createDocumentVersion } from '@/lib/actions/documents';
 import type { UniverStoredContent } from '@/lib/univer-sheet-content';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useDocumentComments } from '@/hooks/use-document-comments';
+import { isUnifiedCommentsEnabledForEditor } from '@/lib/comments/flags';
 
 import '@univerjs/preset-sheets-core/lib/index.css';
 import '@univerjs/preset-sheets-drawing/lib/index.css';
@@ -36,6 +46,8 @@ export type UniverSheetEditorHandle = {
   exportExcel: () => void;
   exportCsv: () => void;
   openImportDialog: () => void;
+  toggleCommentsPanel: () => void;
+  addCommentFromInput: (text: string) => Promise<void>;
 };
 
 type UniverSheetEditorProps = {
@@ -44,6 +56,8 @@ type UniverSheetEditorProps = {
   documentTitle?: string;
   initialContent: UniverStoredContent | null;
   readOnly?: boolean;
+  canComment?: boolean;
+  currentUserId?: string;
   className?: string;
   onSaveStatus?: (status: 'idle' | 'saving' | 'saved') => void;
   /** Called after a successful save with the saved content (e.g. to capture thumbnail). */
@@ -54,13 +68,42 @@ function safeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 100) || 'sheet';
 }
 
+function getInitials(name?: string | null): string {
+  const cleaned = (name ?? '').trim();
+  if (!cleaned) return 'U';
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+}
+
+function normalizeRange(input: Record<string, unknown> | null | undefined): {
+  startRow: number;
+  endRow: number;
+  startCol: number;
+  endCol: number;
+} | null {
+  if (!input) return null;
+  const rawStartRow = Number(input.startRow ?? input.row ?? 0);
+  const rawEndRow = Number(input.endRow ?? input.row ?? rawStartRow);
+  const rawStartCol = Number(input.startCol ?? input.startColumn ?? input.column ?? 0);
+  const rawEndCol = Number(input.endCol ?? input.endColumn ?? input.column ?? rawStartCol);
+  if (![rawStartRow, rawEndRow, rawStartCol, rawEndCol].every(Number.isFinite)) return null;
+  return {
+    startRow: Math.min(rawStartRow, rawEndRow),
+    endRow: Math.max(rawStartRow, rawEndRow),
+    startCol: Math.min(rawStartCol, rawEndCol),
+    endCol: Math.max(rawStartCol, rawEndCol),
+  };
+}
+
 const UniverSheetEditorInner = (
   {
     documentId,
-    workspaceId,
     documentTitle,
     initialContent,
     readOnly = false,
+    canComment = false,
+    currentUserId: _currentUserId = '',
     className = '',
     onSaveSuccess,
     onSaveStatus,
@@ -72,11 +115,23 @@ const UniverSheetEditorInner = (
   const univerRef = useRef<{ univer: { dispose: () => void }; univerAPI: ReturnType<typeof createUniver>['univerAPI'] } | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const periodicSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const disposeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSnapshotRef = useRef<object | null>(null);
   const documentIdRef = useRef(documentId);
   const onSaveStatusRef = useRef(onSaveStatus);
   const onSaveSuccessRef = useRef(onSaveSuccess);
   const dirtyRef = useRef(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [activeSheetId, setActiveSheetId] = useState<string>('');
+  const [commentView, setCommentView] = useState<'open' | 'resolved'>('open');
+  const [initError, setInitError] = useState<string | null>(null);
+  const unifiedCommentsEnabled = isUnifiedCommentsEnabledForEditor('univer');
+  const comments = useDocumentComments(canComment ? documentId : '', 'univer');
+  const addCommentFromSelectionRef = useRef<(inputText?: string) => Promise<void>>(async () => {});
+  const initialContentSnapshotKey = useMemo(
+    () => JSON.stringify(initialContent?.snapshot ?? {}),
+    [initialContent?.snapshot]
+  );
   documentIdRef.current = documentId;
   onSaveStatusRef.current = onSaveStatus;
   onSaveSuccessRef.current = onSaveSuccess;
@@ -105,7 +160,7 @@ const UniverSheetEditorInner = (
       const payload: UniverStoredContent = { editor: 'univer-sheets', snapshot: jsonSafeSnapshot };
       lastSnapshotRef.current = jsonSafeSnapshot;
       await performSave(payload);
-    } catch (e) {
+    } catch {
       toast.error('Failed to save sheet');
       onSaveStatusRef.current?.('idle');
     }
@@ -181,7 +236,7 @@ const UniverSheetEditorInner = (
         if (!wb) return;
         try {
           wb.insertSheet();
-        } catch (err) {
+        } catch {
           toast.error('Could not insert sheet');
         }
         return;
@@ -195,7 +250,7 @@ const UniverSheetEditorInner = (
         else if (action === 'insertRowBelow') sheet.insertRowAfter(row);
         else if (action === 'insertColumnLeft') sheet.insertColumnBefore(col);
         else if (action === 'insertColumnRight') sheet.insertColumnAfter(col);
-      } catch (err) {
+      } catch {
         toast.error('Could not insert');
       }
     };
@@ -216,7 +271,11 @@ const UniverSheetEditorInner = (
     exportExcel: () => exportExcel(),
     exportCsv: () => exportCsv(),
     openImportDialog: () => importInputRef.current?.click(),
-  }), [save, exportExcel, exportCsv]);
+    toggleCommentsPanel: () => setCommentsOpen((v) => !v),
+    addCommentFromInput: async (text: string) => {
+      await addCommentFromSelectionRef.current(text);
+    },
+  }), [save, exportExcel, exportCsv, documentId]);
 
   const replaceWithImportedData = useCallback(
     (univerData: object) => {
@@ -235,7 +294,7 @@ const UniverSheetEditorInner = (
         dirtyRef.current = false;
         performSave({ editor: 'univer-sheets', snapshot: jsonSafe });
         toast.success('Import successful');
-      } catch (e) {
+      } catch {
         toast.error('Failed to save imported data');
       }
     },
@@ -279,6 +338,10 @@ const UniverSheetEditorInner = (
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    if (disposeTimeoutRef.current) {
+      clearTimeout(disposeTimeoutRef.current);
+      disposeTimeoutRef.current = null;
+    }
 
     const univerShortcutKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -303,7 +366,13 @@ const UniverSheetEditorInner = (
     const { univer, univerAPI } = createUniver({
       locale,
       locales: {
-        [locale]: mergeLocales(UniverPresetSheetsCoreEnUS, UniverPresetSheetsDrawingEnUS),
+        [locale]: mergeLocales(
+          UniverPresetSheetsCoreEnUS,
+          UniverPresetSheetsDrawingEnUS,
+          UniverPresetSheetsNoteEnUS,
+          UniverPresetSheetsDataValidationEnUS,
+          UniverPresetSheetsHyperLinkEnUS
+        ),
       },
       presets: [
         UniverSheetsCorePreset({
@@ -312,6 +381,7 @@ const UniverSheetEditorInner = (
           toolbar: true,
           formulaBar: true,
           footer: {},
+          menu: {},
           ribbonType: 'classic',
           contextMenu: true,
         }),
@@ -324,15 +394,44 @@ const UniverSheetEditorInner = (
 
     univerRef.current = { univer, univerAPI };
 
-    const initialSnapshot =
-      initialContent?.snapshot && Object.keys(initialContent.snapshot).length > 0
-        ? initialContent.snapshot
-        : {};
-    univerAPI.createWorkbook(initialSnapshot as Record<string, unknown>);
-
-    const wb = univerAPI.getActiveWorkbook();
+    let wb = univerAPI.getActiveWorkbook();
+    try {
+      const initialSnapshot =
+        initialContent?.snapshot && Object.keys(initialContent.snapshot).length > 0
+          ? initialContent.snapshot
+          : {};
+      univerAPI.createWorkbook(initialSnapshot as Record<string, unknown>);
+      wb = univerAPI.getActiveWorkbook();
+      if (!wb) {
+        throw new Error('No workbook after snapshot restore');
+      }
+      setInitError(null);
+    } catch (error) {
+      console.error('Failed to initialize Univer workbook from snapshot', error);
+      try {
+        univerAPI.createWorkbook({
+          id: `sheet-${Date.now()}`,
+          name: documentTitle || 'Sheet1',
+        });
+        wb = univerAPI.getActiveWorkbook();
+        if (!wb) throw new Error('No workbook after fallback create');
+        setInitError('Saved sheet data could not be restored. Showing a blank workbook.');
+      } catch (fallbackError) {
+        console.error('Failed to initialize fallback workbook', fallbackError);
+        setInitError('Unable to initialize sheet editor.');
+      }
+    }
     if (wb && readOnly) {
       wb.setEditable(false);
+    }
+    if (wb) {
+      try {
+        const sheet = wb.getActiveSheet();
+        const sheetId = (sheet as { getSheetId?: () => string })?.getSheetId?.() ?? '';
+        if (sheetId) setActiveSheetId(sheetId);
+      } catch {
+        // ignore
+      }
     }
 
     if (!readOnly) {
@@ -407,8 +506,8 @@ const UniverSheetEditorInner = (
             action: () => dispatchInsertAction('insertSheet'),
           })
           .appendTo('ribbon.insert.others');
-      } catch (e) {
-        console.warn('Could not register File/Insert menus in ribbon', e);
+      } catch {
+        console.warn('Could not register File/Insert menus in ribbon');
       }
 
       // Forward common shortcuts to Univer when focus is not in an input (e.g. grid doesn't take focus).
@@ -418,6 +517,13 @@ const UniverSheetEditorInner = (
     if (!readOnly && wb) {
       const onDirty = () => {
         dirtyRef.current = true;
+        try {
+          const sheet = wb.getActiveSheet();
+          const sheetId = (sheet as { getSheetId?: () => string })?.getSheetId?.() ?? '';
+          if (sheetId) setActiveSheetId(sheetId);
+        } catch {
+          // ignore
+        }
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = setTimeout(() => {
           saveTimeoutRef.current = null;
@@ -448,24 +554,95 @@ const UniverSheetEditorInner = (
         }
         window.removeEventListener('beforeunload', onBeforeUnload);
         document.removeEventListener('visibilitychange', onVisibilityChange);
-        univer.dispose();
-        univerRef.current = null;
         if (saveTimeoutRef.current) {
           clearTimeout(saveTimeoutRef.current);
           saveTimeoutRef.current = null;
         }
+        // Defer dispose to avoid "synchronously unmount a root while React was already rendering"
+        const instance = univer;
+        univerRef.current = null;
+        disposeTimeoutRef.current = setTimeout(() => {
+          disposeTimeoutRef.current = null;
+          try {
+            instance.dispose();
+          } catch (error) {
+            console.warn('Univer dispose failed', error);
+          }
+        }, 0);
       };
     }
 
     return () => {
       if (!readOnly) window.removeEventListener('keydown', univerShortcutKeyDown, true);
-      univer.dispose();
+      const instance = univer;
       univerRef.current = null;
+      disposeTimeoutRef.current = setTimeout(() => {
+        disposeTimeoutRef.current = null;
+        try {
+          instance.dispose();
+        } catch (error) {
+          console.warn('Univer dispose failed', error);
+        }
+      }, 0);
     };
-  }, [documentId, readOnly]);
+    // Depend on serialized snapshot so we don't re-run when parent re-renders with a new
+    // object reference (e.g. emptyUniverSheetContent() in shared view), which would
+    // constantly dispose/recreate the sheet and leave it blank in view mode.
+  }, [documentId, readOnly, initialContentSnapshotKey]);
+
+  const sheetThreads = useMemo(
+    () =>
+      comments.threads.filter((thread) => {
+        const anchor = thread.anchor as Record<string, unknown>;
+        return anchor.sheetId === activeSheetId;
+      }),
+    [comments.threads, activeSheetId]
+  );
+  const filteredThreads = useMemo(
+    () =>
+      sheetThreads.filter((thread) => {
+        if (thread.isTrashed) return false;
+        return commentView === 'open' ? !thread.isResolved : thread.isResolved;
+      }),
+    [sheetThreads, commentView]
+  );
+
+  const addCommentFromSelection = useCallback(async (inputText?: string) => {
+    const api = univerRef.current?.univerAPI;
+    const wb = api?.getActiveWorkbook();
+    const sheet = wb?.getActiveSheet();
+    const selection = sheet?.getSelection();
+    const activeRange = selection?.getActiveRange?.();
+    const rangeRaw = activeRange?.getRange?.() as Record<string, unknown> | undefined;
+    const currentCell = selection?.getCurrentCell?.() as { actualRow?: number; actualColumn?: number } | undefined;
+    const range = normalizeRange(
+      rangeRaw ?? (currentCell ? { row: currentCell.actualRow, column: currentCell.actualColumn } : null)
+    );
+    const sheetId = activeRange?.getSheetId?.() ?? (sheet as { getSheetId?: () => string })?.getSheetId?.() ?? '';
+    if (!unifiedCommentsEnabled || !range || !sheetId) {
+      toast.error('Select a cell range first');
+      return;
+    }
+    const text = (inputText ?? '').trim();
+    if (!text) return;
+    const threadId = await comments.create(
+      {
+        sheetId,
+        startRow: range.startRow,
+        endRow: range.endRow,
+        startCol: range.startCol,
+        endCol: range.endCol,
+      },
+      [{ type: 'p', children: [{ text }] }]
+    );
+    if (threadId) {
+      setActiveSheetId(sheetId);
+    }
+  }, [comments, unifiedCommentsEnabled]);
+  addCommentFromSelectionRef.current = addCommentFromSelection;
 
   return (
-    <div className={`univer-sheet-editor-wrapper flex flex-col ${className}`} style={{ minHeight: 480, width: '100%' }}>
+    <div className={`univer-sheet-editor-wrapper flex h-full min-h-0 w-full flex-1 flex-col ${className}`} style={{ minHeight: 480, width: '100%' }}>
       <input
         ref={importInputRef}
         type="file"
@@ -474,7 +651,141 @@ const UniverSheetEditorInner = (
         aria-hidden
         onChange={onImportFile}
       />
-      <div ref={containerRef} className="min-h-[360px] min-w-0 flex-1 w-full" />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {initError && (
+          <div className="border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            {initError}
+          </div>
+        )}
+        <div ref={containerRef} className="min-h-[400px] min-w-0 flex-1 w-full" style={{ height: '100%' }} />
+      </div>
+      {unifiedCommentsEnabled && (
+        <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
+          <SheetContent side="right" className="p-0 sm:max-w-sm">
+            <SheetHeader className="border-b border-border">
+              <SheetTitle>Comments ({sheetThreads.length})</SheetTitle>
+            </SheetHeader>
+            <div className="flex items-center gap-1 border-b border-border p-2">
+              <Button size="sm" variant={commentView === 'open' ? 'default' : 'ghost'} onClick={() => setCommentView('open')}>Open</Button>
+              <Button size="sm" variant={commentView === 'resolved' ? 'default' : 'ghost'} onClick={() => setCommentView('resolved')}>Resolved</Button>
+            </div>
+            <div className="flex-1 space-y-2 overflow-y-auto p-3">
+            {filteredThreads.length === 0 && (
+              <div className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">
+                No comments in this view.
+              </div>
+            )}
+            {filteredThreads.map((thread) => {
+              const normalizedAnchor = normalizeRange(thread.anchor as Record<string, unknown>);
+              const anchor = normalizedAnchor ?? { startRow: 0, endRow: 0, startCol: 0, endCol: 0 };
+              return (
+                <button
+                  key={thread.id}
+                  type="button"
+                  className={`w-full cursor-pointer rounded-lg border p-3 text-left transition-colors hover:bg-muted/60 ${comments.activeThreadId === thread.id ? 'bg-muted ring-1 ring-border' : ''}`}
+                  onClick={() => {
+                    comments.setActiveThreadId(thread.id);
+                    const api = univerRef.current?.univerAPI;
+                    const wb = api?.getActiveWorkbook();
+                    const workbookApi = wb as unknown as {
+                      getActiveSheet?: () => unknown;
+                      setActiveSheet?: (sheetId: string) => void;
+                      getSheetBySheetId?: (sheetId: string) => unknown;
+                    } | undefined;
+                    const targetSheetId = String((thread.anchor as Record<string, unknown>).sheetId ?? '');
+                    if (targetSheetId) {
+                      workbookApi?.setActiveSheet?.(targetSheetId);
+                    }
+                    const sheet = (workbookApi?.getSheetBySheetId?.(targetSheetId) ?? workbookApi?.getActiveSheet?.()) as {
+                      getRange?: (startRow: number, startCol: number, endRow: number, endCol: number) => {
+                        activate?: () => void;
+                        setActive?: () => void;
+                      };
+                      getSelection?: () => {
+                        setActiveRange?: (range: unknown) => void;
+                        setCurrentCell?: (row: number, col: number) => void;
+                      };
+                    } | undefined;
+                    const selectionRange = {
+                      startRow: Number(anchor.startRow ?? 0),
+                      endRow: Number(anchor.endRow ?? anchor.startRow ?? 0),
+                      startColumn: Number(anchor.startCol ?? 0),
+                      endColumn: Number(anchor.endCol ?? anchor.startCol ?? 0),
+                      startCol: Number(anchor.startCol ?? 0),
+                      endCol: Number(anchor.endCol ?? anchor.startCol ?? 0),
+                    };
+                    const selection = sheet?.getSelection?.();
+                    selection?.setActiveRange?.(selectionRange);
+                    selection?.setCurrentCell?.(
+                      Number(anchor.startRow ?? 0),
+                      Number(anchor.startCol ?? 0)
+                    );
+                    const rangeObjPrimary = sheet?.getRange?.(
+                      Number(anchor.startRow ?? 0),
+                      Number(anchor.startCol ?? 0),
+                      Number(anchor.endRow ?? anchor.startRow ?? 0),
+                      Number(anchor.endCol ?? anchor.startCol ?? 0)
+                    );
+                    const rangeObjFallback = sheet?.getRange?.(
+                      Number(anchor.startRow ?? 0),
+                      Number(anchor.startCol ?? 0),
+                      Number(anchor.endRow ?? anchor.startRow ?? 0) - Number(anchor.startRow ?? 0) + 1,
+                      Number(anchor.endCol ?? anchor.startCol ?? 0) - Number(anchor.startCol ?? 0) + 1
+                    );
+                    const rangeObj = rangeObjPrimary ?? rangeObjFallback;
+                    if (!rangeObj) {
+                      toast.error('Commented range is no longer available');
+                      return;
+                    }
+                    rangeObj.activate?.();
+                    rangeObj.setActive?.();
+                  }}
+                >
+                  <div className="mb-1 flex items-center gap-2">
+                    <Avatar size="sm">
+                      <AvatarImage src={comments.users[thread.createdBy]?.avatarUrl ?? undefined} />
+                      <AvatarFallback>{getInitials(comments.users[thread.createdBy]?.name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="text-xs font-medium">{comments.users[thread.createdBy]?.name ?? 'User'}</div>
+                  </div>
+                  <div className="mb-1 text-xs text-muted-foreground">
+                    <span className={`rounded border px-1.5 py-0.5 ${thread.isResolved ? 'text-muted-foreground' : 'text-foreground'}`}>
+                      {thread.isResolved ? 'Resolved' : 'Open'}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    R{Number(anchor.startRow) + 1}:C{Number(anchor.startCol) + 1} to R{Number(anchor.endRow) + 1}:C{Number(anchor.endCol) + 1}
+                  </div>
+                  <div className="text-xs text-muted-foreground line-clamp-2">
+                    {(() => {
+                      const first = thread.messages[0]?.contentRich as Array<{ children?: Array<{ text?: string }> }> | undefined;
+                      const text = Array.isArray(first)
+                        ? first.flatMap((n) => Array.isArray(n.children) ? n.children.map((c) => c.text ?? '') : []).join(' ').trim()
+                        : '';
+                      return text || 'Comment';
+                    })()}
+                  </div>
+                  {canComment && (
+                    <div className="mt-2 flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void comments.setResolved(thread.id, !thread.isResolved);
+                        }}
+                      >
+                        {thread.isResolved ? 'Mark open' : 'Mark as resolved'}
+                      </Button>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   );
 };

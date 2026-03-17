@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag, Pencil } from 'lucide-react';
-import { DocumentCommentsProvider } from '@/components/platejs/editors/document-comments-context';
+import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag, Pencil, Plus, Loader2 } from 'lucide-react';
 import { DocumentUploadProvider } from '@/components/platejs/editors/document-upload-context';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
 import {
@@ -14,12 +13,7 @@ import {
 import { ShareDialog, type ShareDialogData } from '@/components/documents/share-dialog';
 import { DocumentMenu } from '@/components/documents/document-menu';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -68,6 +62,7 @@ import { cn } from '@/lib/utils';
 import { ForceLightContainer } from '@/components/documents/force-light-container';
 import { getDisplayForDocumentType } from '@/lib/document-type-icons';
 import { BASE_TYPE_FALLBACK } from '@/app/dashboard/documents/document-types';
+import { useDocumentComments } from '@/hooks/use-document-comments';
 
 const KonvaReportEditor = dynamic(
   () => import('@/components/konva/report-editor').then((m) => ({ default: m.KonvaReportEditor })),
@@ -147,7 +142,8 @@ export function DocumentEditorView({
   const effectiveReadOnly = readOnly || isLocked;
   // GrapesJS: disable editing on mobile (view only)
   const grapesReadOnly = effectiveReadOnly || (isReport && isMobile);
-  const canComment = role === 'comment' || role === 'edit';
+  // Any logged-in user with access (view, comment, or edit) can add comments on every editor type.
+  const canComment = role === 'view' || role === 'comment' || role === 'edit';
   const canShare = role === 'edit';
 
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -171,7 +167,11 @@ export function DocumentEditorView({
   const [prefetchedShareData, setPrefetchedShareData] = useState<ShareDialogData | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState('');
+  const [newCommentText, setNewCommentText] = useState('');
+  const [commentAddOpen, setCommentAddOpen] = useState(false);
+  const [addingComment, setAddingComment] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const commentInputRef = useRef<HTMLInputElement>(null);
 
   // Prefetch share dialog data when editor loads so the dialog opens instantly
   useEffect(() => {
@@ -291,6 +291,34 @@ export function DocumentEditorView({
   }, [document.title]);
 
   const canRenameTitle = role === 'edit' && !effectiveReadOnly;
+  const canUseComments = isDocOrContract || isReportKonva || isPresentation || isSheet;
+  const commentsEditorType = isReportKonva || isPresentation ? 'konva' : isSheet ? 'univer' : 'plate';
+  const { threads: topbarThreads } = useDocumentComments(canComment ? document.id : '', commentsEditorType);
+  const topbarCommentCount = topbarThreads.filter((thread) => !thread.isResolved && !thread.isTrashed).length;
+
+  const openCommentsPanel = useCallback(() => {
+    if (isReportKonva) konvaReportRef.current?.toggleCommentsPanel();
+    else if (isPresentation) konvaPresentationRef.current?.toggleCommentsPanel();
+    else if (isSheet) univerSheetRef.current?.toggleCommentsPanel();
+    else if (isDocOrContract) plateThumbnailRef.current?.toggleCommentsPanel();
+  }, [isReportKonva, isPresentation, isSheet, isDocOrContract]);
+
+  const addCommentFromTopbar = useCallback(async () => {
+    if (addingComment) return;
+    const text = newCommentText.trim();
+    if (!isReportKonva && !isPresentation && !text) return;
+    setAddingComment(true);
+    try {
+      if (isReportKonva) await konvaReportRef.current?.addCommentFromInput(text);
+      else if (isPresentation) await konvaPresentationRef.current?.addCommentFromInput(text);
+      else if (isSheet) await univerSheetRef.current?.addCommentFromInput(text);
+      else if (isDocOrContract) await plateThumbnailRef.current?.addCommentFromInput(text);
+      setCommentAddOpen(false);
+      setNewCommentText('');
+    } finally {
+      setAddingComment(false);
+    }
+  }, [newCommentText, addingComment, isReportKonva, isPresentation, isSheet, isDocOrContract]);
   const startEditingTitle = useCallback(() => {
     if (!canRenameTitle) return;
     setEditTitleValue(barTitle);
@@ -302,6 +330,14 @@ export function DocumentEditorView({
       titleInputRef.current.select();
     }
   }, [isEditingTitle]);
+  useEffect(() => {
+    if (!commentAddOpen) return;
+    const frame = requestAnimationFrame(() => {
+      commentInputRef.current?.focus();
+      commentInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [commentAddOpen]);
 
   const saveTitle = useCallback(async () => {
     const trimmed = editTitleValue.trim() || 'Untitled';
@@ -320,12 +356,19 @@ export function DocumentEditorView({
   const getWordCount = useCallback((): number => {
     const val = valueRef.current;
     if (!val) return 0;
-    const getText = (nodes: Value): string =>
-      nodes.map((n: any) => {
-        if (typeof n.text === 'string') return n.text;
-        if (Array.isArray(n.children)) return getText(n.children);
-        return '';
-      }).join(' ');
+    const getText = (nodes: unknown[]): string =>
+      nodes
+        .map((n) => {
+          if (n && typeof n === 'object' && 'text' in n && typeof (n as { text?: unknown }).text === 'string') {
+            return (n as { text: string }).text;
+          }
+          if (n && typeof n === 'object' && 'children' in n) {
+            const children = (n as { children?: unknown[] }).children;
+            if (Array.isArray(children)) return getText(children);
+          }
+          return '';
+        })
+        .join(' ');
     return getText(val).split(/\s+/).filter(Boolean).length;
   }, []);
 
@@ -504,6 +547,75 @@ export function DocumentEditorView({
               Share
             </Button>
           )}
+          {canUseComments && (
+            <div className="flex items-center">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-sm rounded-r-none border-r-0"
+                onClick={openCommentsPanel}
+              >
+                <MessageSquare className="size-3.5" />
+                Comments
+                <span className="ml-1 rounded border border-border px-1.5 text-[10px] leading-4">
+                  {topbarCommentCount}
+                </span>
+              </Button>
+              {isReportKonva || isPresentation ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 rounded-l-none px-2.5 text-sm"
+                  disabled={!canComment || addingComment}
+                  aria-label="Add comment"
+                  onClick={() => void addCommentFromTopbar()}
+                >
+                  {addingComment ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                  Add
+                </Button>
+              ) : (
+                <DropdownMenu open={commentAddOpen} onOpenChange={setCommentAddOpen}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5 rounded-l-none px-2.5 text-sm"
+                      disabled={!canComment}
+                      aria-label="Add comment"
+                    >
+                      <Plus className="size-3.5" />
+                      Add
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-80 p-2">
+                    <div className="space-y-2 p-1">
+                      <Input
+                        ref={commentInputRef}
+                        placeholder="Type comment for current selection"
+                        value={newCommentText}
+                        onChange={(e) => setNewCommentText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void addCommentFromTopbar();
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        disabled={!newCommentText.trim() || addingComment}
+                        onClick={() => void addCommentFromTopbar()}
+                      >
+                        {addingComment ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                        {addingComment ? 'Adding...' : 'Add comment'}
+                      </Button>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          )}
           <DocumentMenu
             documentId={document.id}
             documentTitle={document.title || 'Untitled'}
@@ -539,6 +651,8 @@ export function DocumentEditorView({
             documentTitle={document.title ?? undefined}
             initialContent={isKonvaContent(document.content) ? (document.content as KonvaStoredContent) : emptyKonvaReportContent()}
             readOnly={grapesReadOnly}
+            canComment={canComment}
+            currentUserId={currentUserId}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}
             onOpenDocument={(id) => router.push(`/d/${id}`)}
@@ -567,31 +681,24 @@ export function DocumentEditorView({
           style={{ backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' }}
         >
           <div className="plate-doc-toolbar-full w-full min-w-0 flex-1 flex flex-col min-h-0">
-            <DocumentCommentsProvider
+            <DocumentUploadProvider
+              workspaceId={workspaceId}
               documentId={document.id}
-              currentUserId={currentUserId}
-              currentUserDisplay={currentUserDisplay}
-              saveContentNow={async (value) => {
-                await updateDocumentContent(document.id, value);
-              }}
             >
-              <DocumentUploadProvider
-                workspaceId={workspaceId}
+              <PlateDocumentEditor
+                ref={plateThumbnailRef}
+                key={document.updated_at}
                 documentId={document.id}
-              >
-                <PlateDocumentEditor
-                  ref={plateThumbnailRef}
-                  key={document.updated_at}
-                  initialValue={initialContent}
-                  onChange={effectiveReadOnly ? undefined : handleChange}
-                  readOnly={effectiveReadOnly}
-                  canComment={canComment}
-                  placeholder="Start writing..."
-                  className="min-h-0 flex flex-col w-full"
-                  contentClassName="plate-doc-content-area"
-                />
-              </DocumentUploadProvider>
-            </DocumentCommentsProvider>
+                currentUserId={currentUserId}
+                initialValue={initialContent}
+                onChange={effectiveReadOnly ? undefined : handleChange}
+                readOnly={effectiveReadOnly}
+                canComment={canComment}
+                placeholder="Start writing..."
+                className="min-h-0 flex flex-col w-full"
+                contentClassName="plate-doc-content-area"
+              />
+            </DocumentUploadProvider>
           </div>
         </ForceLightContainer>
       ) : isPresentation ? (
@@ -607,6 +714,8 @@ export function DocumentEditorView({
             documentTitle={document.title ?? undefined}
             initialContent={normalizedPresentationContent}
             readOnly={grapesReadOnly}
+            canComment={canComment}
+            currentUserId={currentUserId}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}
             onOpenDocument={(id) => router.push(`/d/${id}`)}
@@ -615,7 +724,8 @@ export function DocumentEditorView({
       ) : isSheet ? (
         <div
           key={document.updated_at ?? document.id}
-          className="min-h-0 flex-1 flex flex-col overflow-hidden"
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          style={{ minHeight: 520 }}
         >
           <UniverSheetEditor
             ref={univerSheetRef}
@@ -624,6 +734,8 @@ export function DocumentEditorView({
             documentTitle={document.title ?? undefined}
             initialContent={isUniverSheetContent(document.content) ? (document.content as UniverStoredContent) : emptyUniverSheetContent()}
             readOnly={effectiveReadOnly}
+            canComment={canComment}
+            currentUserId={currentUserId}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}
             onSaveSuccess={async (savedContent) => {

@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { User } from "lucide-react";
 import { APP_CONFIG } from "@/config/app-config";
 import { getClients } from "@/lib/actions/clients";
 import { NewClientDialog } from "@/components/clients/new-client-dialog";
+import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
 
 export const metadata: Metadata = {
   title: `Clients – ${APP_CONFIG.name}`,
@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 };
 
 export default async function ClientsPage() {
-  const cookieStore = await cookies();
-  const workspaceId = cookieStore.get("workspace_id")?.value ?? null;
+  const context = await getCurrentWorkspaceContext();
+  const workspaceId = context.workspaceId ?? null;
 
   const clients = workspaceId
     ? (await getClients(workspaceId)).clients

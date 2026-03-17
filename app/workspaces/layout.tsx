@@ -20,7 +20,7 @@ export default async function WorkspacesLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect(`/auth/login?next=${encodeURIComponent("/workspaces")}`);
+    redirect(`/login?next=${encodeURIComponent("/workspaces")}`);
   }
 
   const { profile } = await getCurrentUserProfile();

@@ -2,7 +2,10 @@
 
 import { createPlatePlugin } from 'platejs/react';
 
-import { FloatingToolbar } from '@/components/platejs/ui/floating-toolbar';
+import {
+  FloatingToolbar,
+  FloatingToolbarErrorBoundary,
+} from '@/components/platejs/ui/floating-toolbar';
 import { FloatingToolbarButtons } from '@/components/platejs/ui/floating-toolbar-buttons';
 
 export const FloatingToolbarKit = [
@@ -10,9 +13,11 @@ export const FloatingToolbarKit = [
     key: 'floating-toolbar',
     render: {
       afterEditable: () => (
-        <FloatingToolbar>
-          <FloatingToolbarButtons />
-        </FloatingToolbar>
+        <FloatingToolbarErrorBoundary>
+          <FloatingToolbar>
+            <FloatingToolbarButtons />
+          </FloatingToolbar>
+        </FloatingToolbarErrorBoundary>
       ),
     },
   }),

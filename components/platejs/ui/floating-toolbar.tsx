@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import {
   type FloatingToolbarState,
   flip,
@@ -14,11 +15,24 @@ import {
   useEventEditorValue,
   usePluginOption,
 } from 'platejs/react';
-import type * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
 import { Toolbar } from './toolbar';
+
+/** Catches plugin option errors when Link/AI plugins are not in the editor (e.g. ViewerKit/CommenterKit). */
+export class FloatingToolbarErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
 
 export function FloatingToolbar({
   children,
@@ -30,8 +44,9 @@ export function FloatingToolbar({
 }) {
   const editorId = useEditorId();
   const focusedEditorId = useEventEditorValue('focus');
-  const isFloatingLinkOpen = !!usePluginOption({ key: KEYS.link }, 'mode');
-  const isAIChatOpen = usePluginOption({ key: KEYS.aiChat }, 'open');
+  // Default to falsy when Link/AI plugins are not in the editor (e.g. ViewerKit/CommenterKit)
+  const isFloatingLinkOpen = !!usePluginOption({ key: KEYS.link }, 'mode', undefined);
+  const isAIChatOpen = usePluginOption({ key: KEYS.aiChat }, 'open', false);
 
   const floatingToolbarState = useFloatingToolbarState({
     editorId,

@@ -333,6 +333,7 @@ export type UpdateWorkspaceInput = Partial<{
   name: string;
   handle: string;
   logo_url: string | null;
+  favicon_url: string | null;
   tagline: string | null;
   website_url: string | null;
   contact_email: string | null;
@@ -348,6 +349,8 @@ export type UpdateWorkspaceInput = Partial<{
   default_currency: string | null;
   default_language: string | null;
   custom_domain: string | null;
+  domain_verified: boolean;
+  custom_domain_verified_at: string | null;
   hide_docsiv_branding: boolean;
   custom_email_from: string | null;
   plan: import("@/types/database").WorkspacePlan;
@@ -365,6 +368,7 @@ export async function updateWorkspace(
     p_name: input.name ?? null,
     p_handle: input.handle ?? null,
     p_logo_url: input.logo_url ?? null,
+    p_favicon_url: input.favicon_url ?? null,
     p_tagline: input.tagline ?? null,
     p_website_url: input.website_url ?? null,
     p_contact_email: input.contact_email ?? null,
@@ -380,6 +384,8 @@ export async function updateWorkspace(
     p_default_currency: input.default_currency ?? null,
     p_default_language: input.default_language ?? null,
     p_custom_domain: input.custom_domain ?? null,
+    p_domain_verified: input.domain_verified ?? null,
+    p_custom_domain_verified_at: input.custom_domain_verified_at ?? null,
     p_hide_docsiv_branding: input.hide_docsiv_branding ?? null,
     p_custom_email_from: input.custom_email_from ?? null,
     p_plan: input.plan ?? null,

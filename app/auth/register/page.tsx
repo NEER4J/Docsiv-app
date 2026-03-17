@@ -45,13 +45,13 @@ export default async function RegisterV2({
       </div>
       <div className="mt-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-muted-foreground lg:hidden">
         <span>Already have an account?{" "}
-          <Link className="text-foreground font-medium" href={next ? `/auth/login?next=${encodeURIComponent(next)}` : "/auth/login"}>Sign in</Link>
+          <Link className="text-foreground font-medium" href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}>Sign in</Link>
         </span>
         <span>{APP_CONFIG.copyright}</span>
       </div>
       <div className="hidden lg:block mt-6 text-sm text-muted-foreground text-right">
         Already have an account?{" "}
-        <Link className="text-foreground font-medium" href={next ? `/auth/login?next=${encodeURIComponent(next)}` : "/auth/login"}>Sign in</Link>
+        <Link className="text-foreground font-medium" href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}>Sign in</Link>
       </div>
     </div>
   );

@@ -121,7 +121,7 @@ export function LoginForm({ redirectNext, errorFromUrl }: { redirectNext?: strin
         />
         <div className="flex items-center justify-between">
           <Link 
-            href={redirectNext ? `/auth/forgot-password?next=${encodeURIComponent(redirectNext)}` : "/auth/forgot-password"}
+            href={redirectNext ? `/magic-link?next=${encodeURIComponent(redirectNext)}` : "/magic-link"}
             className="text-sm text-muted-foreground hover:text-foreground"
           >
             Forgot password?

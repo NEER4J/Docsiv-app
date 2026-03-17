@@ -37,6 +37,34 @@ export async function POST(
     );
   }
 
+  const resolvedWorkspaceId = request.headers.get("x-workspace-id");
+  if (resolvedWorkspaceId && resolvedWorkspaceId !== workspaceId) {
+    return NextResponse.json(
+      { error: "Workspace mismatch for current domain context" },
+      { status: 403 }
+    );
+  }
+
+  const { data: documentRow, error: documentError } = await supabase
+    .from("documents")
+    .select("workspace_id")
+    .eq("id", documentId)
+    .maybeSingle();
+
+  if (documentError || !documentRow) {
+    return NextResponse.json(
+      { error: "Document not found or inaccessible" },
+      { status: 404 }
+    );
+  }
+
+  if (documentRow.workspace_id !== workspaceId) {
+    return NextResponse.json(
+      { error: "Document does not belong to the provided workspace" },
+      { status: 403 }
+    );
+  }
+
   let formData: FormData;
   try {
     formData = await request.formData();

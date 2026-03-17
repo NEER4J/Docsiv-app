@@ -19,7 +19,6 @@ import { captureHtmlAsPngBase64, captureKonvaContentAsPngBase64, captureUniverCo
 import { getFirstPageContent, isGrapesJSContent } from "@/lib/grapesjs-content";
 import { isKonvaContent } from "@/lib/konva-content";
 import { isUniverSheetContent } from "@/lib/univer-sheet-content";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { ClientWithDocCount } from "@/types/database";
 import type { DocumentListItem, DocumentType } from "@/types/database";

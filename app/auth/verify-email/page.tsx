@@ -94,12 +94,12 @@ function VerifyEmailContent() {
           </p>
         </div>
         <div className="space-y-4">
-          <Link href="/auth/register">
+          <Link href="/signup">
             <Button className="w-full">
               Try Again
             </Button>
           </Link>
-          <Link href="/auth/login">
+          <Link href="/login">
             <Button className="w-full" variant="outline">
               Back to Login
             </Button>
@@ -117,19 +117,19 @@ function VerifyEmailContent() {
         </div>
         <h1 className="text-3xl font-medium">Check your email</h1>
         <p className="text-muted-foreground text-sm">
-          We've sent you a verification link. Please check your email and click the link to verify your account.
+          We&apos;ve sent you a verification link. Please check your email and click the link to verify your account.
         </p>
       </div>
       <div className="space-y-4">
-        <Link href="/auth/login">
+        <Link href="/login">
           <Button className="w-full" variant="outline">
             Back to Login
           </Button>
         </Link>
         <div className="text-center">
           <p className="text-sm text-muted-foreground">
-            Didn't receive the email? Check your spam folder or{" "}
-            <Link href="/auth/register" className="text-foreground hover:underline font-medium">
+            Didn&apos;t receive the email? Check your spam folder or{" "}
+            <Link href="/signup" className="text-foreground hover:underline font-medium">
               try registering again
             </Link>
           </p>

@@ -73,6 +73,7 @@
 
 @layer base {
   :root {
+    --brand-color: #0a0a0a;
     /* Docsiv brand colours — https://docsiv.com/vision */
     --ink: #0a0a0a;
     --paper: #ffffff;
@@ -94,7 +95,7 @@
     /* shadcn/Plate theme tokens */
     --card: var(--paper);
     --card-foreground: var(--ink);
-    --primary: #0a0a0a;
+    --primary: var(--brand-color);
     --primary-foreground: #fafafa;
     --secondary: #f5f5f5;
     --secondary-foreground: #0a0a0a;
@@ -102,7 +103,7 @@
     --accent-foreground: #0a0a0a;
     --destructive: #dc2626;
     --input: #e5e5e5;
-    --ring: #a3a3a3;
+    --ring: var(--brand-color);
     --sidebar: #fafafa;
     --sidebar-foreground: #0a0a0a;
     --sidebar-primary: #0a0a0a;
@@ -116,7 +117,7 @@
     --chart-3: #a855f7;
     --chart-4: #f59e0b;
     --chart-5: #ef4444;
-    --brand: oklch(0.623 0.214 259.815);
+    --brand: var(--brand-color);
     --highlight: oklch(0.852 0.199 91.936);
 
     /* Notion-inspired accent palette — tags, badges, callouts. No borders. */
@@ -191,6 +192,12 @@
     --notion-purple-bg: #2d2640;
     --notion-pink-bg: #3d2640;
     --notion-red-bg: #3d2626;
+  }
+
+  /* Body inherits brand from layout inline style; set primary/ring here so .dark can override */
+  body {
+    --primary: var(--brand-color);
+    --ring: var(--brand-color);
   }
 
   * {

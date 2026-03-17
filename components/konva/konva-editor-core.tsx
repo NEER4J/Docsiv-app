@@ -8,7 +8,7 @@ import React, {
   forwardRef,
   useEffect,
 } from 'react';
-import { Stage, Layer, Group, Transformer, Line, Rect, Image } from 'react-konva';
+import { Stage, Layer, Group, Transformer, Line, Rect, Circle } from 'react-konva';
 import type Konva from 'konva';
 import {
   getStableId,
@@ -41,10 +41,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useDocumentComments } from '@/hooks/use-document-comments';
+import { isUnifiedCommentsEnabledForEditor } from '@/lib/comments/flags';
 import { renderPageToPngDataURL } from '@/lib/konva-export-pdf';
 import { updateDocumentContent, createDocumentVersion, uploadDocumentThumbnail } from '@/lib/actions/documents';
 import { computeSnap, type Bounds } from '@/lib/konva-snap';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { MessageCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 function getChildren(page: PageOrSlide): KonvaShapeDesc[] {
   const layer = page?.layer as { children?: KonvaShapeDesc[] } | undefined;
@@ -82,6 +89,14 @@ function KonvaBackgroundLayer({
 
 function generateShapeId(): string {
   return `shape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function getInitials(name?: string | null): string {
+  const cleaned = (name ?? '').trim();
+  if (!cleaned) return 'U';
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
 }
 
 const VIEW_ALL_ROW_HEIGHT_EXTRA = 60; // gap + label
@@ -312,6 +327,8 @@ export type KonvaEditorCoreHandle = {
   getContent: () => KonvaStoredContent;
   setContent: (content: KonvaStoredContent) => void;
   getCurrentPageImage: () => Promise<string | null>;
+  toggleCommentsPanel: () => void;
+  addCommentFromInput: (text: string) => Promise<void>;
 };
 
 export type KonvaEditorCoreProps = {
@@ -323,6 +340,8 @@ export type KonvaEditorCoreProps = {
   workspaceId: string;
   documentTitle?: string;
   readOnly?: boolean;
+  canComment?: boolean;
+  currentUserId?: string;
   className?: string;
   onSaveStatus?: (status: 'idle' | 'saving' | 'saved') => void;
   exportToPdf: (payload: KonvaStoredContent, filename: string) => Promise<void>;
@@ -342,6 +361,8 @@ const KonvaEditorCoreInner = (
     workspaceId,
     documentTitle,
     readOnly = false,
+    canComment = false,
+    currentUserId = '',
     className = '',
     onSaveStatus,
     exportToPdf,
@@ -408,10 +429,31 @@ const KonvaEditorCoreInner = (
   const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
   const marqueeEndRef = useRef<{ x: number; y: number } | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentView, setCommentView] = useState<'open' | 'resolved'>('open');
+  const [commentPlacementMode, setCommentPlacementMode] = useState(false);
+  const [pendingCommentText, setPendingCommentText] = useState<string>('');
+  const [pendingCommentAnchor, setPendingCommentAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [pendingCommentPopoverPos, setPendingCommentPopoverPos] = useState<{ x: number; y: number } | null>(null);
+  const [addingComment, setAddingComment] = useState(false);
+  const [placementCursorPos, setPlacementCursorPos] = useState<{ x: number; y: number } | null>(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const unifiedCommentsEnabled = isUnifiedCommentsEnabledForEditor('konva');
+  const comments = useDocumentComments(canComment ? documentId : '', 'konva');
 
   useEffect(() => {
     if (!viewAllPages) setViewAllPanStart(null);
   }, [viewAllPages]);
+
+  useEffect(() => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+    const updateSize = () => setCanvasSize({ width: el.clientWidth, height: el.clientHeight });
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (viewAllPanStart == null) return;
@@ -536,6 +578,22 @@ const KonvaEditorCoreInner = (
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (readOnly) return;
+      if (unifiedCommentsEnabled && canComment && commentPlacementMode) {
+        const pos = screenToStage(e.clientX, e.clientY);
+        if (pos) {
+          const containerRect = canvasContainerRef.current?.getBoundingClientRect();
+          if (containerRect) {
+            setPendingCommentAnchor({ x: pos.x, y: pos.y });
+            setPendingCommentPopoverPos({
+              x: Math.max(8, e.clientX - containerRect.left + 8),
+              y: Math.max(8, e.clientY - containerRect.top + 8),
+            });
+            setCommentPlacementMode(false);
+            setPlacementCursorPos(null);
+          }
+        }
+        return;
+      }
       const onCanvas = (e.target as HTMLElement).closest('canvas');
       const startPan = spacePressedRef.current || !onCanvas;
       if (startPan) {
@@ -564,12 +622,21 @@ const KonvaEditorCoreInner = (
         }
       }
     },
-    [readOnly, pan, drawMode, screenToStage]
+    [readOnly, unifiedCommentsEnabled, canComment, commentPlacementMode, screenToStage, currentIndex, comments, pendingCommentText, pan, drawMode]
   );
 
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (readOnly) return;
+      if (commentPlacementMode && unifiedCommentsEnabled && canComment) {
+        const containerRect = canvasContainerRef.current?.getBoundingClientRect();
+        if (containerRect) {
+          setPlacementCursorPos({
+            x: e.clientX - containerRect.left,
+            y: e.clientY - containerRect.top,
+          });
+        }
+      }
       if (panStartRef.current) {
         setPan({
           x: e.clientX - panStartRef.current.x,
@@ -613,7 +680,7 @@ const KonvaEditorCoreInner = (
       }
       setCanvasCursor('grab');
     },
-    [readOnly, width, height, getCursorForStagePoint, screenToStage]
+    [readOnly, width, height, getCursorForStagePoint, screenToStage, commentPlacementMode, unifiedCommentsEnabled, canComment]
   );
 
   const marqueeFinishRef = useRef<(() => void) | null>(null);
@@ -627,6 +694,7 @@ const KonvaEditorCoreInner = (
     panStartRef.current = null;
     setIsPanning(false);
     setCanvasCursor('grab');
+    setPlacementCursorPos(null);
   }, []);
 
   useEffect(() => {
@@ -759,8 +827,16 @@ const KonvaEditorCoreInner = (
       getContent,
       setContent,
       getCurrentPageImage,
+      toggleCommentsPanel: () => setCommentsOpen((v) => !v),
+      addCommentFromInput: async (text: string) => {
+        if (!canComment || readOnly || !unifiedCommentsEnabled) return;
+        setPendingCommentText(text.trim());
+        setPendingCommentAnchor(null);
+        setPendingCommentPopoverPos(null);
+        setCommentPlacementMode(true);
+      },
     }),
-    [persistContent, getContent, setContent, getCurrentPageImage]
+    [persistContent, getContent, setContent, getCurrentPageImage, canComment, readOnly, unifiedCommentsEnabled]
   );
 
   // Generate thumbnail data URLs for the Pages tab only when that tab is active (lazy), in batches to avoid blocking.
@@ -822,7 +898,7 @@ const KonvaEditorCoreInner = (
   }, [pages, width, height, activeLeftTab]);
 
   const goToPage = useCallback((index: number) => {
-    setCurrentIndex((i) => Math.max(0, Math.min(index, pages.length - 1)));
+    setCurrentIndex(() => Math.max(0, Math.min(index, pages.length - 1)));
     setSelectedIds([]);
   }, [pages.length]);
 
@@ -850,21 +926,6 @@ const KonvaEditorCoreInner = (
     setCurrentIndex((i) => Math.max(0, Math.min(i, pages.length - 2)));
     setSelectedIds([]);
   }, [pages.length, currentIndex, pushHistory]);
-
-  const updateCurrentShapes = useCallback(
-    (updater: (children: KonvaShapeDesc[]) => KonvaShapeDesc[]) => {
-      pushHistory();
-      setPages((prev) => {
-        const next = [...prev];
-        const page = next[currentIndex] ?? { layer: { children: [] } };
-        const layer = page.layer as { children: KonvaShapeDesc[] };
-        const children = Array.isArray(layer?.children) ? layer.children : [];
-        next[currentIndex] = { ...page, layer: { ...layer, children: updater(children) } };
-        return next;
-      });
-    },
-    [currentIndex, pushHistory]
-  );
 
   const addShape = useCallback(
     (type: 'Rect' | 'Text' | 'Image' | 'Circle' | 'Ellipse' | 'Line' | 'Arrow' | 'Star' | 'RegularPolygon' | 'Icon' | 'Video', defaultAttrs: Record<string, unknown> = {}) => {
@@ -1681,6 +1742,15 @@ const KonvaEditorCoreInner = (
   }, [shapes, width, height, documentTitle, mode, currentIndex]);
 
   const thumbAspectRatio = mode === 'report' ? `${width}/${height}` : `${width}/${height}`;
+  const pageThreads = comments.threads.filter((thread) => {
+    const anchor = thread.anchor as Record<string, unknown>;
+    return anchor.pageId === String(currentIndex);
+  });
+  const filteredPageThreads = pageThreads.filter((thread) => {
+    if (thread.isTrashed) return false;
+    return commentView === 'open' ? !thread.isResolved : thread.isResolved;
+  });
+  const markerThreads = pageThreads.filter((thread) => !thread.isTrashed && (!thread.isResolved || comments.activeThreadId === thread.id));
 
   const layersPanelContent =
     !readOnly ? (
@@ -1847,11 +1917,16 @@ const KonvaEditorCoreInner = (
             onPreview={() => setPreviewOpen(true)}
           />
         )}
+        {unifiedCommentsEnabled && commentPlacementMode && (
+          <div className="absolute left-3 top-3 z-30 rounded-md border border-border bg-background px-3 py-2 text-xs">
+            Click on canvas to place comment marker
+          </div>
+        )}
         <div
           ref={canvasContainerRef}
           className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#e5e5e5]"
           style={{
-            cursor: viewAllPages ? 'default' : isPanning ? 'grabbing' : canvasCursor,
+            cursor: viewAllPages ? 'default' : commentPlacementMode ? 'copy' : isPanning ? 'grabbing' : canvasCursor,
           }}
           onMouseDown={viewAllPages ? undefined : (e) => {
             focusEditor();
@@ -1863,6 +1938,123 @@ const KonvaEditorCoreInner = (
           role="application"
           aria-label="Canvas viewport"
         >
+          {commentPlacementMode && placementCursorPos && (
+            <div
+              className="pointer-events-none absolute z-40"
+              style={{ left: placementCursorPos.x + 10, top: placementCursorPos.y + 10 }}
+            >
+              <div className="rounded-full border border-border bg-background p-1.5">
+                <MessageCircle className="size-3.5" />
+              </div>
+            </div>
+          )}
+          {pendingCommentAnchor && pendingCommentPopoverPos && (
+            <div
+              className="absolute z-40 w-72 rounded-md border border-border bg-background p-2"
+              style={{ left: pendingCommentPopoverPos.x, top: pendingCommentPopoverPos.y }}
+            >
+              <div className="space-y-2">
+                <Input
+                  placeholder="Add comment"
+                  value={pendingCommentText}
+                  onChange={(e) => setPendingCommentText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (addingComment) return;
+                      const text = pendingCommentText.trim();
+                      if (!text || !pendingCommentAnchor) return;
+                      setAddingComment(true);
+                      void comments
+                        .create(
+                          { pageId: String(currentIndex), x: pendingCommentAnchor.x, y: pendingCommentAnchor.y },
+                          [{ type: 'p', children: [{ text }] }]
+                        )
+                        .then((threadId) => {
+                          if (threadId) comments.setActiveThreadId(threadId);
+                          setPendingCommentText('');
+                          setPendingCommentAnchor(null);
+                          setPendingCommentPopoverPos(null);
+                        })
+                        .finally(() => setAddingComment(false));
+                    }
+                  }}
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setPendingCommentText('');
+                      setPendingCommentAnchor(null);
+                      setPendingCommentPopoverPos(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!pendingCommentText.trim() || addingComment}
+                    onClick={() => {
+                      if (addingComment) return;
+                      const text = pendingCommentText.trim();
+                      if (!text || !pendingCommentAnchor) return;
+                      setAddingComment(true);
+                      void comments
+                        .create(
+                          { pageId: String(currentIndex), x: pendingCommentAnchor.x, y: pendingCommentAnchor.y },
+                          [{ type: 'p', children: [{ text }] }]
+                        )
+                        .then((threadId) => {
+                          if (threadId) comments.setActiveThreadId(threadId);
+                          setPendingCommentText('');
+                          setPendingCommentAnchor(null);
+                          setPendingCommentPopoverPos(null);
+                        })
+                        .finally(() => setAddingComment(false));
+                    }}
+                  >
+                    {addingComment ? 'Adding...' : 'Add comment'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+          {unifiedCommentsEnabled && !viewAllPages && markerThreads.length > 0 && (
+            <div className="pointer-events-none absolute inset-0 z-30">
+              {markerThreads.map((thread) => {
+                const anchor = thread.anchor as Record<string, unknown>;
+                const x = Number(anchor.x ?? 0);
+                const y = Number(anchor.y ?? 0);
+                const left = canvasSize.width / 2 + pan.x + (x - width / 2) * zoom;
+                const top = canvasSize.height / 2 + pan.y + (y - height / 2) * zoom;
+                const isActive = comments.activeThreadId === thread.id;
+                const author = comments.users[thread.createdBy];
+                return (
+                  <button
+                    key={thread.id}
+                    type="button"
+                    className={`group pointer-events-auto absolute -translate-x-1/2 -translate-y-[calc(100%+8px)] cursor-pointer transition-transform hover:scale-105 ${isActive ? 'scale-105' : ''}`}
+                    style={{ left, top }}
+                    onClick={() => {
+                      comments.setActiveThreadId(thread.id);
+                      setCommentsOpen(true);
+                    }}
+                  >
+                    <div className={`relative rounded-full border bg-background p-0.5 ${isActive ? 'border-foreground' : 'border-border'}`}>
+                      <Avatar size="sm">
+                        <AvatarImage src={author?.avatarUrl ?? undefined} />
+                        <AvatarFallback>{getInitials(author?.name)}</AvatarFallback>
+                      </Avatar>
+                    </div>
+                    <div className={`mx-auto h-2.5 w-2.5 rotate-45 border-r border-b bg-background ${isActive ? 'border-foreground' : 'border-border'}`} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {viewAllPages ? (
             <div
               ref={viewAllScrollRef}
@@ -2149,6 +2341,76 @@ const KonvaEditorCoreInner = (
           />
         )}
       </div>
+      {unifiedCommentsEnabled && (
+        <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
+          <SheetContent side="right" className="p-0 sm:max-w-sm">
+            <SheetHeader className="border-b border-border">
+              <SheetTitle>Comments</SheetTitle>
+            </SheetHeader>
+            <div className="flex items-center gap-1 border-b border-border p-2">
+              <Button size="sm" variant={commentView === 'open' ? 'default' : 'ghost'} onClick={() => setCommentView('open')}>Open</Button>
+              <Button size="sm" variant={commentView === 'resolved' ? 'default' : 'ghost'} onClick={() => setCommentView('resolved')}>Resolved</Button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {filteredPageThreads.map((thread) => (
+              <button
+                key={thread.id}
+                type="button"
+                className={`w-full cursor-pointer rounded-md border p-2 text-left transition-colors hover:bg-muted/60 ${comments.activeThreadId === thread.id ? 'bg-muted ring-1 ring-border' : ''}`}
+                onClick={() => {
+                  comments.setActiveThreadId(thread.id);
+                  const anchor = thread.anchor as { x?: number; y?: number };
+                  if (typeof anchor.x !== 'number' || typeof anchor.y !== 'number') {
+                    toast.error('Commented content is no longer available');
+                  }
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <Avatar size="sm">
+                    <AvatarImage src={comments.users[thread.createdBy]?.avatarUrl ?? undefined} />
+                    <AvatarFallback>{getInitials(comments.users[thread.createdBy]?.name)}</AvatarFallback>
+                  </Avatar>
+                  <div className="text-xs font-medium">
+                    {comments.users[thread.createdBy]?.name ?? 'User'}{thread.createdBy === currentUserId ? ' (You)' : ''}
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {thread.isResolved ? 'Resolved' : 'Open'} · Page {currentIndex + 1}
+                </div>
+                <div className="text-xs text-muted-foreground line-clamp-2">
+                  {(() => {
+                    const first = thread.messages[0]?.contentRich as Array<{ children?: Array<{ text?: string }> }> | undefined;
+                    const text = Array.isArray(first)
+                      ? first.flatMap((n) => Array.isArray(n.children) ? n.children.map((c) => c.text ?? '') : []).join(' ').trim()
+                      : '';
+                    return text || 'Comment';
+                  })()}
+                </div>
+                {canComment && (
+                  <div className="mt-2 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void comments.setResolved(thread.id, !thread.isResolved);
+                      }}
+                    >
+                      {thread.isResolved ? 'Mark open' : 'Mark as resolved'}
+                    </Button>
+                  </div>
+                )}
+              </button>
+            ))}
+            {filteredPageThreads.length === 0 && (
+              <div className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">
+                No comments in this view.
+              </div>
+            )}
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
       {!readOnly && (
         <KonvaPropertiesPanel
           shapes={shapes}

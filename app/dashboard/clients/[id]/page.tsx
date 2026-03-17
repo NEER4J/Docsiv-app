@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { APP_CONFIG } from "@/config/app-config";
 import { getClientById } from "@/lib/actions/clients";
 import { getDocuments, getDocumentTypes } from "@/lib/actions/documents";
 import { ClientDetailView } from "./client-detail-view";
+import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
 
 export async function generateMetadata({
   params,
@@ -12,8 +12,8 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const cookieStore = await cookies();
-  const workspaceId = cookieStore.get("workspace_id")?.value ?? null;
+  const context = await getCurrentWorkspaceContext();
+  const workspaceId = context.workspaceId ?? null;
   if (!workspaceId) return { title: `Client – ${APP_CONFIG.name}` };
   const { client } = await getClientById(workspaceId, id);
   const name = client?.name ?? "Client";
@@ -29,8 +29,8 @@ export default async function ClientDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const cookieStore = await cookies();
-  const workspaceId = cookieStore.get("workspace_id")?.value ?? null;
+  const context = await getCurrentWorkspaceContext();
+  const workspaceId = context.workspaceId ?? null;
 
   if (!workspaceId) notFound();
 

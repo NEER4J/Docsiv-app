@@ -23,36 +23,39 @@ import { LinkPasswordGate } from './link-password-gate';
 import { ViewerIdentityGate } from './viewer-identity-gate';
 import type { DocumentDetail } from '@/types/database';
 import { APP_CONFIG } from '@/config/app-config';
+import { getCurrentWorkspaceContext } from '@/lib/workspace-context/server';
+import { getWorkspaceBrandingForRequest } from '@/lib/workspace-context/branding';
+import { headers } from 'next/headers';
 
-const WORKSPACE_ID_COOKIE = 'workspace_id';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const METADATA_BASE = process.env.NEXT_PUBLIC_APP_URL ?? 'https://docsiv.com';
 const DEFAULT_OG_IMAGE = '/opengraph.png';
 
 export async function generateMetadata({
-  params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>;
   searchParams: Promise<{ share?: string }>;
 }): Promise<Metadata> {
+  const host = (await headers()).get("x-forwarded-host") ?? (await headers()).get("host") ?? "docsiv.com";
+  const metadataBase = new URL(`https://${host.split(":")[0]}`);
+  const hostBranding = await getWorkspaceBrandingForRequest();
+  const brandName = hostBranding?.name ?? APP_CONFIG.name;
   const { share: shareToken } = await searchParams;
 
   if (!shareToken) {
     return {
-      title: `Document – ${APP_CONFIG.name}`,
-      description: APP_CONFIG.meta.description,
+      title: `Document – ${brandName}`,
+      description: hostBranding ? `View document in ${brandName}.` : APP_CONFIG.meta.description,
       openGraph: {
-        title: `Document – ${APP_CONFIG.name}`,
-        description: APP_CONFIG.meta.description,
-        images: [new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString()],
+        title: `Document – ${brandName}`,
+        description: hostBranding ? `View document in ${brandName}.` : APP_CONFIG.meta.description,
+        images: [new URL(DEFAULT_OG_IMAGE, metadataBase).toString()],
       },
       twitter: {
         card: 'summary_large_image',
-        title: `Document – ${APP_CONFIG.name}`,
-        description: APP_CONFIG.meta.description,
-        images: [new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString()],
+        title: `Document – ${brandName}`,
+        description: hostBranding ? `View document in ${brandName}.` : APP_CONFIG.meta.description,
+        images: [new URL(DEFAULT_OG_IMAGE, metadataBase).toString()],
       },
     };
   }
@@ -60,34 +63,34 @@ export async function generateMetadata({
   const data = await getDocumentByToken(shareToken);
   if (!data) {
     return {
-      title: `Document – ${APP_CONFIG.name}`,
-      description: APP_CONFIG.meta.description,
+      title: `Document – ${brandName}`,
+      description: hostBranding ? `View document in ${brandName}.` : APP_CONFIG.meta.description,
       openGraph: {
-        title: `Document – ${APP_CONFIG.name}`,
-        description: APP_CONFIG.meta.description,
-        images: [new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString()],
+        title: `Document – ${brandName}`,
+        description: hostBranding ? `View document in ${brandName}.` : APP_CONFIG.meta.description,
+        images: [new URL(DEFAULT_OG_IMAGE, metadataBase).toString()],
       },
       twitter: {
         card: 'summary_large_image',
-        title: `Document – ${APP_CONFIG.name}`,
-        description: APP_CONFIG.meta.description,
-        images: [new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString()],
+        title: `Document – ${brandName}`,
+        description: hostBranding ? `View document in ${brandName}.` : APP_CONFIG.meta.description,
+        images: [new URL(DEFAULT_OG_IMAGE, metadataBase).toString()],
       },
     };
   }
 
   const { document: doc } = data;
-  const title = `${doc.title || 'Untitled'} – ${APP_CONFIG.name}`;
+  const title = `${doc.title || 'Untitled'} – ${data.workspace_name || brandName}`;
   const description =
     contentToMetaDescription(doc.content, doc.base_type) ??
-    'View this document on Docsive.';
+    'View this document.';
 
   const ogImage =
     doc.thumbnail_url && doc.thumbnail_url.startsWith('http')
       ? doc.thumbnail_url
       : doc.thumbnail_url
-        ? new URL(doc.thumbnail_url, METADATA_BASE).toString()
-        : new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString();
+        ? new URL(doc.thumbnail_url, metadataBase).toString()
+        : new URL(DEFAULT_OG_IMAGE, metadataBase).toString();
 
   return {
     title,
@@ -150,12 +153,13 @@ export default async function DocumentEditorPage({
               documentId={id}
               shareToken={activeLink.token}
               workspaceName={data.workspace_name}
+              workspaceLogoUrl={data.workspace_logo_url}
             />
           </DocumentRoomProvider>
         );
       }
     }
-    redirect(`/auth/login?next=${encodeURIComponent(`/d/${id}`)}`);
+    redirect(`/login?next=${encodeURIComponent(`/d/${id}`)}`);
   }
 
   // Try authenticated access; if it fails, check for a public link fallback
@@ -183,6 +187,7 @@ export default async function DocumentEditorPage({
             documentId={id}
             shareToken={activeLink.token}
             workspaceName={data.workspace_name}
+            workspaceLogoUrl={data.workspace_logo_url}
             isAuthenticated
           />
         </DocumentRoomProvider>
@@ -233,6 +238,7 @@ async function handleSharedAccess(
           documentId={documentId}
           shareToken={token}
           workspaceName={data.workspace_name}
+          workspaceLogoUrl={data.workspace_logo_url}
           isAuthenticated
         />
       </DocumentRoomProvider>
@@ -270,6 +276,7 @@ async function handleSharedAccess(
         documentId={documentId}
         shareToken={token}
         workspaceName={data.workspace_name}
+        workspaceLogoUrl={data.workspace_logo_url}
       />
     </DocumentRoomProvider>
   );
@@ -284,8 +291,8 @@ async function handleAuthenticatedAccess(
   user: { id: string; email?: string },
   options?: { fallbackToNull?: boolean }
 ): Promise<React.ReactElement | null> {
-  const cookieStore = await cookies();
-  const workspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value ?? null;
+  const context = await getCurrentWorkspaceContext();
+  const workspaceId = context.workspaceId;
   const currentUserId = user.id;
 
   // Path 1: Try workspace-based access

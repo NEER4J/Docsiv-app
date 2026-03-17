@@ -678,7 +678,7 @@ export function AILoadingBar() {
         >
           <PauseIcon className="h-4 w-4" />
           Stop
-          <kbd className="ml-1 rounded bg-border px-1 font-mono text-[10px] text-muted-foreground shadow-sm">
+          <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px] text-muted-foreground dark:bg-muted-hover dark:text-foreground">
             Esc
           </kbd>
         </Button>

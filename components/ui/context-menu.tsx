@@ -16,7 +16,7 @@ function ContextMenuTrigger({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
   return (
-    <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" className="bg-gray-100 h-screen p-5" {...props} />
+    <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" className="bg-gray-100 h-screen" {...props} />
   )
 }
 

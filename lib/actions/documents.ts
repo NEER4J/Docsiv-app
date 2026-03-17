@@ -383,6 +383,12 @@ export type DocumentByToken = {
   };
   role: string;
   workspace_name?: string;
+  workspace_handle?: string;
+  workspace_logo_url?: string | null;
+  workspace_brand_color?: string | null;
+  workspace_favicon_url?: string | null;
+  workspace_custom_domain?: string | null;
+  hide_docsiv_branding?: boolean;
 };
 
 export async function getDocumentByToken(token: string): Promise<DocumentByToken | null> {

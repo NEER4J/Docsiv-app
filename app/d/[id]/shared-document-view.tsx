@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
-import { MoreHorizontal, Download } from 'lucide-react';
+import { MoreHorizontal, Download, MessageSquare } from 'lucide-react';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
+import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -21,7 +22,7 @@ import { Presentation } from 'lucide-react';
 import { PageBuilderPreview } from '@/components/grapesjs/page-builder-preview';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
-import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
+import { isUniverSheetContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 
 const RevealPresentationViewer = dynamic(
@@ -29,13 +30,13 @@ const RevealPresentationViewer = dynamic(
   { ssr: false }
 );
 
-const UniverSheetEditor = dynamic(
-  () => import('@/components/univer/univer-sheet-editor').then((m) => ({ default: m.UniverSheetEditor })),
+const KonvaReportPreview = dynamic(
+  () => import('@/components/konva/report-preview').then((m) => ({ default: m.KonvaReportPreview })),
   { ssr: false }
 );
 
-const KonvaReportPreview = dynamic(
-  () => import('@/components/konva/report-preview').then((m) => ({ default: m.KonvaReportPreview })),
+const UniverSheetViewer = dynamic(
+  () => import('@/components/univer/univer-sheet-viewer').then((m) => ({ default: m.UniverSheetViewer })),
   { ssr: false }
 );
 
@@ -60,6 +61,7 @@ export function SharedDocumentView({
   documentId,
   shareToken,
   workspaceName,
+  workspaceLogoUrl,
   isAuthenticated = false,
 }: {
   document: Doc;
@@ -67,9 +69,14 @@ export function SharedDocumentView({
   documentId: string;
   shareToken: string;
   workspaceName?: string;
+  workspaceLogoUrl?: string | null;
   isAuthenticated?: boolean;
 }) {
   const [editRequested, setEditRequested] = useState(false);
+  const plateEditorRef = useRef<PlateDocumentEditorHandle>(null);
+  const rootContainerClass = isAuthenticated
+    ? 'flex h-full min-h-0 flex-col overflow-hidden bg-background'
+    : 'flex h-screen min-h-0 flex-col overflow-hidden bg-background';
 
   const isGrapesJSDoc = isGrapesJSContent(document.content);
   const isKonvaDoc = isKonvaContent(document.content);
@@ -83,10 +90,16 @@ export function SharedDocumentView({
     platePages.length > 0 ? mergePlatePagesToSingle(platePages) : EMPTY_PLATE_VALUE;
 
   const canEdit = role === 'edit';
-  const canComment = role === 'comment';
+  // Any logged-in user with access can add comments; anonymous view users must sign in to comment.
+  const canComment = role === 'edit' || role === 'comment' || (role === 'view' && !!isAuthenticated);
+  const canUseComments = isDocOrContract;
+
+  const openCommentsPanel = useCallback(() => {
+    if (isDocOrContract) plateEditorRef.current?.toggleCommentsPanel();
+  }, [isDocOrContract]);
 
   // After sign-in, redirect back to this same URL → server will auto-claim access and show editor
-  const signInHref = `/auth/login?next=${encodeURIComponent(`/d/${documentId}?share=${shareToken}`)}`;
+  const signInHref = `/login?next=${encodeURIComponent(`/d/${documentId}?share=${shareToken}`)}`;
 
   const handleRequestEditAccess = async () => {
     setEditRequested(true);
@@ -106,18 +119,24 @@ export function SharedDocumentView({
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className={rootContainerClass}>
       {/* Combined header bar */}
       <header className="sticky top-0 z-50 flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
         {/* Left: Logo + breadcrumb */}
         <div className="flex min-w-0 items-center gap-2.5">
-          <Image
-            src="/docsiv-icon.png"
-            alt="Docsiv"
-            width={22}
-            height={22}
-            className="shrink-0"
-          />
+          {workspaceLogoUrl ? (
+            <Image
+              src={workspaceLogoUrl}
+              alt={workspaceName || "Workspace logo"}
+              width={22}
+              height={22}
+              className="shrink-0 rounded-sm object-cover"
+            />
+          ) : (
+            <div className="flex size-[22px] shrink-0 items-center justify-center rounded-sm border border-border bg-muted text-[10px] font-semibold uppercase text-muted-foreground">
+              {(workspaceName?.[0] ?? "W").toUpperCase()}
+            </div>
+          )}
           <nav className="flex min-w-0 items-center gap-1.5 text-sm">
             {workspaceName && (
               <>
@@ -164,6 +183,18 @@ export function SharedDocumentView({
             )}
           </div>
 
+          {canUseComments && canComment && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-sm"
+              onClick={openCommentsPanel}
+            >
+              <MessageSquare className="size-3.5" />
+              Comments
+            </Button>
+          )}
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="size-8">
@@ -182,22 +213,22 @@ export function SharedDocumentView({
 
       {/* Document content — read-only. Dot pattern on main so document stands out (Figma-style). */}
       <main
-        className="canvas-dot-pattern flex-1 min-h-0 flex flex-col"
-        style={{
-          backgroundColor: '#e5e5e5',
-          backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)',
-          backgroundSize: '16px 16px',
-        }}
+        className={`flex-1 min-h-0 flex flex-col ${isSheetDoc ? 'bg-background overflow-hidden' : 'canvas-dot-pattern'}`}
+        style={
+          isSheetDoc
+            ? undefined
+            : {
+                backgroundColor: '#e5e5e5',
+                backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)',
+                backgroundSize: '16px 16px',
+              }
+        }
       >
         {isSheetDoc ? (
-          <div className="w-full flex-1 min-h-0 flex flex-col px-4 py-4 md:px-6">
-            <UniverSheetEditor
-              documentId={documentId}
-              workspaceId=""
-              documentTitle={document.title}
-              initialContent={isUniverSheetContent(document.content) ? (document.content as UniverStoredContent) : emptyUniverSheetContent()}
-              readOnly
-              className="min-h-[400px] flex-1 w-full"
+          <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden" style={{ minHeight: 520 }}>
+            <UniverSheetViewer
+              initialSnapshot={isUniverSheetContent(document.content) ? (document.content.snapshot as Record<string, unknown>) : {}}
+              className="min-h-0 flex-1"
             />
           </div>
         ) : isKonvaDoc ? (
@@ -228,8 +259,11 @@ export function SharedDocumentView({
             <div className="mx-auto max-w-[900px] w-full min-h-full bg-white">
             {isDocOrContract ? (
               <PlateDocumentEditor
+                ref={plateEditorRef}
+                documentId={documentId}
                 initialValue={initialContent}
                 readOnly
+                canComment={canComment}
                 placeholder=""
                 className="min-h-[400px]"
               />

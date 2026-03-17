@@ -65,7 +65,7 @@ function ResetPasswordContent() {
       toast.success("Password updated successfully", {
         description: "Your password has been updated. You can now log in.",
       });
-      router.push("/auth/login");
+      router.push("/login");
     }
     
     setIsLoading(false);
@@ -81,12 +81,12 @@ function ResetPasswordContent() {
           </p>
         </div>
         <div className="space-y-4">
-          <Link href="/auth/forgot-password">
+          <Link href="/magic-link">
             <Button className="w-full">
               Request New Reset Link
             </Button>
           </Link>
-          <Link href="/auth/login">
+          <Link href="/login">
             <Button className="w-full" variant="outline">
               Back to Login
             </Button>
@@ -151,7 +151,7 @@ function ResetPasswordContent() {
       </Form>
       <div className="text-center">
         <Link 
-          href="/auth/login" 
+          href="/login" 
           className="text-sm text-muted-foreground hover:text-foreground"
         >
           Back to Login

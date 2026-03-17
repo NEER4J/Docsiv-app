@@ -18,6 +18,8 @@ export type KonvaPresentationEditorHandle = {
   getContent: () => KonvaStoredContent | null;
   applyContent: (content: KonvaStoredContent) => void;
   getCurrentPageImage: () => Promise<string | null>;
+  toggleCommentsPanel: () => void;
+  addCommentFromInput: (text: string) => Promise<void>;
 };
 
 type KonvaPresentationEditorProps = {
@@ -26,6 +28,8 @@ type KonvaPresentationEditorProps = {
   documentTitle?: string;
   initialContent: KonvaStoredContent | null;
   readOnly?: boolean;
+  canComment?: boolean;
+  currentUserId?: string;
   className?: string;
   onSaveStatus?: (status: 'idle' | 'saving' | 'saved') => void;
   onOpenDocument?: (documentId: string) => void;
@@ -38,6 +42,8 @@ const PresentationEditorInner = (
     documentTitle,
     initialContent,
     readOnly = false,
+    canComment = false,
+    currentUserId = '',
     className = '',
     onSaveStatus,
     onOpenDocument,
@@ -56,6 +62,8 @@ const PresentationEditorInner = (
       if (content.presentation) coreRef.current?.setContent(content);
     },
     getCurrentPageImage: () => coreRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
+    toggleCommentsPanel: () => coreRef.current?.toggleCommentsPanel(),
+    addCommentFromInput: (text: string) => coreRef.current?.addCommentFromInput(text) ?? Promise.resolve(),
   }));
 
   return (
@@ -69,6 +77,8 @@ const PresentationEditorInner = (
       workspaceId={workspaceId}
       documentTitle={documentTitle}
       readOnly={readOnly}
+      canComment={canComment}
+      currentUserId={currentUserId}
       className={className}
       onSaveStatus={onSaveStatus}
       exportToPdf={exportKonvaPresentationToPdf}

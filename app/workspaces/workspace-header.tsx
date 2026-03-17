@@ -28,7 +28,7 @@ export function WorkspaceHeader({
 }) {
   const { signOut } = useAuth();
   const router = useRouter();
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
   const handleThemeChange = (checked: boolean) => {
@@ -41,7 +41,7 @@ export function WorkspaceHeader({
       toast.error("Failed to sign out", { description: error });
     } else {
       toast.success("Signed out");
-      router.push("/auth/login");
+      router.push("/login");
     }
   };
 

@@ -23,8 +23,8 @@ export function AcceptInviteClient({
   const [loading, setLoading] = useState(false);
 
   const inviteNext = `/invite/accept?token=${encodeURIComponent(token)}`;
-  const loginUrl = `/auth/login?next=${encodeURIComponent(inviteNext)}`;
-  const registerUrl = `/auth/register?next=${encodeURIComponent(inviteNext)}`;
+  const loginUrl = `/login?next=${encodeURIComponent(inviteNext)}`;
+  const registerUrl = `/signup?next=${encodeURIComponent(inviteNext)}`;
 
   const handleAccept = async () => {
     if (!user) {
@@ -55,7 +55,7 @@ export function AcceptInviteClient({
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-4">
       <div className="w-full max-w-sm rounded-lg border border-border bg-background p-6 text-center">
         <h1 className="font-ui text-xl font-semibold text-foreground">
-          You're invited to join {workspaceName}
+          You&apos;re invited to join {workspaceName}
         </h1>
         <p className="mt-2 font-[family-name:var(--font-dm-sans)] text-sm text-muted-foreground">
           {inviteEmail} was invited to collaborate in this workspace.

@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/server";
 import { SearchDialog } from "@/components/sidebar/search-dialog";
 import { getMyWorkspaces, getCurrentUserProfile, setWorkspaceCookie } from "@/lib/actions/onboarding";
-
-const WORKSPACE_ID_COOKIE = "workspace_id";
+import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
+import { getWorkspaceBrandingForWorkspaceId } from "@/lib/workspace-context/branding";
 
 export default async function DocumentEditorRootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const supabase = await createClient();
@@ -40,15 +40,17 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
 
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
-  const savedWorkspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value ?? null;
+  const context = await getCurrentWorkspaceContext();
 
   const { workspaces } = await getMyWorkspaces();
-  const validWorkspaceId = savedWorkspaceId && workspaces.some((w) => w.id === savedWorkspaceId) ? savedWorkspaceId : null;
+  const validWorkspaceId = context.workspaceId && workspaces.some((w) => w.id === context.workspaceId) ? context.workspaceId : null;
   const currentWorkspaceId = validWorkspaceId ?? workspaces[0]?.id ?? null;
 
   if (!validWorkspaceId && workspaces.length > 0) {
     await setWorkspaceCookie(workspaces[0].id).catch(() => {});
   }
+
+  const workspaceBranding = await getWorkspaceBrandingForWorkspaceId(currentWorkspaceId);
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
@@ -63,6 +65,7 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
         }}
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
+        workspaceBranding={workspaceBranding}
       />
       <SidebarInset className={cn("document-editor-force-light min-w-0 max-w-full flex h-screen flex-col overflow-hidden bg-background text-foreground")}>
         <KonvaAiProvider>

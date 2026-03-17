@@ -25,10 +25,13 @@ import { UpgradeCard } from "./upgrade-card";
 
 export type WorkspaceOption = { id: string; name: string };
 
+export type WorkspaceBrandingSummary = { name: string; logoUrl: string | null };
+
 export function AppSidebar({
   user,
   workspaces = [],
   currentWorkspaceId = null,
+  workspaceBranding = null,
   showUpgrade = true,
   notificationCount = 0,
   ...props
@@ -40,12 +43,15 @@ export function AppSidebar({
   };
   readonly workspaces?: readonly WorkspaceOption[];
   readonly currentWorkspaceId?: string | null;
+  readonly workspaceBranding?: WorkspaceBrandingSummary | null;
   readonly showUpgrade?: boolean;
   readonly notificationCount?: number;
 }) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
   const sidebarPaddingX = isCollapsed ? "px-2" : "px-3";
+  const brandName = workspaceBranding?.name ?? APP_CONFIG.name;
+  const brandLogoUrl = workspaceBranding?.logoUrl ?? null;
 
   return (
     <Sidebar {...props}>
@@ -57,20 +63,30 @@ export function AppSidebar({
             isCollapsed ? "justify-center w-full" : "gap-2.5"
           )}
         >
-          <Image
-            src="/docsiv-icon.png"
-            alt={APP_CONFIG.name}
-            width={22}
-            height={22}
-            className="size-[22px] shrink-0"
-          />
+          {brandLogoUrl ? (
+            <Image
+              src={brandLogoUrl}
+              alt={brandName}
+              width={22}
+              height={22}
+              className="size-[22px] shrink-0 rounded object-contain"
+            />
+          ) : (
+            <Image
+              src="/docsiv-icon.png"
+              alt={brandName}
+              width={22}
+              height={22}
+              className="size-[22px] shrink-0"
+            />
+          )}
           <span
             className={cn(
-              "font-playfair text-[1rem] font-semibold tracking-[-0.02em]",
+              "font-playfair text-[1rem] font-semibold tracking-[-0.02em] truncate",
               isCollapsed && "hidden"
             )}
           >
-            {APP_CONFIG.name}
+            {brandName}
           </span>
         </Link>
         {!isCollapsed && (
@@ -79,6 +95,7 @@ export function AppSidebar({
             <WorkspaceSwitcher
               workspaces={workspaces}
               currentWorkspaceId={currentWorkspaceId}
+              currentWorkspaceLogoUrl={workspaceBranding?.logoUrl ?? null}
             />
           </>
         )}

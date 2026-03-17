@@ -5,6 +5,17 @@ import { createClient } from '@/lib/supabase/client'
 import type { AuthContextType, AuthUser } from '@/types/auth'
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const FALLBACK_AUTH_CONTEXT: AuthContextType = {
+  user: null,
+  loading: false,
+  error: null,
+  signIn: async () => ({ error: 'Auth provider unavailable' }),
+  signUp: async () => ({ error: 'Auth provider unavailable' }),
+  signInWithGoogle: async () => ({ error: 'Auth provider unavailable' }),
+  signOut: async () => ({ error: 'Auth provider unavailable' }),
+  resetPassword: async () => ({ error: 'Auth provider unavailable' }),
+  updatePassword: async () => ({ error: 'Auth provider unavailable' }),
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -119,7 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null)
       const supabase = createClient()
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/reset-password`
+        redirectTo: `${window.location.origin}/reset-password`
       })
       return { error: error?.message || null }
     } catch (err) {
@@ -163,7 +174,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext)
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider')
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('useAuth called without AuthProvider; using fallback auth context.')
+    }
+    return FALLBACK_AUTH_CONTEXT
   }
   return context
 }
