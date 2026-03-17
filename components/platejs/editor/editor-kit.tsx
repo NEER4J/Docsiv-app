@@ -1,17 +1,17 @@
 'use client';
 
-import { ExcalidrawPlugin } from '@platejs/excalidraw/react';
-import { type Value, TrailingBlockPlugin } from 'platejs';
+import { TrailingBlockPlugin, type Value } from 'platejs';
 import { type TPlateEditor, useEditorRef } from 'platejs/react';
 
+import { BaseEditorKit } from '@/components/platejs/editor/editor-base-kit';
 import { AIKit } from '@/components/platejs/editor/plugins/ai-kit';
 import { AlignKit } from '@/components/platejs/editor/plugins/align-kit';
+import { BlockSelectionKit } from '@/components/platejs/editor/plugins/block-selection-kit';
 import { AutoformatKit } from '@/components/platejs/editor/plugins/autoformat-kit';
 import { BasicBlocksKit } from '@/components/platejs/editor/plugins/basic-blocks-kit';
 import { BasicMarksKit } from '@/components/platejs/editor/plugins/basic-marks-kit';
 import { BlockMenuKit } from '@/components/platejs/editor/plugins/block-menu-kit';
 import { BlockPlaceholderKit } from '@/components/platejs/editor/plugins/block-placeholder-kit';
-import { BaseCodeDrawingKit } from '@/components/platejs/editor/plugins/code-drawing-base-kit';
 import { CalloutKit } from '@/components/platejs/editor/plugins/callout-kit';
 import { CodeBlockKit } from '@/components/platejs/editor/plugins/code-block-kit';
 import { ColumnKit } from '@/components/platejs/editor/plugins/column-kit';
@@ -38,9 +38,7 @@ import { SlashKit } from '@/components/platejs/editor/plugins/slash-kit';
 import { SuggestionKit } from '@/components/platejs/editor/plugins/suggestion-kit';
 import { TableKit } from '@/components/platejs/editor/plugins/table-kit';
 import { TocKit } from '@/components/platejs/editor/plugins/toc-kit';
-import { TitleBlockKit } from '@/components/platejs/editor/plugins/title-block-kit';
 import { ToggleKit } from '@/components/platejs/editor/plugins/toggle-kit';
-import { ExcalidrawElement } from '@/components/platejs/ui/excalidraw-node';
 
 export const EditorKit = [
   ...CopilotKit,
@@ -49,12 +47,10 @@ export const EditorKit = [
   // Elements
   ...BasicBlocksKit,
   ...CodeBlockKit,
-  ...BaseCodeDrawingKit,
   ...TableKit,
   ...ToggleKit,
   ...TocKit,
   ...MediaKit,
-  ExcalidrawPlugin.withComponent(ExcalidrawElement),
   ...CalloutKit,
   ...ColumnKit,
   ...MathKit,
@@ -76,9 +72,6 @@ export const EditorKit = [
   ...CommentKit,
   ...SuggestionKit,
 
-  // Title
-  ...TitleBlockKit,
-
   // Editing
   ...SlashKit,
   ...AutoformatKit,
@@ -99,76 +92,18 @@ export const EditorKit = [
   ...FloatingToolbarKit,
 ];
 
-/** Read-only viewer kit: rendering plugins only, no toolbar/slash/dnd/copilot/AI */
+/** Read-only viewer kit: base plugins + discussion + comment + suggestion + block selection (no toolbars/slash/dnd/copilot/AI) */
 export const ViewerKit = [
-  // Elements (rendering only)
-  ...BasicBlocksKit,
-  ...CodeBlockKit,
-  ...BaseCodeDrawingKit,
-  ...TableKit,
-  ...ToggleKit,
-  ...TocKit,
-  ...MediaKit,
-  ExcalidrawPlugin.withComponent(ExcalidrawElement),
-  ...CalloutKit,
-  ...ColumnKit,
-  ...MathKit,
-  ...DateKit,
-  ...LinkKit,
-  ...MentionKit,
-
-  // Marks
-  ...BasicMarksKit,
-  ...FontKit,
-
-  // Block Style
-  ...ListKit,
-  ...AlignKit,
-  ...LineHeightKit,
-
-  // Collaboration (comments visible in read-only)
+  ...BaseEditorKit,
+  ...BlockSelectionKit,
   ...DiscussionKit,
   ...CommentKit,
-
-  // Title
-  ...TitleBlockKit,
+  ...SuggestionKit,
 ];
 
 /** Commenter kit: read-only content + comment controls (floating toolbar for comments) */
 export const CommenterKit = [
-  // Elements (rendering only)
-  ...BasicBlocksKit,
-  ...CodeBlockKit,
-  ...BaseCodeDrawingKit,
-  ...TableKit,
-  ...ToggleKit,
-  ...TocKit,
-  ...MediaKit,
-  ExcalidrawPlugin.withComponent(ExcalidrawElement),
-  ...CalloutKit,
-  ...ColumnKit,
-  ...MathKit,
-  ...DateKit,
-  ...LinkKit,
-  ...MentionKit,
-
-  // Marks
-  ...BasicMarksKit,
-  ...FontKit,
-
-  // Block Style
-  ...ListKit,
-  ...AlignKit,
-  ...LineHeightKit,
-
-  // Collaboration (comments + discussions active)
-  ...DiscussionKit,
-  ...CommentKit,
-
-  // Title
-  ...TitleBlockKit,
-
-  // UI: floating toolbar for comment actions only
+  ...ViewerKit,
   ...FloatingToolbarKit,
   ...CursorOverlayKit,
 ];

@@ -1,17 +1,15 @@
 'use client';
 
-import * as React from 'react';
-
 import type { VariantProps } from 'class-variance-authority';
-import type { PlateContentProps, PlateViewProps } from 'platejs/react';
-
 import { cva } from 'class-variance-authority';
+import type { PlateContentProps, PlateViewProps } from 'platejs/react';
 import { PlateContainer, PlateContent, PlateView } from 'platejs/react';
+import type * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
 const editorContainerVariants = cva(
-  'relative w-full cursor-text select-text caret-primary selection:bg-brand/25 [&_.slate-selection-area]:z-50 [&_.slate-selection-area]:border [&_.slate-selection-area]:border-brand/25 [&_.slate-selection-area]:bg-brand/15 focus-visible:outline-none',
+  'relative w-full cursor-text select-text overflow-y-auto caret-primary selection:bg-brand/25 focus-visible:outline-none [&_.slate-selection-area]:z-50 [&_.slate-selection-area]:border [&_.slate-selection-area]:border-brand/25 [&_.slate-selection-area]:bg-brand/15',
   {
     defaultVariants: {
       variant: 'default',
@@ -24,9 +22,9 @@ const editorContainerVariants = cva(
           'has-[[data-slate-editor]:focus]:border-brand/50 has-[[data-slate-editor]:focus]:ring-2 has-[[data-slate-editor]:focus]:ring-brand/30',
           'has-aria-disabled:border-input has-aria-disabled:bg-muted'
         ),
-        default: 'h-full overflow-y-auto',
-        demo: 'h-[650px] overflow-y-auto',
-        document: 'min-h-0 overflow-visible flex flex-col flex-1',
+        default: 'h-full',
+        demo: 'h-[650px]',
+        document: 'min-h-0 flex flex-col flex-1',
         select: cn(
           'group rounded-md border border-input ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
           'has-data-readonly:w-fit has-data-readonly:cursor-default has-data-readonly:border-transparent has-data-readonly:focus-within:[box-shadow:none]'
@@ -58,8 +56,7 @@ const editorVariants = cva(
     'group/editor',
     'relative w-full cursor-text select-text overflow-x-hidden whitespace-pre-wrap break-words',
     'rounded-md ring-offset-background focus-visible:outline-none',
-    'selection:bg-brand/35 selection:text-foreground',
-    '**:data-slate-placeholder:!top-1/2 **:data-slate-placeholder:-translate-y-1/2 placeholder:text-muted-foreground/80 **:data-slate-placeholder:text-muted-foreground/80 **:data-slate-placeholder:opacity-100!',
+    '**:data-slate-placeholder:!top-1/2 placeholder:text-muted-foreground/80 **:data-slate-placeholder:-translate-y-1/2 **:data-slate-placeholder:text-muted-foreground/80 **:data-slate-placeholder:opacity-100!',
     '[&_strong]:font-bold'
   ),
   {
@@ -102,7 +99,6 @@ export const Editor = ({
   ...props
 }: EditorProps & { ref?: React.RefObject<HTMLDivElement | null> }) => (
   <PlateContent
-    ref={ref}
     className={cn(
       editorVariants({
         disabled,
@@ -111,11 +107,9 @@ export const Editor = ({
       }),
       className
     )}
-    autoCapitalize="off"
-    autoCorrect="off"
-    disabled={disabled}
     disableDefaultStyles
-    spellCheck={false}
+    disabled={disabled}
+    ref={ref}
     {...props}
   />
 );

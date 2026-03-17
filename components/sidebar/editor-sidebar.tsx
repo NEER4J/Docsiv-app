@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
   FolderOpen,
+  Plus,
   Sparkles,
   ClipboardList,
   Search,
@@ -45,6 +46,7 @@ import type { ClientWithDocCount } from "@/types/database";
 import { NavUser } from "./nav-user";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import { useOptionalAiAssistant } from "./ai-assistant-sidebar";
+import { NewDocumentDialog } from "@/components/documents/new-document-dialog";
 
 const RECENT_DOCS_LIMIT = 12;
 
@@ -75,6 +77,7 @@ export function EditorSidebar({
   const [loading, setLoading] = useState(!!currentWorkspaceId);
   const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
+  const [newDocOpen, setNewDocOpen] = useState(false);
 
   // Clear loading indicator when we've navigated to the document
   useEffect(() => {
@@ -182,6 +185,27 @@ export function EditorSidebar({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {currentWorkspaceId && (
+                <SidebarMenuItem>
+                  <NewDocumentDialog
+                    workspaceId={currentWorkspaceId}
+                    clients={clients}
+                    open={newDocOpen}
+                    onOpenChange={setNewDocOpen}
+                    trigger={
+                      <SidebarMenuButton
+                        tooltip="Create new document"
+                        className="h-9 gap-3 text-[0.8125rem] flex items-center"
+                      >
+                        <Plus className="size-[1.0625rem] shrink-0 opacity-80" />
+                        <span className={isCollapsed ? "hidden" : ""}>
+                          Create new document
+                        </span>
+                      </SidebarMenuButton>
+                    }
+                  />
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   tooltip="Search (⌘J)"

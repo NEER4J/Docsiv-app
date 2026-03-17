@@ -1,7 +1,5 @@
 'use client';
 
-import * as React from 'react';
-
 import {
   BoldIcon,
   Code2Icon,
@@ -74,7 +72,7 @@ export function FloatingToolbarButtons() {
       )}
 
       <ToolbarGroup>
-        <CommentToolbarButton showLabel />
+        <CommentToolbarButton />
         <SuggestionToolbarButton />
 
         {!readOnly && <MoreToolbarButton />}

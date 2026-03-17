@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag, Pencil } from 'lucide-react';
@@ -44,7 +44,7 @@ import {
   useDocumentBreadcrumbTitle,
 } from '@/lib/stores/document-breadcrumb-store';
 import type { DocumentDetail } from '@/types/database';
-import type { TElement, Value } from 'platejs';
+import type { Value } from 'platejs';
 import { PageBuilderEditor, type PageBuilderEditorHandle } from '@/components/grapesjs/page-builder-editor';
 import type { KonvaReportEditorHandle } from '@/components/konva/report-editor';
 import type { KonvaPresentationEditorHandle } from '@/components/konva/presentation-editor';
@@ -52,7 +52,14 @@ import type { UniverSheetEditorHandle } from '@/components/univer/univer-sheet-e
 import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { captureUniverContentAsPngBase64 } from '@/lib/capture-thumbnail';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
-import { isKonvaContent, emptyKonvaReportContent, emptyKonvaPresentationContent, getKonvaReportPageSize, type KonvaStoredContent } from '@/lib/konva-content';
+import {
+  isKonvaContent,
+  emptyKonvaReportContent,
+  emptyKonvaPresentationContent,
+  getKonvaReportPageSize,
+  normalizeKonvaPresentationContent,
+  type KonvaStoredContent,
+} from '@/lib/konva-content';
 import { useOptionalKonvaAi } from '@/components/konva/konva-ai-provider';
 import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
@@ -78,28 +85,6 @@ const UniverSheetEditor = dynamic(
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 const VERSION_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
-
-/** Ensure content always starts with an H1 title block */
-function ensureTitleBlock(content: Value, title: string): Value {
-  if (content.length > 0) {
-    const first = content[0] as TElement;
-    if (first.type === 'h1') return content;
-  }
-  return [
-    { type: 'h1', children: [{ text: title }] } as TElement,
-    ...content,
-  ];
-}
-
-/** Extract text from the first H1 block */
-function getTitleFromValue(value: Value): string | null {
-  if (value.length === 0) return null;
-  const first = value[0] as TElement;
-  if (first.type !== 'h1') return null;
-  return first.children
-    ?.map((child: any) => child.text ?? '')
-    .join('') ?? null;
-}
 
 const ROLE_BADGE_CONFIG: Record<string, { label: string; icon: typeof Eye; className: string }> = {
   view: { label: 'View only', icon: Eye, className: 'bg-muted text-muted-foreground' },
@@ -151,15 +136,16 @@ export function DocumentEditorView({
   const router = useRouter();
   const baseType = document.base_type;
   const docTypeSlug = document.document_type?.slug ?? '';
-  const isReportOrProposal = docTypeSlug === 'report' || docTypeSlug === 'proposal';
-  const isDocOrContract = (baseType === 'doc' || baseType === 'contract') && !isReportOrProposal;
-  const isPresentation = baseType === 'presentation';
+  const isReport = docTypeSlug === 'report';
+  const isProposal = docTypeSlug === 'proposal';
+  const isPresentation = baseType === 'presentation' || isProposal;
+  const isDocOrContract = (baseType === 'doc' || baseType === 'contract') && !isReport && !isProposal;
   const isSheet = baseType === 'sheet' || docTypeSlug === 'sheet';
   const isMobile = useIsMobile();
   const isLocked = document.status === 'signed';
   const effectiveReadOnly = readOnly || isLocked;
   // GrapesJS: disable editing on mobile (view only)
-  const grapesReadOnly = effectiveReadOnly || (isReportOrProposal && isMobile);
+  const grapesReadOnly = effectiveReadOnly || (isReport && isMobile);
   const canComment = role === 'comment' || role === 'edit';
   const canShare = role === 'edit';
 
@@ -170,9 +156,12 @@ export function DocumentEditorView({
   const konvaPresentationRef = useRef<KonvaPresentationEditorHandle>(null);
   const univerSheetRef = useRef<UniverSheetEditorHandle>(null);
 
-  const isReportOrProposalKonva = isReportOrProposal && (isKonvaContent(document.content) || !isGrapesJSContent(document.content));
-  const isReportOrProposalGrapes = isReportOrProposal && isGrapesJSContent(document.content);
-  const pageBuilderSaveRef = isSheet ? univerSheetRef : isReportOrProposalKonva ? konvaReportRef : isPresentation ? konvaPresentationRef : pageBuilderRef;
+  const isReportKonva = isReport && (isKonvaContent(document.content) || !isGrapesJSContent(document.content));
+  const isReportGrapes = isReport && isGrapesJSContent(document.content);
+  const normalizedPresentationContent = isKonvaContent(document.content)
+    ? normalizeKonvaPresentationContent(document.content as KonvaStoredContent)
+    : emptyKonvaPresentationContent();
+  const pageBuilderSaveRef = isSheet ? univerSheetRef : isReportKonva ? konvaReportRef : isPresentation ? konvaPresentationRef : pageBuilderRef;
   const plateThumbnailRef = useRef<PlateDocumentEditorHandle>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [saveWithLabelOpen, setSaveWithLabelOpen] = useState(false);
@@ -229,7 +218,7 @@ export function DocumentEditorView({
       api.unregister();
       return;
     }
-    if (isReportOrProposalKonva) {
+    if (isReportKonva) {
       const size = getKonvaReportPageSize(isKonvaContent(document.content) ? document.content as KonvaStoredContent : null);
       api.register({
         getContent: () => konvaReportRef.current?.getContent() ?? null,
@@ -275,12 +264,10 @@ export function DocumentEditorView({
       };
     }
     api.unregister();
-  }, [isReportOrProposalKonva, isPresentation, grapesReadOnly, document.content]);
+  }, [isReportKonva, isPresentation, grapesReadOnly, document.content]);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastVersionAtRef = useRef<number>(0);
-  const lastTitleRef = useRef<string>(document.title || '');
   const valueRef = useRef<Value | null>(null);
   const barTitle = useDocumentBreadcrumbTitle() || document.title || 'Untitled';
 
@@ -288,7 +275,7 @@ export function DocumentEditorView({
   const platePages = getPlatePages(document.content);
   const rawPlateContent: Value =
     platePages.length > 0 ? mergePlatePagesToSingle(platePages) : [{ type: 'p', children: [{ text: '' }] }];
-  const initialContent: Value = ensureTitleBlock(rawPlateContent, document.title || '');
+  const initialContent: Value = rawPlateContent;
 
   // Determine badge to show
   const badgeKey = isLocked ? 'signed' : (role !== 'edit' ? role : null);
@@ -344,30 +331,28 @@ export function DocumentEditorView({
   const handleChange = useCallback(
     (value: Value) => {
       valueRef.current = value;
-      const newTitle = getTitleFromValue(value);
-      if (newTitle !== null && newTitle !== lastTitleRef.current) {
-        lastTitleRef.current = newTitle;
-        documentBreadcrumbStore.setTitle(newTitle || 'Untitled');
-        if (titleDebounceRef.current) clearTimeout(titleDebounceRef.current);
-        titleDebounceRef.current = setTimeout(() => {
-          updateDocumentRecord(document.id, { title: newTitle });
-        }, AUTOSAVE_DEBOUNCE_MS);
-      }
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      setSaveStatus('saving');
+      // Only set save status when the debounced save actually runs (avoids re-rendering whole editor on every keystroke)
       debounceRef.current = setTimeout(async () => {
         debounceRef.current = null;
+        startTransition(() => setSaveStatus('saving'));
         const { error } = await updateDocumentContent(document.id, value);
-        setSaveStatus(error ? 'idle' : 'saved');
+        startTransition(() => setSaveStatus(error ? 'idle' : 'saved'));
         if (!error) {
-          setTimeout(() => setSaveStatus('idle'), 2000);
+          setTimeout(() => startTransition(() => setSaveStatus('idle')), 2000);
           const now = Date.now();
           if (now - lastVersionAtRef.current >= VERSION_THROTTLE_MS) {
             lastVersionAtRef.current = now;
             createDocumentVersion(document.id, value).catch(() => {});
           }
-          plateThumbnailRef.current?.captureThumbnail().then((base64) => {
-            if (base64) uploadDocumentThumbnail(document.id, workspaceId, base64).catch(() => {});
+          // Defer thumbnail capture so it does not run in the same tick as save completion (avoids UI freeze)
+          const scheduleThumbnail = typeof requestIdleCallback !== 'undefined'
+            ? requestIdleCallback
+            : (cb: () => void) => setTimeout(cb, 400);
+          scheduleThumbnail(() => {
+            plateThumbnailRef.current?.captureThumbnail().then((base64) => {
+              if (base64) uploadDocumentThumbnail(document.id, workspaceId, base64).catch(() => {});
+            });
           });
         }
       }, AUTOSAVE_DEBOUNCE_MS);
@@ -478,7 +463,7 @@ export function DocumentEditorView({
               {saveStatus === 'saved' && 'Saved'}
             </span>
           )}
-          {(isReportOrProposal || isPresentation || isSheet) && !effectiveReadOnly && (
+          {(isReport || isPresentation || isSheet) && !effectiveReadOnly && (
             <span className="font-body text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {grapesSaveStatus === 'saving' && 'Saving...'}
               {grapesSaveStatus === 'saved' && 'Saved'}
@@ -488,7 +473,7 @@ export function DocumentEditorView({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {(isReportOrProposal || isPresentation || isSheet) && !(isSheet ? effectiveReadOnly : grapesReadOnly) && (
+          {(isReport || isPresentation || isSheet) && !(isSheet ? effectiveReadOnly : grapesReadOnly) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -536,7 +521,7 @@ export function DocumentEditorView({
             clientName={document.client_name}
             clientId={document.client_id}
             requireSignature={document.require_signature}
-            getWordCount={isPresentation || isReportOrProposal ? undefined : getWordCount}
+            getWordCount={isPresentation || isReport ? undefined : getWordCount}
             baseType={baseType}
             onOpenShare={() => setShareOpen(true)}
           />
@@ -549,7 +534,7 @@ export function DocumentEditorView({
         <DocumentPresenceCursors />
 
         {/* Editor */}
-        {isReportOrProposalKonva ? (
+        {isReportKonva ? (
         <div
           key={document.updated_at ?? document.id}
           className={`min-h-0 flex-1 flex flex-col overflow-hidden ${grapesReadOnly ? 'canvas-dot-pattern' : ''}`}
@@ -567,7 +552,7 @@ export function DocumentEditorView({
             onOpenDocument={(id) => router.push(`/d/${id}`)}
           />
         </div>
-      ) : isReportOrProposalGrapes ? (
+      ) : isReportGrapes ? (
         <div
           key={document.updated_at ?? document.id}
           className={`min-h-0 flex-1 flex flex-col overflow-x-auto ${grapesReadOnly ? 'canvas-dot-pattern' : ''}`}
@@ -586,10 +571,10 @@ export function DocumentEditorView({
         </div>
       ) : isDocOrContract ? (
         <div
-          className="min-h-0 flex-1 flex flex-col overflow-auto canvas-dot-pattern document-editor-force-light"
+          className="min-h-0 flex-1 flex flex-col overflow-x-hidden overflow-y-auto canvas-dot-pattern document-editor-force-light min-w-0"
           style={{ backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' }}
         >
-          <div className="plate-doc-toolbar-full w-full bg-white flex flex-col min-h-0">
+          <div className="plate-doc-toolbar-full w-full min-w-0 flex-1 flex flex-col min-h-0">
             <DocumentCommentsProvider
               documentId={document.id}
               currentUserId={currentUserId}
@@ -625,7 +610,7 @@ export function DocumentEditorView({
             documentId={document.id}
             workspaceId={workspaceId}
             documentTitle={document.title ?? undefined}
-            initialContent={isKonvaContent(document.content) ? (document.content as KonvaStoredContent) : emptyKonvaPresentationContent()}
+            initialContent={normalizedPresentationContent}
             readOnly={grapesReadOnly}
             className="min-h-0 flex-1"
             onSaveStatus={setGrapesSaveStatus}

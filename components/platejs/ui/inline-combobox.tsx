@@ -1,15 +1,11 @@
 'use client';
 
-import * as React from 'react';
-
-import type { Point, TElement } from 'platejs';
-
 import {
-  type ComboboxItemProps,
   Combobox,
   ComboboxGroup,
   ComboboxGroupLabel,
   ComboboxItem,
+  type ComboboxItemProps,
   ComboboxPopover,
   ComboboxProvider,
   ComboboxRow,
@@ -24,7 +20,9 @@ import {
   useHTMLInputCursorState,
 } from '@platejs/combobox/react';
 import { cva } from 'class-variance-authority';
+import type { Point, TElement } from 'platejs';
 import { useComposedRef, useEditorRef } from 'platejs/react';
+import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
@@ -227,38 +225,8 @@ const InlineComboboxInput = ({
 
   const store = useComboboxContext()!;
   const value = store.useState('value');
-  const open = store.useState('open');
-  const items = store.useState('items');
 
   const ref = useComposedRef(propRef, contextRef);
-
-  const handleKeyDown = React.useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (open && items.length > 0) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          store.setActiveId(store.next() ?? store.first());
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          store.setActiveId(store.previous() ?? store.last());
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const activeId = store.getState().activeId;
-          const el = activeId ? document.getElementById(activeId) : null;
-          if (el && el instanceof HTMLElement) {
-            el.click();
-          }
-          return;
-        }
-      }
-      inputProps.onKeyDown?.(e as React.KeyboardEvent<HTMLInputElement>);
-    },
-    [open, items.length, store, inputProps]
-  );
 
   /**
    * To create an auto-resizing input, we render a visually hidden span
@@ -273,22 +241,21 @@ const InlineComboboxInput = ({
 
       <span className="relative min-h-[1lh]">
         <span
-          className="invisible overflow-hidden text-nowrap"
           aria-hidden="true"
+          className="invisible overflow-hidden text-nowrap"
         >
           {value || '\u200B'}
         </span>
 
         <Combobox
-          ref={ref}
+          autoSelect
           className={cn(
             'absolute top-0 left-0 size-full bg-transparent outline-none',
             className
           )}
+          ref={ref}
           value={value}
-          autoSelect
           {...inputProps}
-          onKeyDown={handleKeyDown}
           {...props}
         />
       </span>
@@ -309,23 +276,18 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
     if (!store) return;
 
     const state = store.getState();
-    const { items } = state;
+    const { items, activeId } = state;
 
     if (!items.length) return;
 
-    if (event.key === 'ArrowUp') {
+    const currentIndex = items.findIndex((item) => item.id === activeId);
+
+    if (event.key === 'ArrowUp' && currentIndex <= 0) {
       event.preventDefault();
-      store.setActiveId(store.previous() ?? store.last());
-    } else if (event.key === 'ArrowDown') {
+      store.setActiveId(store.last());
+    } else if (event.key === 'ArrowDown' && currentIndex >= items.length - 1) {
       event.preventDefault();
-      store.setActiveId(store.next() ?? store.first());
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      const activeId = store.getState().activeId;
-      const el = activeId ? document.getElementById(activeId) : null;
-      if (el && el instanceof HTMLElement) {
-        el.click();
-      }
+      store.setActiveId(store.first());
     }
   }
 
@@ -348,16 +310,11 @@ const comboboxItemVariants = cva(
   {
     defaultVariants: {
       interactive: true,
-      active: false,
     },
     variants: {
       interactive: {
         false: '',
-        true: 'cursor-pointer transition-colors hover:bg-muted-hover hover:text-foreground',
-      },
-      active: {
-        true: 'bg-muted-hover text-foreground',
-        false: '',
+        true: 'cursor-pointer transition-colors hover:bg-accent hover:text-accent-foreground data-[active-item=true]:bg-accent data-[active-item=true]:text-accent-foreground',
       },
     },
   }
@@ -397,14 +354,7 @@ const InlineComboboxItem = ({
 
   return (
     <ComboboxItem
-      id={String(value)}
-      className={cn(
-        comboboxItemVariants({ active: false }),
-        /* Use AriaKit's data-active-item attribute for reliable active state */
-        'data-[active-item]:bg-muted-hover data-[active-item]:text-foreground',
-        'hover:bg-muted-hover hover:text-foreground',
-        className
-      )}
+      className={cn(comboboxItemVariants(), className)}
       onClick={(event) => {
         removeInput(focusEditor);
         onClick?.(event);

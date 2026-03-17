@@ -108,6 +108,28 @@ export function getKonvaPresentationSlides(content: KonvaStoredContent | null): 
   return content.presentation.slides;
 }
 
+/**
+ * Legacy compatibility for older proposal content stored in report.pages.
+ * Converts report pages into presentation slides without mutating input.
+ */
+export function normalizeKonvaPresentationContent(content: KonvaStoredContent | null): KonvaStoredContent {
+  if (!content || content.editor !== 'konva') return emptyKonvaPresentationContent();
+  if (content.presentation?.slides?.length) return content;
+
+  const legacyPages = content.report?.pages ?? [];
+  if (legacyPages.length === 0) return emptyKonvaPresentationContent();
+
+  return {
+    editor: 'konva',
+    presentation: {
+      slides: legacyPages.map((page) => ({
+        layer: page.layer,
+        ...(page.background ? { background: page.background } : {}),
+      })),
+    },
+  };
+}
+
 /** Empty Konva content for new report/proposal. */
 export function emptyKonvaReportContent(): KonvaStoredContent {
   return {

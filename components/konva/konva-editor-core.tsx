@@ -27,6 +27,7 @@ import { KonvaPropertiesPanel } from '@/components/konva/konva-properties-panel'
 import { KonvaLayersPanel } from '@/components/konva/konva-layers-panel';
 import { KonvaTopToolbar } from '@/components/konva/konva-top-toolbar';
 import { KonvaBottomBar } from '@/components/konva/konva-bottom-bar';
+import { RevealPresentationViewer } from '@/components/konva/reveal-presentation-viewer';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -43,6 +44,7 @@ import { Button } from '@/components/ui/button';
 import { renderPageToPngDataURL } from '@/lib/konva-export-pdf';
 import { updateDocumentContent, createDocumentVersion, uploadDocumentThumbnail } from '@/lib/actions/documents';
 import { computeSnap, type Bounds } from '@/lib/konva-snap';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 function getChildren(page: PageOrSlide): KonvaShapeDesc[] {
   const layer = page?.layer as { children?: KonvaShapeDesc[] } | undefined;
@@ -80,6 +82,227 @@ function KonvaBackgroundLayer({
 
 function generateShapeId(): string {
   return `shape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+const VIEW_ALL_ROW_HEIGHT_EXTRA = 60; // gap + label
+
+function ViewAllPagesVirtualList({
+  pages,
+  width,
+  height,
+  mode,
+  currentIndex,
+  getChildren,
+  goToPage,
+  setViewAllPages,
+  scrollRef,
+}: {
+  pages: PageOrSlide[];
+  width: number;
+  height: number;
+  mode: 'report' | 'presentation';
+  currentIndex: number;
+  getChildren: (page: PageOrSlide) => KonvaShapeDesc[];
+  goToPage: (index: number) => void;
+  setViewAllPages: (v: boolean) => void;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const scale = 0.2;
+  const thumbW = width * scale;
+  const thumbH = height * scale;
+  const rowHeight = thumbH + VIEW_ALL_ROW_HEIGHT_EXTRA;
+  const virtualizer = useVirtualizer({
+    count: pages.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 5,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+
+  return (
+    <div
+      className="mx-auto w-full"
+      style={{
+        height: `${totalSize}px`,
+        width: '100%',
+        maxWidth: thumbW + 32,
+        position: 'relative',
+      }}
+    >
+      {virtualItems.map((virtualRow) => {
+        const pageIndex = virtualRow.index;
+        const page = pages[pageIndex];
+        const pageShapes = getChildren(page);
+        return (
+          <div
+            key={virtualRow.key}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              transform: `translateY(${virtualRow.start}px)`,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                goToPage(pageIndex);
+                setViewAllPages(false);
+              }}
+              className={`flex flex-col items-center gap-2 rounded border-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                pageIndex === currentIndex
+                  ? 'border-primary bg-primary/5'
+                  : 'border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50'
+              }`}
+              style={{ padding: 4 }}
+            >
+              <div
+                className="overflow-hidden rounded border border-zinc-200 bg-white"
+                style={{ width: thumbW, height: thumbH }}
+              >
+                <div
+                  style={{
+                    width,
+                    height,
+                    transform: `scale(${scale})`,
+                    transformOrigin: 'top left',
+                  }}
+                >
+                  <Stage width={width} height={height} listening={false}>
+                    <Layer>
+                      {pageShapes.map((shape, idx) => (
+                        <KonvaShapeRenderer
+                          key={getStableId(shape, idx)}
+                          shape={shape}
+                          index={idx}
+                          shapeId={getStableId(shape, idx)}
+                          readOnly
+                          isSelected={false}
+                          onSelect={() => {}}
+                          onDragEnd={() => {}}
+                          onTransformEnd={() => {}}
+                          setNodeRef={() => {}}
+                        />
+                      ))}
+                    </Layer>
+                  </Stage>
+                </div>
+              </div>
+              <span className="text-xs font-medium text-zinc-600">
+                {mode === 'report' ? 'Page' : 'Slide'} {pageIndex + 1}
+              </span>
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const PREVIEW_ROW_HEIGHT_EXTRA = 60;
+
+function PreviewDialogVirtualList({
+  pages,
+  width,
+  height,
+  previewScale,
+  getChildren,
+  scrollRef,
+}: {
+  pages: PageOrSlide[];
+  width: number;
+  height: number;
+  previewScale: number;
+  getChildren: (page: PageOrSlide) => KonvaShapeDesc[];
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const rowHeight = height * previewScale + PREVIEW_ROW_HEIGHT_EXTRA;
+  const virtualizer = useVirtualizer({
+    count: pages.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 3,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+
+  return (
+    <div
+      className="mx-auto flex flex-col items-center pb-4"
+      style={{
+        height: `${totalSize}px`,
+        width: '100%',
+        position: 'relative',
+      }}
+    >
+      {virtualItems.map((virtualRow) => {
+        const pageIndex = virtualRow.index;
+        const page = pages[pageIndex];
+        const pageShapes = getChildren(page);
+        const pageBg = (page as { background?: PageBackground })?.background;
+        return (
+          <div
+            key={virtualRow.key}
+            className="flex flex-col items-center gap-2"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              transform: `translateY(${virtualRow.start}px)`,
+            }}
+          >
+            <div
+              className="overflow-hidden rounded border border-zinc-600 bg-white"
+              style={{
+                width: width * previewScale,
+                height: height * previewScale,
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <div
+                style={{
+                  width,
+                  height,
+                  transform: `scale(${previewScale})`,
+                  transformOrigin: 'top left',
+                }}
+              >
+                <Stage width={width} height={height} listening={false}>
+                  {pageBg ? (
+                    <Layer listening={false}>
+                      <KonvaBackgroundLayer background={pageBg} width={width} height={height} />
+                    </Layer>
+                  ) : null}
+                  <Layer listening={false}>
+                    {pageShapes.map((shape, idx) => (
+                      <KonvaShapeRenderer
+                        key={getStableId(shape, idx)}
+                        shape={shape}
+                        index={idx}
+                        shapeId={getStableId(shape, idx)}
+                        readOnly
+                        isSelected={false}
+                        onSelect={() => {}}
+                        onDragEnd={() => {}}
+                        onTransformEnd={() => {}}
+                        setNodeRef={() => {}}
+                      />
+                    ))}
+                  </Layer>
+                </Stage>
+              </div>
+            </div>
+            <span className="text-xs font-medium text-zinc-400">
+              Page {pageIndex + 1}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export type KonvaEditorCoreHandle = {
@@ -176,6 +399,7 @@ const KonvaEditorCoreInner = (
   const [previewZoom, setPreviewZoom] = useState(1);
   const [pageThumbnailUrls, setPageThumbnailUrls] = useState<(string | null)[]>([]);
   const viewAllScrollRef = useRef<HTMLDivElement>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
   const [canvasCursor, setCanvasCursor] = useState<'grab' | 'default' | 'move' | 'grabbing' | string>('grab');
   const [guideLines, setGuideLines] = useState<{ vertical: number[]; horizontal: number[] }>({ vertical: [], horizontal: [] });
   const [drawMode, setDrawMode] = useState<{ color: string; strokeWidth: number } | null>(null);
@@ -539,8 +763,12 @@ const KonvaEditorCoreInner = (
     [persistContent, getContent, setContent, getCurrentPageImage]
   );
 
-  // Generate thumbnail data URLs for the Pages tab (sidebar previews)
+  // Generate thumbnail data URLs for the Pages tab only when that tab is active (lazy), in batches to avoid blocking.
+  const THUMB_INITIAL_BATCH = 30;
+  const THUMB_BATCH_SIZE = 15;
+  const THUMB_BATCH_DELAY_MS = 80;
   useEffect(() => {
+    if (activeLeftTab !== 'pages') return;
     let cancelled = false;
     const n = pages.length;
     if (n === 0) {
@@ -548,24 +776,50 @@ const KonvaEditorCoreInner = (
       return;
     }
     setPageThumbnailUrls((prev) => (prev.length === n ? prev : Array(n).fill(null)));
-    Promise.all(
-      pages.map(async (page) => {
-        if (cancelled) return null;
-        const shapes = getChildren(page);
-        const background = (page as { background?: PageBackground })?.background;
-        try {
-          return await renderPageToPngDataURL(shapes, width, height, 0.5, background ?? undefined);
-        } catch {
-          return null;
-        }
-      })
-    ).then((urls) => {
-      if (!cancelled) setPageThumbnailUrls(urls);
-    });
+
+    const runBatch = (start: number, end: number): Promise<(string | null)[]> => {
+      const slice = pages.slice(start, end);
+      return Promise.all(
+        slice.map(async (page) => {
+          if (cancelled) return null;
+          const shapes = getChildren(page);
+          const background = (page as { background?: PageBackground })?.background;
+          try {
+            return await renderPageToPngDataURL(shapes, width, height, 0.5, background ?? undefined);
+          } catch {
+            return null;
+          }
+        })
+      );
+    };
+
+    const processBatches = async () => {
+      const initialEnd = Math.min(THUMB_INITIAL_BATCH, n);
+      let urls = await runBatch(0, initialEnd);
+      if (cancelled) return;
+      setPageThumbnailUrls((prev) => {
+        const next = [...prev];
+        for (let i = 0; i < initialEnd; i++) next[i] = urls[i] ?? null;
+        return next;
+      });
+      for (let start = initialEnd; start < n && !cancelled; start += THUMB_BATCH_SIZE) {
+        await new Promise((r) => setTimeout(r, THUMB_BATCH_DELAY_MS));
+        if (cancelled) return;
+        const end = Math.min(start + THUMB_BATCH_SIZE, n);
+        urls = await runBatch(start, end);
+        if (cancelled) return;
+        setPageThumbnailUrls((prev) => {
+          const next = [...prev];
+          for (let i = 0; i < end - start; i++) next[start + i] = urls[i] ?? null;
+          return next;
+        });
+      }
+    };
+    processBatches();
     return () => {
       cancelled = true;
     };
-  }, [pages, width, height]);
+  }, [pages, width, height, activeLeftTab]);
 
   const goToPage = useCallback((index: number) => {
     setCurrentIndex((i) => Math.max(0, Math.min(index, pages.length - 1)));
@@ -1455,6 +1709,15 @@ const KonvaEditorCoreInner = (
   const previewScale = previewScaleBase * previewZoom;
   const PREVIEW_ZOOM_MIN = 0.5;
   const PREVIEW_ZOOM_MAX = 2;
+  const previewPresentationContent: KonvaStoredContent = {
+    editor: 'konva',
+    presentation: {
+      slides: pages.map((slide) => ({
+        layer: slide.layer ?? pageToLayer(slide),
+        ...(slide.background ? { background: slide.background } : {}),
+      })),
+    },
+  };
 
   return (
     <div
@@ -1464,100 +1727,69 @@ const KonvaEditorCoreInner = (
     >
       <Dialog open={previewOpen} onOpenChange={(open) => { setPreviewOpen(open); if (!open) setPreviewZoom(1); }}>
         <DialogContent
-          className="max-h-[90vh] max-w-[95vw] overflow-hidden flex flex-col border border-zinc-700 bg-zinc-900 text-zinc-100"
+          className={mode === 'presentation'
+            ? 'max-h-[92vh] max-w-[96vw] overflow-hidden flex flex-col'
+            : 'max-h-[90vh] max-w-[95vw] overflow-hidden flex flex-col border border-zinc-700 bg-zinc-900 text-zinc-100'}
           onPointerDownCapture={(e) => e.target === e.currentTarget && e.preventDefault()}
           onContextMenu={(e) => e.preventDefault()}
           style={{ userSelect: 'none' }}
         >
           <DialogHeader>
-            <DialogTitle className="text-zinc-100">Document preview</DialogTitle>
+            <DialogTitle className={mode === 'presentation' ? '' : 'text-zinc-100'}>
+              {mode === 'presentation' ? 'Presentation preview' : 'Document preview'}
+            </DialogTitle>
           </DialogHeader>
-          <div
-            className="flex min-h-0 flex-1 flex-col overflow-auto rounded border border-zinc-700 bg-zinc-800 p-4"
-            onContextMenu={(e) => e.preventDefault()}
-          >
-            <div className="mx-auto flex flex-col items-center gap-6 pb-4">
-              {pages.map((page, pageIndex) => {
-                const pageShapes = getChildren(page);
-                const pageBg = (page as { background?: PageBackground })?.background;
-                return (
-                  <div key={pageIndex} className="flex flex-col items-center gap-2">
-                    <div
-                      className="overflow-hidden rounded border border-zinc-600 bg-white"
-                      style={{
-                        width: width * previewScale,
-                        height: height * previewScale,
-                      }}
-                      onContextMenu={(e) => e.preventDefault()}
-                    >
-                      <div
-                        style={{
-                          width: width,
-                          height: height,
-                          transform: `scale(${previewScale})`,
-                          transformOrigin: 'top left',
-                        }}
-                      >
-                        <Stage width={width} height={height} listening={false}>
-                          {pageBg ? (
-                            <Layer listening={false}>
-                              <KonvaBackgroundLayer background={pageBg} width={width} height={height} />
-                            </Layer>
-                          ) : null}
-                          <Layer listening={false}>
-                            {pageShapes.map((shape, idx) => (
-                              <KonvaShapeRenderer
-                                key={getStableId(shape, idx)}
-                                shape={shape}
-                                index={idx}
-                                shapeId={getStableId(shape, idx)}
-                                readOnly
-                                isSelected={false}
-                                onSelect={() => {}}
-                                onDragEnd={() => {}}
-                                onTransformEnd={() => {}}
-                                setNodeRef={() => {}}
-                              />
-                            ))}
-                          </Layer>
-                        </Stage>
-                      </div>
-                    </div>
-                    <span className="text-xs font-medium text-zinc-400">
-                      {mode === 'report' ? 'Page' : 'Slide'} {pageIndex + 1}
-                    </span>
-                  </div>
-                );
-              })}
+          {mode === 'presentation' ? (
+            <div className="min-h-0 flex-1 overflow-auto px-1 pb-1">
+              <RevealPresentationViewer
+                content={previewPresentationContent}
+                initialSlideIndex={currentIndex}
+                onSlideChange={setCurrentIndex}
+              />
             </div>
-            <div className="sticky bottom-0 left-0 right-0 flex justify-center border-t border-zinc-700 bg-zinc-900/95 py-2 backdrop-blur">
-              <div className="flex items-center gap-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 w-8 p-0 border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
-                  onClick={() => setPreviewZoom((z) => Math.max(PREVIEW_ZOOM_MIN, z - 0.25))}
-                  aria-label="Zoom out"
-                >
-                  −
-                </Button>
-                <span className="min-w-[3rem] text-center text-xs text-zinc-400">
-                  {Math.round(previewZoom * 100)}%
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 w-8 p-0 border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
-                  onClick={() => setPreviewZoom((z) => Math.min(PREVIEW_ZOOM_MAX, z + 0.25))}
-                  aria-label="Zoom in"
-                >
-                  +
-                </Button>
+          ) : (
+            <div
+              ref={previewScrollRef}
+              className="flex min-h-0 flex-1 flex-col overflow-auto rounded border border-zinc-700 bg-zinc-800 p-4"
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <PreviewDialogVirtualList
+                pages={pages}
+                width={width}
+                height={height}
+                previewScale={previewScale}
+                getChildren={getChildren}
+                scrollRef={previewScrollRef}
+              />
+              <div className="sticky bottom-0 left-0 right-0 flex justify-center border-t border-zinc-700 bg-zinc-900/95 py-2 backdrop-blur">
+                <div className="flex items-center gap-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                    onClick={() => setPreviewZoom((z) => Math.max(PREVIEW_ZOOM_MIN, z - 0.25))}
+                    aria-label="Zoom out"
+                  >
+                    -
+                  </Button>
+                  <span className="min-w-[3rem] text-center text-xs text-zinc-400">
+                    {Math.round(previewZoom * 100)}%
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                    onClick={() => setPreviewZoom((z) => Math.min(PREVIEW_ZOOM_MAX, z + 0.25))}
+                    aria-label="Zoom in"
+                  >
+                    +
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </DialogContent>
       </Dialog>
       {!readOnly && (
@@ -1649,66 +1881,17 @@ const KonvaEditorCoreInner = (
                 }
               }}
             >
-              <div className="mx-auto flex flex-col items-center gap-6">
-                {pages.map((page, pageIndex) => {
-                  const pageShapes = getChildren(page);
-                  const scale = 0.2;
-                  const thumbW = width * scale;
-                  const thumbH = height * scale;
-                  return (
-                    <button
-                      key={pageIndex}
-                      type="button"
-                      onClick={() => {
-                        goToPage(pageIndex);
-                        setViewAllPages(false);
-                      }}
-                      className={`flex flex-col items-center gap-2 rounded border-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                        pageIndex === currentIndex
-                          ? 'border-primary bg-primary/5'
-                          : 'border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50'
-                      }`}
-                      style={{ padding: 4 }}
-                    >
-                      <div
-                        className="overflow-hidden rounded border border-zinc-200 bg-white"
-                        style={{ width: thumbW, height: thumbH }}
-                      >
-                        <div
-                          style={{
-                            width,
-                            height,
-                            transform: `scale(${scale})`,
-                            transformOrigin: 'top left',
-                          }}
-                        >
-                          <Stage width={width} height={height} listening={false}>
-                            <Layer>
-                              {pageShapes.map((shape, idx) => (
-                                <KonvaShapeRenderer
-                                  key={getStableId(shape, idx)}
-                                  shape={shape}
-                                  index={idx}
-                                  shapeId={getStableId(shape, idx)}
-                                  readOnly
-                                  isSelected={false}
-                                  onSelect={() => {}}
-                                  onDragEnd={() => {}}
-                                  onTransformEnd={() => {}}
-                                  setNodeRef={() => {}}
-                                />
-                              ))}
-                            </Layer>
-                          </Stage>
-                        </div>
-                      </div>
-                      <span className="text-xs font-medium text-zinc-600">
-                        {mode === 'report' ? 'Page' : 'Slide'} {pageIndex + 1}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <ViewAllPagesVirtualList
+                pages={pages}
+                width={width}
+                height={height}
+                mode={mode}
+                currentIndex={currentIndex}
+                getChildren={getChildren}
+                goToPage={goToPage}
+                setViewAllPages={setViewAllPages}
+                scrollRef={viewAllScrollRef}
+              />
             </div>
           ) : (
           <div

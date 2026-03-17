@@ -746,3 +746,65 @@ export async function addDocumentAttachment(
   if (error) return { error: error.message };
   return {};
 }
+
+// -----------------------------------------------------------------------------
+// Document AI chat sessions (Konva editor)
+// -----------------------------------------------------------------------------
+
+export type DocumentAiChatSessionRow = {
+  id: string;
+  document_id: string;
+  user_id: string;
+  messages: unknown;
+  input: string;
+  updated_at: string;
+};
+
+function getCurrentUserId(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
+  return supabase.auth.getSession().then(({ data }) => data.session?.user?.id ?? null);
+}
+
+export async function getDocumentAiChatSession(
+  documentId: string
+): Promise<{
+  session: { messages: unknown[]; input: string } | null;
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const userId = await getCurrentUserId(supabase);
+  if (!userId) return { session: null };
+
+  const { data, error } = await supabase
+    .from('document_ai_chat_sessions')
+    .select('messages, input')
+    .eq('document_id', documentId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) return { session: null, error: error.message };
+  if (!data) return { session: null };
+  const messages = Array.isArray(data.messages) ? data.messages : [];
+  return { session: { messages, input: data.input ?? '' } };
+}
+
+export async function upsertDocumentAiChatSession(
+  documentId: string,
+  payload: { messages: unknown[]; input: string }
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const userId = await getCurrentUserId(supabase);
+  if (!userId) return { error: 'Not authenticated' };
+
+  const { error } = await supabase.from('document_ai_chat_sessions').upsert(
+    {
+      document_id: documentId,
+      user_id: userId,
+      messages: Array.isArray(payload.messages) ? payload.messages : [],
+      input: typeof payload.input === 'string' ? payload.input : '',
+    },
+    { onConflict: 'document_id,user_id' }
+  );
+
+  if (error) return { error: error.message };
+  return {};
+}

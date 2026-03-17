@@ -1,23 +1,18 @@
 'use client';
 
-import * as React from 'react';
-
-import type { TPlaceholderElement } from 'platejs';
-import type { PlateElementProps } from 'platejs/react';
-
 import {
   PlaceholderPlugin,
   PlaceholderProvider,
   updateUploadHistory,
 } from '@platejs/media/react';
 import { AudioLines, FileUp, Film, ImageIcon, Loader2Icon } from 'lucide-react';
+import type { TPlaceholderElement } from 'platejs';
 import { KEYS } from 'platejs';
+import type { PlateElementProps } from 'platejs/react';
 import { PlateElement, useEditorPlugin, withHOC } from 'platejs/react';
+import * as React from 'react';
 import { useFilePicker } from 'use-file-picker';
-
-import { useDocumentUploadContext } from '@/components/platejs/editors/document-upload-context';
 import { useDocumentAttachmentUpload } from '@/hooks/use-document-upload';
-import { useUploadFile } from '@/hooks/use-upload-file';
 import { cn } from '@/lib/utils';
 
 const CONTENT: Record<
@@ -56,12 +51,9 @@ export const PlaceholderElement = withHOC(
     const { editor, element } = props;
 
     const { api } = useEditorPlugin(PlaceholderPlugin);
-    const uploadContext = useDocumentUploadContext();
-    const uploadThing = useUploadFile();
-    const documentUpload = useDocumentAttachmentUpload();
 
     const { isUploading, progress, uploadedFile, uploadFile, uploadingFile } =
-      uploadContext ? documentUpload : uploadThing;
+      useDocumentAttachmentUpload();
 
     const loading = isUploading && uploadingFile;
 
@@ -148,8 +140,8 @@ export const PlaceholderElement = withHOC(
             className={cn(
               'flex cursor-pointer select-none items-center rounded-sm bg-muted p-3 pr-9 hover:bg-primary/10'
             )}
-            onClick={() => !loading && openFilePicker()}
             contentEditable={false}
+            onClick={() => !loading && openFilePicker()}
           >
             <div className="relative mr-3 flex text-muted-foreground/80 [&_svg]:size-6">
               {currentContent.icon}
@@ -216,9 +208,9 @@ export function ImageProgress({
   return (
     <div className={cn('relative', className)} contentEditable={false}>
       <img
-        ref={imageRef}
-        className="h-auto w-full rounded-sm object-cover"
         alt={file.name}
+        className="h-auto w-full rounded-sm object-cover"
+        ref={imageRef}
         src={objectUrl}
       />
       {progress < 100 && (

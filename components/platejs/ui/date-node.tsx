@@ -5,12 +5,12 @@ import type { PlateElementProps } from 'platejs/react';
 
 import { PlateElement, useReadOnly } from 'platejs/react';
 
-import { Calendar } from '@/components/ui/calendar';
+import { Calendar } from '@/components/platejs/ui/calendar';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from '@/components/ui/popover';
+} from '@/components/platejs/ui/popover';
 import { cn } from '@/lib/utils';
 
 export function DateElement(props: PlateElementProps<TDateElement>) {
@@ -65,17 +65,18 @@ export function DateElement(props: PlateElementProps<TDateElement>) {
   return (
     <PlateElement
       {...props}
-      className="inline-block"
       attributes={{
         ...props.attributes,
         contentEditable: false,
       }}
+      className="inline-block"
     >
       <Popover>
         <PopoverTrigger asChild>{trigger}</PopoverTrigger>
         <PopoverContent className="w-auto p-0">
           <Calendar
-            selected={new Date(element.date as string)}
+            initialFocus
+            mode="single"
             onSelect={(date) => {
               if (!date) return;
 
@@ -84,8 +85,7 @@ export function DateElement(props: PlateElementProps<TDateElement>) {
                 { at: element }
               );
             }}
-            mode="single"
-            initialFocus
+            selected={new Date(element.date as string)}
           />
         </PopoverContent>
       </Popover>

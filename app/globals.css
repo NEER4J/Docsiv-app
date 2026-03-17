@@ -1,11 +1,72 @@
-@tailwind base;
+@import "tailwindcss";
+@import "tw-animate-css";
 
 @plugin "tailwind-scrollbar-hide";
 
 /* Dark variant: apply when inside .dark but NOT inside force-light (doc editor toolbar/canvas stay light) */
 @custom-variant dark (&:is(.dark *):not(.document-editor-force-light, .document-editor-force-light *));
-@tailwind components;
-@tailwind utilities;
+
+@source "../components/**/*.{js,ts,jsx,tsx}";
+@source "../app/**/*.{js,ts,jsx,tsx,mdx}";
+@source "../lib/**/*.{js,ts,jsx,tsx}";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-border: var(--border);
+  --color-muted: var(--muted-bg);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-brand: var(--brand);
+  --color-highlight: var(--highlight);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans:
+    "var(--font-sans)", "ui-sans-serif", "-apple-system",
+    "BlinkMacSystemFont", "Segoe UI Variable Display", "Segoe UI", "Helvetica",
+    "Apple Color Emoji", "Arial", "sans-serif", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono:
+    "var(--font-mono)", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --font-heading:
+    "var(--font-heading)", "var(--font-ui)", "ui-sans-serif", "-apple-system",
+    "BlinkMacSystemFont", "Segoe UI Variable Display", "Segoe UI", "Helvetica",
+    "Apple Color Emoji", "Arial", "sans-serif", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
+  --font-ui: var(--font-ui), system-ui, sans-serif;
+  --font-body: var(--font-dm-sans), system-ui, sans-serif;
+  --font-playfair: var(--font-playfair), Georgia, serif;
+}
 
 @layer base {
   :root {
@@ -26,6 +87,34 @@
     --popover: var(--paper);
     --popover-foreground: var(--ink);
     --radius: 0.5rem;
+
+    /* shadcn/Plate theme tokens */
+    --card: var(--paper);
+    --card-foreground: var(--ink);
+    --primary: #0a0a0a;
+    --primary-foreground: #fafafa;
+    --secondary: #f5f5f5;
+    --secondary-foreground: #0a0a0a;
+    --accent: #f5f5f5;
+    --accent-foreground: #0a0a0a;
+    --destructive: #dc2626;
+    --input: #e5e5e5;
+    --ring: #a3a3a3;
+    --sidebar: #fafafa;
+    --sidebar-foreground: #0a0a0a;
+    --sidebar-primary: #0a0a0a;
+    --sidebar-primary-foreground: #fafafa;
+    --sidebar-accent: #f5f5f5;
+    --sidebar-accent-foreground: #0a0a0a;
+    --sidebar-border: #e5e5e5;
+    --sidebar-ring: #a3a3a3;
+    --chart-1: #0ea5e9;
+    --chart-2: #22c55e;
+    --chart-3: #a855f7;
+    --chart-4: #f59e0b;
+    --chart-5: #ef4444;
+    --brand: oklch(0.623 0.214 259.815);
+    --highlight: oklch(0.852 0.199 91.936);
 
     /* Notion-inspired accent palette — tags, badges, callouts. No borders. */
     --notion-default: #37352f;
@@ -61,6 +150,33 @@
     --popover: #252422;
     --popover-foreground: var(--paper);
 
+    --card: #171717;
+    --card-foreground: #fafafa;
+    --primary: #fafafa;
+    --primary-foreground: #0a0a0a;
+    --secondary: #262626;
+    --secondary-foreground: #fafafa;
+    --accent: #262626;
+    --accent-foreground: #fafafa;
+    --destructive: #b91c1c;
+    --input: rgba(255 255 255 / 0.15);
+    --ring: #737373;
+    --sidebar: #0a0a0a;
+    --sidebar-foreground: #fafafa;
+    --sidebar-primary: #3b82f6;
+    --sidebar-primary-foreground: #fafafa;
+    --sidebar-accent: #262626;
+    --sidebar-accent-foreground: #fafafa;
+    --sidebar-border: rgba(255 255 255 / 0.1);
+    --sidebar-ring: #737373;
+    --chart-1: #38bdf8;
+    --chart-2: #4ade80;
+    --chart-3: #c084fc;
+    --chart-4: #fbbf24;
+    --chart-5: #f87171;
+    --brand: oklch(0.707 0.165 254.624);
+    --highlight: oklch(0.852 0.199 91.936);
+
     /* Notion accents — slightly adjusted for dark */
     --notion-default-bg: #37352f;
     --notion-gray-bg: #3d3d3d;
@@ -78,7 +194,6 @@
     border-color: var(--border);
   }
 
-  /* Kill browser default blue outlines everywhere */
   *:focus {
     outline: none;
   }
@@ -91,7 +206,6 @@
     color: var(--foreground);
   }
 
-  /* Toast notifications: solid background, top-center, flat */
   [data-sonner-toaster] {
     --normal-bg: var(--background) !important;
     --normal-text: var(--foreground) !important;
@@ -105,28 +219,15 @@
   }
 }
 
-:root {
-  --highlight: oklch(0.852 0.199 91.936);
-  --brand: oklch(0.623 0.214 259.815);
-}
-
-.dark {
-  --highlight: oklch(0.852 0.199 91.936);
-  --brand: oklch(0.707 0.165 254.624);
-}
-
-@theme inline {
-  --color-highlight: var(--highlight);
-  --color-brand: var(--brand);
-}
-
 /* Figma-style dot pattern behind document/canvas so the page stands out from the background.
-   !important ensures it wins over Tailwind utilities and parent bg-background. */
+   !important ensures it wins over Tailwind utilities and parent bg-background.
+   max-width ensures the canvas doesn't extend past the viewport. */
 .canvas-dot-pattern {
   background-color: #e5e5e5 !important;
   background-image: radial-gradient(circle, #a3a3a3 1px, transparent 1px) !important;
   background-size: 16px 16px !important;
   background-position: 0 0 !important;
+  max-width: 100%;
 }
 
 /* Plate document editor: content area 900px centered (toolbar stays full width) */
@@ -136,16 +237,25 @@
   margin-right: auto;
   width: 100%;
   background-color: white;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 
-
+/* Contain overflowing block elements within the page */
+.plate-doc-content-area table,
+.plate-doc-content-area pre,
+.plate-doc-content-area img,
+.plate-doc-content-area video,
+.plate-doc-content-area iframe {
+  max-width: 100%;
+}
 
 /* Plate document editor: sticky toolbar (sticks to top of document area when scrolling) */
 .plate-doc-toolbar-full [data-sticky-toolbar] {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: var(--background);
+  background: var(--background) !important;
   width: 100%;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
@@ -157,7 +267,6 @@
   caret-color: var(--brand);
 }
 
-/* Native text-level selection (Ctrl+A, shift+arrow, mouse drag) */
 [data-slate-editor] ::selection {
   background: oklch(0.623 0.214 259.815 / 0.35) !important;
   color: inherit;
@@ -176,7 +285,6 @@
   color: inherit;
 }
 
-/* Slate leaf-level selection spans */
 [data-slate-editor] [data-slate-leaf] ::selection,
 [data-slate-editor] [data-slate-string]::selection,
 [data-slate-editor] [data-slate-zero-width]::selection {
@@ -215,7 +323,6 @@
   color-scheme: light;
 }
 
-/* Plate fixed toolbar: force light theme even when rendered in portal or under .dark */
 [data-sticky-toolbar].document-editor-force-light {
   --background: #ffffff !important;
   --foreground: #0a0a0a !important;

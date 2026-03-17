@@ -1,68 +1,62 @@
 'use client';
 
-import * as React from 'react';
-
 import {
   AIChatPlugin,
   AIPlugin,
   useEditorChat,
   useLastAssistantMessage,
 } from '@platejs/ai/react';
+import { getTransientCommentKey } from '@platejs/comment';
 import { BlockSelectionPlugin, useIsSelecting } from '@platejs/selection/react';
 import { getTransientSuggestionKey } from '@platejs/suggestion';
 import { Command as CommandPrimitive } from 'cmdk';
 import {
   Album,
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
   BadgeHelp,
   BookOpenCheck,
   Check,
   CornerUpLeft,
   FeatherIcon,
-  IndentDecrease,
-  IndentIncrease,
-  Lightbulb,
   ListEnd,
   ListMinus,
   ListPlus,
   Loader2Icon,
-  Minus,
   PauseIcon,
   PenLine,
-  Quote,
   SmileIcon,
   Wand,
   X,
 } from 'lucide-react';
 import {
-  type NodeEntry,
-  type SlateEditor,
   isHotkey,
   KEYS,
   NodeApi,
+  type NodeEntry,
+  type SlateEditor,
+  TextApi,
 } from 'platejs';
 import {
+  type PlateEditor,
   useEditorPlugin,
+  useEditorRef,
   useFocusedLast,
   useHotkeys,
   usePluginOption,
 } from 'platejs/react';
-import { type PlateEditor, useEditorRef } from 'platejs/react';
-
-import { Button } from '@/components/ui/button';
+import * as React from 'react';
+import { commentPlugin } from '@/components/platejs/editor/plugins/comment-kit';
+import { Button } from '@/components/platejs/ui/button';
 import {
   Command,
   CommandGroup,
   CommandItem,
   CommandList,
-} from '@/components/ui/command';
+} from '@/components/platejs/ui/command';
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
-} from '@/components/ui/popover';
+} from '@/components/platejs/ui/popover';
 import { cn } from '@/lib/utils';
 
 import { AIChatEditor } from './ai-chat-editor';
@@ -155,7 +149,7 @@ export function AIMenu() {
       let anchorNode = editor.api.node({
         at: [],
         reverse: true,
-        match: (n: unknown) => !!(n as Record<string, unknown>)[KEYS.suggestion] && !!(n as Record<string, unknown>)[getTransientSuggestionKey()],
+        match: (n) => !!n[KEYS.suggestion] && !!n[getTransientSuggestionKey()],
       });
 
       if (!anchorNode) {
@@ -180,26 +174,26 @@ export function AIMenu() {
   if (toolName === 'edit' && mode === 'chat' && isLoading) return null;
 
   return (
-    <Popover open={open} onOpenChange={setOpen} modal={false}>
+    <Popover modal={false} onOpenChange={setOpen} open={open}>
       <PopoverAnchor virtualRef={{ current: anchorElement! }} />
 
       <PopoverContent
+        align="center"
         className="border-none bg-transparent p-0 shadow-none"
-        style={{
-          width: anchorElement?.offsetWidth,
-        }}
         onEscapeKeyDown={(e) => {
           e.preventDefault();
 
           api.aiChat.hide();
         }}
-        align="center"
         side="bottom"
+        style={{
+          width: anchorElement?.offsetWidth,
+        }}
       >
         <Command
           className="w-full rounded-lg border shadow-md"
-          value={value}
           onValueChange={setValue}
+          value={value}
         >
           {mode === 'chat' &&
             isSelecting &&
@@ -213,12 +207,13 @@ export function AIMenu() {
             </div>
           ) : (
             <CommandPrimitive.Input
+              autoFocus
               className={cn(
                 'flex h-9 w-full min-w-0 border-input bg-transparent px-3 py-1 text-base outline-none transition-[color,box-shadow] placeholder:text-muted-foreground md:text-sm dark:bg-input/30',
                 'aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40',
                 'border-b focus-visible:ring-transparent'
               )}
-              value={input}
+              data-plate-focus
               onKeyDown={(e) => {
                 if (isHotkey('backspace')(e) && input.length === 0) {
                   e.preventDefault();
@@ -232,8 +227,7 @@ export function AIMenu() {
               }}
               onValueChange={setInput}
               placeholder="Ask AI anything..."
-              data-plate-focus
-              autoFocus
+              value={input}
             />
           )}
 
@@ -258,6 +252,26 @@ type EditorChatState =
   | 'selectionCommand'
   | 'selectionSuggestion';
 
+const AICommentIcon = () => (
+  <svg
+    fill="none"
+    height="24"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="2"
+    viewBox="0 0 24 24"
+    width="24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path d="M0 0h24v24H0z" fill="none" stroke="none" />
+    <path d="M8 9h8" />
+    <path d="M8 13h4.5" />
+    <path d="M10 19l-1 -1h-3a3 3 0 0 1 -3 -3v-8a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v4.5" />
+    <path d="M17.8 20.817l-2.172 1.138a.392 .392 0 0 1 -.568 -.41l.415 -2.411l-1.757 -1.707a.389 .389 0 0 1 .217 -.665l2.428 -.352l1.086 -2.193a.392 .392 0 0 1 .702 0l1.086 2.193l2.428 .352a.39 .39 0 0 1 .217 .665l-1.757 1.707l.414 2.41a.39 .39 0 0 1 -.567 .411l-2.172 -1.138z" />
+  </svg>
+);
+
 const aiChatItems = {
   accept: {
     icon: <Check />,
@@ -276,69 +290,16 @@ const aiChatItems = {
       editor.tf.focus({ edge: 'end' });
     },
   },
-  addBlockquote: {
-    icon: <Quote />,
-    label: 'Add blockquote',
-    value: 'addBlockquote',
+  comment: {
+    icon: <AICommentIcon />,
+    label: 'Comment',
+    value: 'comment',
     onSelect: ({ editor, input }) => {
-      void editor.getApi(AIChatPlugin).aiChat.submit(input, {
-        prompt: 'Insert a blockquote at the cursor.',
-        toolName: 'insertBlock',
-      });
-    },
-  },
-  addCallout: {
-    icon: <Lightbulb />,
-    label: 'Add callout',
-    value: 'addCallout',
-    onSelect: ({ editor, input }) => {
-      void editor.getApi(AIChatPlugin).aiChat.submit(input, {
-        prompt: 'Insert a callout with an appropriate icon (emoji) at the cursor.',
-        toolName: 'insertBlock',
-      });
-    },
-  },
-  addDivider: {
-    icon: <Minus />,
-    label: 'Add divider',
-    value: 'addDivider',
-    onSelect: ({ editor, input }) => {
-      void editor.getApi(AIChatPlugin).aiChat.submit(input, {
-        prompt: 'Insert a horizontal divider at the cursor.',
-        toolName: 'insertBlock',
-      });
-    },
-  },
-  alignCenter: {
-    icon: <AlignCenter />,
-    label: 'Align center',
-    value: 'alignCenter',
-    onSelect: ({ editor, input }) => {
-      void editor.getApi(AIChatPlugin).aiChat.submit(input, {
-        prompt: 'Align the selected block(s) center.',
-        toolName: 'formatBlock',
-      });
-    },
-  },
-  alignLeft: {
-    icon: <AlignLeft />,
-    label: 'Align left',
-    value: 'alignLeft',
-    onSelect: ({ editor, input }) => {
-      void editor.getApi(AIChatPlugin).aiChat.submit(input, {
-        prompt: 'Align the selected block(s) left.',
-        toolName: 'formatBlock',
-      });
-    },
-  },
-  alignRight: {
-    icon: <AlignRight />,
-    label: 'Align right',
-    value: 'alignRight',
-    onSelect: ({ editor, input }) => {
-      void editor.getApi(AIChatPlugin).aiChat.submit(input, {
-        prompt: 'Align the selected block(s) right.',
-        toolName: 'formatBlock',
+      editor.getApi(AIChatPlugin).aiChat.submit(input, {
+        mode: 'insert',
+        prompt:
+          'Please comment on the following content and provide reasonable and meaningful feedback.',
+        toolName: 'comment',
       });
     },
   },
@@ -447,17 +408,6 @@ Start writing a new paragraph AFTER <Document> ONLY ONE SENTENCE`
       });
     },
   },
-  indent: {
-    icon: <IndentIncrease />,
-    label: 'Indent',
-    value: 'indent',
-    onSelect: ({ editor, input }) => {
-      void editor.getApi(AIChatPlugin).aiChat.submit(input, {
-        prompt: 'Indent the selected block(s).',
-        toolName: 'formatBlock',
-      });
-    },
-  },
   insertBelow: {
     icon: <ListEnd />,
     label: 'Insert below',
@@ -478,17 +428,6 @@ Start writing a new paragraph AFTER <Document> ONLY ONE SENTENCE`
         prompt:
           'Make the content longer by elaborating on existing ideas within each block only, without changing meaning or adding new information.',
         toolName: 'edit',
-      });
-    },
-  },
-  outdent: {
-    icon: <IndentDecrease />,
-    label: 'Outdent',
-    value: 'outdent',
-    onSelect: ({ editor, input }) => {
-      void editor.getApi(AIChatPlugin).aiChat.submit(input, {
-        prompt: 'Outdent the selected block(s).',
-        toolName: 'formatBlock',
       });
     },
   },
@@ -579,9 +518,7 @@ const menuStateItems: Record<
   cursorCommand: [
     {
       items: [
-        aiChatItems.addDivider,
-        aiChatItems.addBlockquote,
-        aiChatItems.addCallout,
+        aiChatItems.comment,
         aiChatItems.generateMdxSample,
         aiChatItems.generateMarkdownSample,
         aiChatItems.continueWrite,
@@ -599,16 +536,12 @@ const menuStateItems: Record<
     {
       items: [
         aiChatItems.improveWriting,
+        aiChatItems.comment,
         aiChatItems.emojify,
         aiChatItems.makeLonger,
         aiChatItems.makeShorter,
         aiChatItems.fixSpelling,
         aiChatItems.simplifyLanguage,
-        aiChatItems.alignLeft,
-        aiChatItems.alignCenter,
-        aiChatItems.alignRight,
-        aiChatItems.indent,
-        aiChatItems.outdent,
       ],
     },
   ],
@@ -661,12 +594,11 @@ export const AIMenuItems = ({
   return (
     <>
       {menuGroups.map((group, index) => (
-        <CommandGroup key={index} heading={group.heading}>
+        <CommandGroup heading={group.heading} key={index}>
           {group.items.map((menuItem) => (
             <CommandItem
-              key={menuItem.value}
               className="[&_svg]:text-muted-foreground"
-              value={menuItem.value}
+              key={menuItem.value}
               onSelect={() => {
                 menuItem.onSelect?.({
                   aiEditor,
@@ -675,6 +607,7 @@ export const AIMenuItems = ({
                 });
                 setInput('');
               }}
+              value={menuItem.value}
             >
               {menuItem.icon}
               <span>{menuItem.label}</span>
@@ -699,6 +632,23 @@ export function AILoadingBar() {
 
   const isLoading = status === 'streaming' || status === 'submitted';
 
+  const handleComments = (type: 'accept' | 'reject') => {
+    if (type === 'accept') {
+      editor.tf.unsetNodes([getTransientCommentKey()], {
+        at: [],
+        match: (n) => TextApi.isText(n) && !!n[KEYS.comment],
+      });
+    }
+
+    if (type === 'reject') {
+      editor
+        .getTransforms(commentPlugin)
+        .comment.unsetMark({ transient: true });
+    }
+
+    api.aiChat.hide();
+  };
+
   useHotkeys('esc', () => {
     api.aiChat.stop();
 
@@ -706,27 +656,25 @@ export function AILoadingBar() {
     (chat as any)._abortFakeStream();
   });
 
-  const toolNameStr = toolName as string;
   if (
     isLoading &&
     (mode === 'insert' ||
-      (toolName === 'edit' && mode === 'chat') ||
-      toolNameStr === 'insertBlock' ||
-      toolNameStr === 'formatBlock')
+      toolName === 'comment' ||
+      (toolName === 'edit' && mode === 'chat'))
   ) {
     return (
       <div
         className={cn(
-          'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-md border border-border bg-muted px-3 py-1.5 text-muted-foreground text-sm shadow-md transition-all duration-300'
+          'absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-md border border-border bg-muted px-3 py-1.5 text-muted-foreground text-sm shadow-md transition-all duration-300'
         )}
       >
         <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
         <span>{status === 'submitted' ? 'Thinking...' : 'Writing...'}</span>
         <Button
-          size="sm"
-          variant="ghost"
           className="flex items-center gap-1 text-xs"
           onClick={() => api.aiChat.stop()}
+          size="sm"
+          variant="ghost"
         >
           <PauseIcon className="h-4 w-4" />
           Stop
@@ -734,6 +682,38 @@ export function AILoadingBar() {
             Esc
           </kbd>
         </Button>
+      </div>
+    );
+  }
+
+  if (toolName === 'comment' && status === 'ready') {
+    return (
+      <div
+        className={cn(
+          'absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-0 rounded-xl border border-border/50 bg-popover p-1 text-muted-foreground text-sm shadow-xl backdrop-blur-sm',
+          'p-3'
+        )}
+      >
+        {/* Header with controls */}
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="flex items-center gap-5">
+            <Button
+              disabled={isLoading}
+              onClick={() => handleComments('accept')}
+              size="sm"
+            >
+              Accept
+            </Button>
+
+            <Button
+              disabled={isLoading}
+              onClick={() => handleComments('reject')}
+              size="sm"
+            >
+              Reject
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

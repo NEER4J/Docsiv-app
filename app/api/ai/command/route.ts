@@ -248,7 +248,7 @@ const getFormatBlockTool = (
             status: 'streaming',
           },
           type: 'data-formatBlock',
-        });
+        } as Parameters<UIMessageStreamWriter<ChatMessage>['write']>[0]);
       }
       writer.write({
         id: nanoid(),
@@ -257,7 +257,7 @@ const getFormatBlockTool = (
           status: 'finished',
         },
         type: 'data-formatBlock',
-      });
+      } as Parameters<UIMessageStreamWriter<ChatMessage>['write']>[0]);
     },
   });
 
@@ -312,7 +312,7 @@ const getInsertBlockTool = (
               status: 'streaming',
             },
             type: 'data-insertBlock',
-          });
+          } as Parameters<UIMessageStreamWriter<ChatMessage>['write']>[0]);
         }
         lastLength = arr.length;
       }
@@ -324,7 +324,7 @@ const getInsertBlockTool = (
           status: 'finished',
         },
         type: 'data-insertBlock',
-      });
+      } as Parameters<UIMessageStreamWriter<ChatMessage>['write']>[0]);
     },
   });
 

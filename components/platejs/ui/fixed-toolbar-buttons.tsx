@@ -1,9 +1,6 @@
 'use client';
 
-import * as React from 'react';
-
 import {
-  ArrowUpToLineIcon,
   BaselineIcon,
   BoldIcon,
   Code2Icon,
@@ -25,21 +22,14 @@ import { FontColorToolbarButton } from './font-color-toolbar-button';
 import { FontSizeToolbarButton } from './font-size-toolbar-button';
 import { RedoToolbarButton, UndoToolbarButton } from './history-toolbar-button';
 import { ImportToolbarButton } from './import-toolbar-button';
-import {
-  IndentToolbarButton,
-  OutdentToolbarButton,
-} from './indent-toolbar-button';
+import { InsertContentToolbarDropdown } from './insert-content-toolbar-dropdown';
 import { InsertToolbarButton } from './insert-toolbar-button';
 import { LineHeightToolbarButton } from './line-height-toolbar-button';
-import { TurnIntoToolbarButton } from './turn-into-toolbar-button';
-import {
-  BulletedListToolbarButton,
-  NumberedListToolbarButton,
-  TodoListToolbarButton,
-} from './list-toolbar-button';
+import { ListToolbarDropdown } from './list-toolbar-dropdown';
 import { MarkToolbarButton } from './mark-toolbar-button';
-import { ToggleToolbarButton } from './toggle-toolbar-button';
+import { MoreToolbarButton } from './more-toolbar-button';
 import { ToolbarGroup } from './toolbar';
+import { TurnIntoToolbarButton } from './turn-into-toolbar-button';
 
 export function FixedToolbarButtons() {
   const readOnly = useEditorReadOnly();
@@ -57,14 +47,6 @@ export function FixedToolbarButtons() {
             <AIToolbarButton tooltip="AI commands">
               <WandSparklesIcon />
             </AIToolbarButton>
-          </ToolbarGroup>
-
-          <ToolbarGroup>
-            <ExportToolbarButton>
-              <ArrowUpToLineIcon />
-            </ExportToolbarButton>
-
-            <ImportToolbarButton />
           </ToolbarGroup>
 
           <ToolbarGroup>
@@ -114,17 +96,18 @@ export function FixedToolbarButtons() {
 
           <ToolbarGroup>
             <AlignToolbarButton />
+            <ListToolbarDropdown />
+          </ToolbarGroup>
 
-            <NumberedListToolbarButton />
-            <BulletedListToolbarButton />
-            <TodoListToolbarButton />
-            <ToggleToolbarButton />
+          <ToolbarGroup>
+            <InsertContentToolbarDropdown />
           </ToolbarGroup>
 
           <ToolbarGroup>
             <LineHeightToolbarButton />
-            <OutdentToolbarButton />
-            <IndentToolbarButton />
+            <ExportToolbarButton />
+            <ImportToolbarButton />
+            <MoreToolbarButton />
           </ToolbarGroup>
         </>
       )}

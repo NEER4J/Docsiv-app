@@ -24,6 +24,11 @@ import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 
+const RevealPresentationViewer = dynamic(
+  () => import('@/components/konva/reveal-presentation-viewer').then((m) => ({ default: m.RevealPresentationViewer })),
+  { ssr: false }
+);
+
 const UniverSheetEditor = dynamic(
   () => import('@/components/univer/univer-sheet-editor').then((m) => ({ default: m.UniverSheetEditor })),
   { ssr: false }
@@ -31,11 +36,6 @@ const UniverSheetEditor = dynamic(
 
 const KonvaReportPreview = dynamic(
   () => import('@/components/konva/report-preview').then((m) => ({ default: m.KonvaReportPreview })),
-  { ssr: false }
-);
-
-const KonvaPresentationPreview = dynamic(
-  () => import('@/components/konva/presentation-preview').then((m) => ({ default: m.KonvaPresentationPreview })),
   { ssr: false }
 );
 
@@ -201,19 +201,21 @@ export function SharedDocumentView({
             />
           </div>
         ) : isKonvaDoc ? (
-          <div className="w-full flex-1 px-4 py-8 md:px-6 flex justify-center min-h-0 overflow-auto">
-            {isPresentation ? (
-              <KonvaPresentationPreview
+          isPresentation ? (
+            <div className="flex min-h-0 w-full flex-1 flex-col">
+              <RevealPresentationViewer
                 content={document.content as KonvaStoredContent}
-                className="min-h-[200px]"
+                className="min-h-0 w-full flex-1"
               />
-            ) : (
+            </div>
+          ) : (
+            <div className="w-full flex-1 px-4 py-8 md:px-6 flex justify-center min-h-0 overflow-auto">
               <KonvaReportPreview
                 content={document.content as KonvaStoredContent}
                 className="min-h-[200px] w-full"
               />
-            )}
-          </div>
+            </div>
+          )
         ) : isGrapesJSDoc ? (
           <div className="w-full flex-1 px-4 py-8 md:px-6 flex justify-center min-h-0">
             <PageBuilderPreview

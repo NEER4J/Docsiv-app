@@ -1,11 +1,10 @@
 'use client';
 
-import * as React from 'react';
-
 import { normalizeNodeId } from 'platejs';
 import { Plate, usePlateEditor } from 'platejs/react';
 
 import { EditorKit } from '@/components/platejs/editor/editor-kit';
+import { SettingsDialog } from '@/components/platejs/editor/settings-dialog';
 import { Editor, EditorContainer } from '@/components/platejs/ui/editor';
 
 export function PlateEditor() {
@@ -20,6 +19,7 @@ export function PlateEditor() {
         <Editor variant="demo" />
       </EditorContainer>
 
+      <SettingsDialog />
     </Plate>
   );
 }

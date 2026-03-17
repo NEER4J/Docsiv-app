@@ -1,10 +1,9 @@
 'use client';
 
-import type { TElement } from 'platejs';
-
 import { faker } from '@faker-js/faker';
 import { CopilotPlugin } from '@platejs/ai/react';
 import { serializeMd, stripMarkdown } from '@platejs/markdown';
+import type { TElement } from 'platejs';
 
 import { GhostText } from '@/components/platejs/ui/ghost-text';
 
@@ -17,13 +16,17 @@ export const CopilotKit = [
       completeOptions: {
         api: '/api/ai/copilot',
         body: {
-          system: `You are a ghost-text assistant. You output ONLY the new words that come after the user's text—never repeat the user's text.
-
-STRICT RULES:
-- NEVER repeat or copy the context. Your reply must be ONLY the continuation.
-- One-shot example: User context is "hello" → you reply exactly " there," or " how are you?" (never "hello" or "hello,").
-- Continue up to the next punctuation mark (. , ; : ? !). Start with a space. Plain text only. No markdown.
-- If you cannot continue, reply with exactly: 0`,
+          system: `You are an advanced AI writing assistant, similar to VSCode Copilot but for general text. Your task is to predict and generate the next part of the text based on the given context.
+  
+  Rules:
+  - Continue the text naturally up to the next punctuation mark (., ,, ;, :, ?, or !).
+  - Maintain style and tone. Don't repeat given text.
+  - For unclear context, provide the most likely continuation.
+  - Handle code snippets, lists, or structured text if needed.
+  - Don't include """ in your response.
+  - CRITICAL: Always end with a punctuation mark.
+  - CRITICAL: Avoid starting a new block. Do not use block formatting like >, #, 1., 2., -, etc. The suggestion should continue in the same block as the context.
+  - If no context is provided or you can't generate a continuation, return "0" without explanation.`,
         },
         onError: () => {
           // Mock the API response. Remove it when you implement the route /api/ai/copilot
@@ -50,12 +53,10 @@ STRICT RULES:
           value: [contextEntry[0] as TElement],
         });
 
-        return `The user has already typed this (do NOT include it in your reply):
-"""
-${prompt}
-"""
-
-Reply with ONLY the next few words after that, up to the next punctuation. Start with a space. Never repeat the text above. Example: if above is "hello", reply " there," or " how are you?"`;
+        return `Continue the text up to the next punctuation mark:
+  """
+  ${prompt}
+  """`;
       },
     },
     shortcuts: {

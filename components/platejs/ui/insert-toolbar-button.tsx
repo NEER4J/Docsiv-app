@@ -1,9 +1,6 @@
 'use client';
 
-import * as React from 'react';
-
 import type { DropdownMenuProps } from '@radix-ui/react-dropdown-menu';
-
 import {
   CalendarIcon,
   ChevronRightIcon,
@@ -15,7 +12,6 @@ import {
   Heading2Icon,
   Heading3Icon,
   ImageIcon,
-  KeyboardIcon,
   Link2Icon,
   ListIcon,
   ListOrderedIcon,
@@ -26,25 +22,22 @@ import {
   QuoteIcon,
   RadicalIcon,
   SquareIcon,
-  SubscriptIcon,
-  SuperscriptIcon,
   TableIcon,
   TableOfContentsIcon,
 } from 'lucide-react';
-import { AudioLinesIcon, FileUpIcon } from 'lucide-react';
 import { KEYS } from 'platejs';
 import { type PlateEditor, useEditorRef } from 'platejs/react';
-
+import * as React from 'react';
+import {
+  insertBlock,
+  insertInlineElement,
+} from '@/components/platejs/editor/transforms';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  insertBlock,
-  insertInlineElement,
-} from '@/components/platejs/editor/transforms';
+} from '@/components/platejs/ui/dropdown-menu';
 
 import { ToolbarButton, ToolbarMenuGroup } from './toolbar';
 
@@ -61,18 +54,50 @@ type Item = {
   label?: string;
 };
 
-const insertGroups: Group[] = [
+const groups: Group[] = [
   {
     group: 'Basic blocks',
     items: [
-      { icon: <PilcrowIcon />, label: 'Paragraph', value: KEYS.p },
-      { icon: <Heading1Icon />, label: 'Heading 1', value: 'h1' },
-      { icon: <Heading2Icon />, label: 'Heading 2', value: 'h2' },
-      { icon: <Heading3Icon />, label: 'Heading 3', value: 'h3' },
-      { icon: <TableIcon />, label: 'Table', value: KEYS.table },
-      { icon: <FileCodeIcon />, label: 'Code', value: KEYS.codeBlock },
-      { icon: <QuoteIcon />, label: 'Quote', value: KEYS.blockquote },
-      { icon: <MinusIcon />, label: 'Divider', value: KEYS.hr },
+      {
+        icon: <PilcrowIcon />,
+        label: 'Paragraph',
+        value: KEYS.p,
+      },
+      {
+        icon: <Heading1Icon />,
+        label: 'Heading 1',
+        value: 'h1',
+      },
+      {
+        icon: <Heading2Icon />,
+        label: 'Heading 2',
+        value: 'h2',
+      },
+      {
+        icon: <Heading3Icon />,
+        label: 'Heading 3',
+        value: 'h3',
+      },
+      {
+        icon: <TableIcon />,
+        label: 'Table',
+        value: KEYS.table,
+      },
+      {
+        icon: <FileCodeIcon />,
+        label: 'Code',
+        value: KEYS.codeBlock,
+      },
+      {
+        icon: <QuoteIcon />,
+        label: 'Quote',
+        value: KEYS.blockquote,
+      },
+      {
+        icon: <MinusIcon />,
+        label: 'Divider',
+        value: KEYS.hr,
+      },
     ].map((item) => ({
       ...item,
       onSelect: (editor, value) => {
@@ -83,10 +108,26 @@ const insertGroups: Group[] = [
   {
     group: 'Lists',
     items: [
-      { icon: <ListIcon />, label: 'Bulleted list', value: KEYS.ul },
-      { icon: <ListOrderedIcon />, label: 'Numbered list', value: KEYS.ol },
-      { icon: <SquareIcon />, label: 'To-do list', value: KEYS.listTodo },
-      { icon: <ChevronRightIcon />, label: 'Toggle list', value: KEYS.toggle },
+      {
+        icon: <ListIcon />,
+        label: 'Bulleted list',
+        value: KEYS.ul,
+      },
+      {
+        icon: <ListOrderedIcon />,
+        label: 'Numbered list',
+        value: KEYS.ol,
+      },
+      {
+        icon: <SquareIcon />,
+        label: 'To-do list',
+        value: KEYS.listTodo,
+      },
+      {
+        icon: <ChevronRightIcon />,
+        label: 'Toggle list',
+        value: KEYS.toggle,
+      },
     ].map((item) => ({
       ...item,
       onSelect: (editor, value) => {
@@ -97,11 +138,16 @@ const insertGroups: Group[] = [
   {
     group: 'Media',
     items: [
-      { icon: <ImageIcon />, label: 'Image', value: KEYS.img },
-      { icon: <FilmIcon />, label: 'Video', value: KEYS.video },
-      { icon: <AudioLinesIcon />, label: 'Audio', value: KEYS.audio },
-      { icon: <FileUpIcon />, label: 'File', value: KEYS.file },
-      { icon: <FilmIcon />, label: 'Embed', value: KEYS.mediaEmbed },
+      {
+        icon: <ImageIcon />,
+        label: 'Image',
+        value: KEYS.img,
+      },
+      {
+        icon: <FilmIcon />,
+        label: 'Embed',
+        value: KEYS.mediaEmbed,
+      },
     ].map((item) => ({
       ...item,
       onSelect: (editor, value) => {
@@ -112,11 +158,32 @@ const insertGroups: Group[] = [
   {
     group: 'Advanced blocks',
     items: [
-      { icon: <TableOfContentsIcon />, label: 'Table of contents', value: KEYS.toc },
-      { icon: <Columns3Icon />, label: '3 columns', value: 'action_three_columns' },
-      { focusEditor: false, icon: <RadicalIcon />, label: 'Equation', value: KEYS.equation },
-      { icon: <PenToolIcon />, label: 'Excalidraw', value: KEYS.excalidraw },
-      { icon: <Code2 />, label: 'Code Drawing', value: KEYS.codeDrawing },
+      {
+        icon: <TableOfContentsIcon />,
+        label: 'Table of contents',
+        value: KEYS.toc,
+      },
+      {
+        icon: <Columns3Icon />,
+        label: '3 columns',
+        value: 'action_three_columns',
+      },
+      {
+        focusEditor: false,
+        icon: <RadicalIcon />,
+        label: 'Equation',
+        value: KEYS.equation,
+      },
+      {
+        icon: <PenToolIcon />,
+        label: 'Excalidraw',
+        value: KEYS.excalidraw,
+      },
+      {
+        icon: <Code2 />,
+        label: 'Code Drawing',
+        value: KEYS.codeDrawing,
+      },
     ].map((item) => ({
       ...item,
       onSelect: (editor, value) => {
@@ -127,48 +194,29 @@ const insertGroups: Group[] = [
   {
     group: 'Inline',
     items: [
-      { icon: <Link2Icon />, label: 'Link', value: KEYS.link },
-      { focusEditor: true, icon: <CalendarIcon />, label: 'Date', value: KEYS.date },
-      { focusEditor: false, icon: <RadicalIcon />, label: 'Inline Equation', value: KEYS.inlineEquation },
+      {
+        icon: <Link2Icon />,
+        label: 'Link',
+        value: KEYS.link,
+      },
+      {
+        focusEditor: true,
+        icon: <CalendarIcon />,
+        label: 'Date',
+        value: KEYS.date,
+      },
+      {
+        focusEditor: false,
+        icon: <RadicalIcon />,
+        label: 'Inline Equation',
+        value: KEYS.inlineEquation,
+      },
     ].map((item) => ({
       ...item,
       onSelect: (editor, value) => {
         insertInlineElement(editor, value);
       },
     })),
-  },
-  {
-    group: 'Formatting',
-    items: [
-      {
-        icon: <KeyboardIcon />,
-        label: 'Keyboard input',
-        value: '_kbd',
-        onSelect: (editor, _value) => {
-          editor.tf.toggleMark(KEYS.kbd);
-          editor.tf.collapse({ edge: 'end' });
-          editor.tf.focus();
-        },
-      },
-      {
-        icon: <SuperscriptIcon />,
-        label: 'Superscript',
-        value: '_sup',
-        onSelect: (editor, _value) => {
-          editor.tf.toggleMark(KEYS.sup, { remove: KEYS.sub });
-          editor.tf.focus();
-        },
-      },
-      {
-        icon: <SubscriptIcon />,
-        label: 'Subscript',
-        value: '_sub',
-        onSelect: (editor, _value) => {
-          editor.tf.toggleMark(KEYS.sub, { remove: KEYS.sup });
-          editor.tf.focus();
-        },
-      },
-    ],
   },
 ];
 
@@ -177,24 +225,23 @@ export function InsertToolbarButton(props: DropdownMenuProps) {
   const [open, setOpen] = React.useState(false);
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen} modal={false} {...props}>
+    <DropdownMenu modal={false} onOpenChange={setOpen} open={open} {...props}>
       <DropdownMenuTrigger asChild>
-        <ToolbarButton pressed={open} tooltip="Insert" isDropdown>
+        <ToolbarButton isDropdown pressed={open} tooltip="Insert">
           <PlusIcon />
-          <span className="hidden sm:inline">Insert</span>
         </ToolbarButton>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
-        className="flex max-h-[70vh] min-w-0 flex-col overflow-y-auto"
         align="start"
+        className="flex max-h-[500px] min-w-0 flex-col overflow-y-auto"
       >
-        {insertGroups.map(({ group, items: nestedItems }) => (
+        {groups.map(({ group, items: nestedItems }) => (
           <ToolbarMenuGroup key={group} label={group}>
             {nestedItems.map(({ icon, label, value, onSelect }) => (
               <DropdownMenuItem
-                key={value}
                 className="min-w-[180px]"
+                key={value}
                 onSelect={() => {
                   onSelect(editor, value);
                   editor.tf.focus();

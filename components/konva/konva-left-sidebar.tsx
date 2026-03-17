@@ -55,7 +55,7 @@ import {
   findPresetByDimensions,
 } from '@/lib/page-sizes';
 import { uploadDocumentAttachment } from '@/lib/storage/upload';
-import { listDocumentAttachments, addDocumentAttachment } from '@/lib/actions/documents';
+import { listDocumentAttachments, addDocumentAttachment, getDocumentAiChatSession, upsertDocumentAiChatSession } from '@/lib/actions/documents';
 import { toast } from 'sonner';
 import type { PageBackground, KonvaStoredContent, KonvaAiChatMessage } from '@/lib/konva-content';
 import { BACKGROUND_PATTERNS } from '@/lib/konva-background-patterns';
@@ -269,6 +269,73 @@ export function KonvaLeftSidebar({
   const aiMessagesEndRef = useRef<HTMLDivElement>(null);
   const aiTextareaRef = useRef<HTMLTextAreaElement>(null);
   const aiFileInputRef = useRef<HTMLInputElement>(null);
+
+  const KONVA_AI_CHAT_STORAGE_KEY = 'konva-ai-chat';
+  const sessionLoadedRef = useRef(false);
+
+  // Load persisted AI chat session for this document (DB first, then localStorage fallback)
+  useEffect(() => {
+    if (!documentId || typeof window === 'undefined') return;
+    sessionLoadedRef.current = false;
+    let cancelled = false;
+    getDocumentAiChatSession(documentId).then(({ session, error }) => {
+      if (cancelled) return;
+      sessionLoadedRef.current = true;
+      if (!error && session && (session.messages.length > 0 || session.input)) {
+        const msgs = session.messages as Array<{ role?: string; content?: string; action?: string }>;
+        setAiMessages(
+          msgs.map((m) => ({
+            role: (m.role ?? 'user') as 'user' | 'assistant',
+            content: typeof m.content === 'string' ? m.content : '',
+            ...(m.action && { action: m.action as 'edit' | 'chat' }),
+          }))
+        );
+        if (typeof session.input === 'string') setAiInput(session.input);
+        return;
+      }
+      try {
+        const raw = localStorage.getItem(`${KONVA_AI_CHAT_STORAGE_KEY}-${documentId}`);
+        if (!raw) return;
+        const data = JSON.parse(raw) as { messages?: Array<{ role: string; content: string; action?: string }>; input?: string };
+        if (data?.messages && Array.isArray(data.messages)) {
+          setAiMessages(
+            data.messages.map((m) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              ...(m.action && { action: m.action as 'edit' | 'chat' }),
+            }))
+          );
+        }
+        if (typeof data?.input === 'string') setAiInput(data.input);
+      } catch {
+        // ignore parse errors
+      }
+    });
+    return () => { cancelled = true; };
+  }, [documentId]);
+
+  // Persist AI chat session when messages or input change (only after load has run; localStorage immediately; DB debounced)
+  useEffect(() => {
+    if (!documentId || typeof window === 'undefined' || !sessionLoadedRef.current) return;
+    const payload = {
+      messages: aiMessages.map((m) => ({ role: m.role, content: m.content, action: m.action })),
+      input: aiInput,
+    };
+    try {
+      localStorage.setItem(`${KONVA_AI_CHAT_STORAGE_KEY}-${documentId}`, JSON.stringify(payload));
+    } catch {
+      // ignore quota or other errors
+    }
+    const t = setTimeout(() => {
+      upsertDocumentAiChatSession(documentId, payload).then(({ error }) => {
+        if (error) {
+          console.warn('[Konva AI chat] Failed to save session to DB:', error);
+          toast.error(error === 'Not authenticated' ? 'Sign in to sync chat across devices' : 'Could not save chat session');
+        }
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [documentId, aiMessages, aiInput]);
 
   const AI_THINKING_STEPS = ['Thinking about it…', 'Generating…', 'Refining…'] as const;
   const AI_EXTENDED_STEPS = ['Adding polish…', 'Almost there…', 'Finalizing…', 'Double-checking…'] as const;
@@ -1041,6 +1108,17 @@ export function KonvaLeftSidebar({
                     setAiMessages([]);
                     setAiInput('');
                     setAiAttachedImages([]);
+                    const emptyPayload = { messages: [] as { role: string; content: string; action?: string }[], input: '' };
+                    try {
+                      if (documentId) {
+                        localStorage.setItem(`${KONVA_AI_CHAT_STORAGE_KEY}-${documentId}`, JSON.stringify(emptyPayload));
+                        upsertDocumentAiChatSession(documentId, emptyPayload).then(({ error }) => {
+                          if (error) toast.error('Could not clear chat session');
+                        });
+                      }
+                    } catch {
+                      // ignore
+                    }
                   }}
                 >
                   Reset

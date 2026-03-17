@@ -1,10 +1,8 @@
 'use client';
 
-import type { TComment } from '@/components/platejs/ui/comment';
-
 import { createPlatePlugin } from 'platejs/react';
-
 import { BlockDiscussion } from '@/components/platejs/ui/block-discussion';
+import type { TComment } from '@/components/platejs/ui/comment';
 
 export type TDiscussion = {
   id: string;
@@ -15,7 +13,7 @@ export type TDiscussion = {
   documentContent?: string;
 };
 
-// Default empty; document editor hydrates from DB via DocumentCommentsHydrator
+// Empty defaults; DocumentCommentsHydrator hydrates from API
 const defaultDiscussions: TDiscussion[] = [];
 const defaultUsers: Record<string, { id: string; avatarUrl?: string | null; name: string }> = {};
 

@@ -25,7 +25,6 @@ export interface PlateDocumentEditorProps {
   readOnly?: boolean;
   canComment?: boolean;
   className?: string;
-  /** Applied to the editor content container (for width/layout). */
   contentClassName?: string;
 }
 
@@ -39,7 +38,9 @@ function ThumbnailRefBridge({ editorRef }: { editorRef: React.Ref<PlateDocumentE
     editorRef,
     () => ({
       captureThumbnail: () =>
-        capturePlateEditorAsPngBase64(() => (editor ? (editor.api.toDOMNode(editor) as HTMLElement) : null)),
+        capturePlateEditorAsPngBase64(() =>
+          editor ? (editor.api.toDOMNode(editor) as HTMLElement) : null
+        ),
     }),
     [editor]
   );
@@ -67,7 +68,7 @@ export const PlateDocumentEditor = React.forwardRef<
     : EditorKit;
 
   const editor = usePlateEditor({
-    plugins,
+    plugins: plugins as any,
     value: value ?? initialValue ?? EMPTY_VALUE,
   });
 
@@ -81,7 +82,12 @@ export const PlateDocumentEditor = React.forwardRef<
         <SelectAllKeyHandler>
           <DocumentCommentsHydrator />
           <EditorContainer variant="document">
-            <Editor variant="document" placeholder={readOnly ? '' : placeholder} readOnly={readOnly} className={contentClassName} />
+            <Editor
+              variant="document"
+              placeholder={readOnly ? '' : placeholder}
+              readOnly={readOnly}
+              className={contentClassName}
+            />
           </EditorContainer>
         </SelectAllKeyHandler>
       </Plate>

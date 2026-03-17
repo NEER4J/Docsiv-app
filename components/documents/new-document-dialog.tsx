@@ -28,7 +28,7 @@ import type { DocumentBaseType, ClientWithDocCount, DocumentType } from "@/types
 
 /** Map document_type slug to base_type for create_document RPC */
 const SLUG_TO_BASE_TYPE: Record<string, DocumentBaseType> = {
-  proposal: "doc",
+  proposal: "presentation",
   report: "doc",
   brief: "doc",
   document: "doc",

@@ -9,10 +9,9 @@ export const BlockPlaceholderKit = [
       className:
         'before:absolute before:cursor-text before:text-muted-foreground/80 before:content-[attr(placeholder)]',
       placeholders: {
-        [KEYS.h1]: 'Untitled',
         [KEYS.p]: 'Type something...',
       },
-      query: ({ path }: { path: number[] }) => path.length === 1,
+      query: ({ path }) => path.length === 1,
     },
   }),
 ];

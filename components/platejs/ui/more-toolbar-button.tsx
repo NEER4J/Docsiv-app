@@ -1,44 +1,51 @@
 'use client';
 
-import * as React from 'react';
-
+import { useIndentButton, useOutdentButton } from '@platejs/indent/react';
 import type { DropdownMenuProps } from '@radix-ui/react-dropdown-menu';
-
 import {
+  IndentIcon,
   KeyboardIcon,
   MoreHorizontalIcon,
+  OutdentIcon,
   SubscriptIcon,
   SuperscriptIcon,
+  WrapText,
 } from 'lucide-react';
 import { KEYS } from 'platejs';
 import { useEditorRef } from 'platejs/react';
+import * as React from 'react';
 
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@/components/platejs/ui/dropdown-menu';
 
 import { ToolbarButton } from './toolbar';
 
 export function MoreToolbarButton(props: DropdownMenuProps) {
   const editor = useEditorRef();
   const [open, setOpen] = React.useState(false);
+  const { props: indentProps } = useIndentButton();
+  const { props: outdentProps } = useOutdentButton();
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen} modal={false} {...props}>
+    <DropdownMenu modal={false} onOpenChange={setOpen} open={open} {...props}>
       <DropdownMenuTrigger asChild>
-        <ToolbarButton pressed={open} tooltip="Insert">
+        <ToolbarButton pressed={open} tooltip="More">
           <MoreHorizontalIcon />
         </ToolbarButton>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
-        className="ignore-click-outside/toolbar flex max-h-[500px] min-w-[180px] flex-col overflow-y-auto"
         align="start"
+        className="ignore-click-outside/toolbar flex max-h-[500px] min-w-[180px] flex-col overflow-y-auto"
       >
+        <DropdownMenuLabel>Marks</DropdownMenuLabel>
         <DropdownMenuGroup>
           <DropdownMenuItem
             onSelect={() => {
@@ -61,7 +68,6 @@ export function MoreToolbarButton(props: DropdownMenuProps) {
           >
             <SuperscriptIcon />
             Superscript
-            {/* (⌘+,) */}
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => {
@@ -73,7 +79,28 @@ export function MoreToolbarButton(props: DropdownMenuProps) {
           >
             <SubscriptIcon />
             Subscript
-            {/* (⌘+.) */}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuLabel>Spacing</DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            onSelect={() => {
+              (indentProps.onClick as any)?.();
+            }}
+          >
+            <IndentIcon />
+            Indent
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              (outdentProps.onClick as any)?.();
+            }}
+          >
+            <OutdentIcon />
+            Outdent
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

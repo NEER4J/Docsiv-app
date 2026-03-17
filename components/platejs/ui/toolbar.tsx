@@ -1,19 +1,18 @@
 'use client';
 
-import * as React from 'react';
-
 import * as ToolbarPrimitive from '@radix-ui/react-toolbar';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { type VariantProps, cva } from 'class-variance-authority';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { ChevronDown } from 'lucide-react';
+import * as React from 'react';
 
 import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
-import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
+} from '@/components/platejs/ui/dropdown-menu';
+import { Separator } from '@/components/platejs/ui/separator';
+import { Tooltip, TooltipTrigger } from '@/components/platejs/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 export function Toolbar({
@@ -131,7 +130,7 @@ export const ToolbarButton = withTooltip(function ToolbarButton({
   ...props
 }: ToolbarButtonProps) {
   return typeof pressed === 'boolean' ? (
-    <ToolbarToggleGroup disabled={props.disabled} value="single" type="single">
+    <ToolbarToggleGroup disabled={props.disabled} type="single" value="single">
       <ToolbarToggleItem
         className={cn(
           toolbarButtonVariants({
@@ -331,7 +330,7 @@ function withTooltip<T extends React.ElementType>(Component: T) {
 function TooltipContent({
   children,
   className,
-  side = 'bottom',
+  // CHANGE
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
@@ -343,7 +342,6 @@ function TooltipContent({
           className
         )}
         data-slot="tooltip-content"
-        side={side}
         sideOffset={sideOffset}
         {...props}
       >

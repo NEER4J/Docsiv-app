@@ -1,13 +1,10 @@
-import * as React from 'react';
-
-import type { SlateElementProps } from 'platejs/static';
-
-import { type Heading, BaseTocPlugin, isHeading } from '@platejs/toc';
+import { BaseTocPlugin, type Heading, isHeading } from '@platejs/toc';
 import { cva } from 'class-variance-authority';
-import { type SlateEditor, type TElement, NodeApi } from 'platejs';
+import { NodeApi, type SlateEditor, type TElement } from 'platejs';
+import type { SlateElementProps } from 'platejs/static';
 import { SlateElement } from 'platejs/static';
 
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/platejs/ui/button';
 
 const headingItemVariants = cva(
   'block h-auto w-full cursor-pointer truncate rounded-none px-0.5 py-1.5 text-left font-medium text-muted-foreground underline decoration-[0.5px] underline-offset-4 hover:bg-accent hover:text-muted-foreground',
@@ -32,11 +29,11 @@ export function TocElementStatic(props: SlateElementProps) {
         {headingList.length > 0 ? (
           headingList.map((item) => (
             <Button
-              key={item.title}
-              variant="ghost"
               className={headingItemVariants({
                 depth: item.depth as 1 | 2 | 3,
               })}
+              key={item.title}
+              variant="ghost"
             >
               {item.title}
             </Button>
@@ -75,11 +72,11 @@ const getHeadingList = (editor?: SlateEditor) => {
   const values = editor.api.nodes({
     at: [],
     match: (n) => isHeading(n),
-  });
+  }) as Iterable<[TElement, number[]]> | undefined;
 
   if (!values) return [];
 
-  Array.from(values as Iterable<[TElement, number[]]>).forEach(([node, path]) => {
+  Array.from(values).forEach(([node, path]: [TElement, number[]]) => {
     const { type } = node;
     const title = NodeApi.string(node);
     const depth = headingDepth[type];

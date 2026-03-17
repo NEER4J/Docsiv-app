@@ -60,34 +60,53 @@ export async function getDocumentDiscussions(
 
 export async function createDocumentDiscussion(
   documentId: string,
-  params: { documentContent?: string | null; contentRich: unknown }
+  params: {
+    discussionId: string;
+    commentId: string;
+    documentContent?: string | null;
+    contentRich: unknown;
+  }
 ): Promise<{ discussionId?: string; commentId?: string; error?: string }> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('create_document_discussion', {
-    p_document_id: documentId,
-    p_document_content: params.documentContent ?? null,
-    p_content_rich: Array.isArray(params.contentRich) ? params.contentRich : [],
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const { error: dErr } = await supabase.from('document_discussions').insert({
+    id: params.discussionId,
+    document_id: documentId,
+    created_by: user.id,
+    document_content: params.documentContent ?? null,
   });
-  if (error) return { error: error.message };
-  const out = data as { discussionId?: string; commentId?: string } | null;
-  return {
-    discussionId: out?.discussionId ?? undefined,
-    commentId: out?.commentId ?? undefined,
-  };
+  if (dErr) return { error: dErr.message };
+
+  const { error: cErr } = await supabase.from('document_comments').insert({
+    id: params.commentId,
+    discussion_id: params.discussionId,
+    content_rich: Array.isArray(params.contentRich) ? params.contentRich : [],
+    user_id: user.id,
+  });
+  if (cErr) return { error: cErr.message };
+
+  return { discussionId: params.discussionId, commentId: params.commentId };
 }
 
 export async function addDocumentComment(
   discussionId: string,
+  commentId: string,
   contentRich: unknown
 ): Promise<{ commentId?: string; error?: string }> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('add_document_comment', {
-    p_discussion_id: discussionId,
-    p_content_rich: Array.isArray(contentRich) ? contentRich : [],
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const { error } = await supabase.from('document_comments').insert({
+    id: commentId,
+    discussion_id: discussionId,
+    content_rich: Array.isArray(contentRich) ? contentRich : [],
+    user_id: user.id,
   });
   if (error) return { error: error.message };
-  const out = data as { commentId?: string } | null;
-  return { commentId: out?.commentId ?? undefined };
+  return { commentId };
 }
 
 export async function updateDocumentComment(
