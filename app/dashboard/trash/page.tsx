@@ -1,8 +1,15 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { APP_CONFIG } from "@/config/app-config";
 import { getMyWorkspaces, setWorkspaceCookie } from "@/lib/actions/onboarding";
 import { getDocuments } from "@/lib/actions/documents";
 import { getClients } from "@/lib/actions/clients";
 import { TrashView } from "./trash-view";
+
+export const metadata: Metadata = {
+  title: `Trash – ${APP_CONFIG.name}`,
+  description: "Restore or permanently delete removed documents.",
+};
 
 export default async function TrashPage() {
   const cookieStore = await cookies();
@@ -19,7 +26,7 @@ export default async function TrashPage() {
     workspaceId ? getClients(workspaceId) : Promise.resolve({ clients: [] }),
   ]);
 
-  const documents = documentsResult.documents;
+  const documents = documentsResult.documents.filter((d) => d.deleted_at != null);
   const clients = clientsResult.clients;
 
   return (

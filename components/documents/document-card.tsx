@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MoreVertical, Pencil, ExternalLink, Trash2, LoaderIcon, ImageIcon } from "lucide-react";
+import { MoreVertical, Pencil, ExternalLink, Trash2, LoaderIcon, ImageIcon, CheckIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -173,6 +173,9 @@ export function DocumentCard({
   onNavigateStart,
   onUpdateThumbnail,
   updatingThumbnailId,
+  selectable = false,
+  selected = false,
+  onSelectToggle,
 }: {
   doc: DocumentListItem;
   variant?: DocumentCardVariant;
@@ -188,6 +191,9 @@ export function DocumentCard({
   onUpdateThumbnail?: (doc: DocumentListItem) => void;
   /** When set, card with this id shows loading on Update thumbnail. */
   updatingThumbnailId?: string | null;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectToggle?: (docId: string) => void;
 }) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
@@ -210,6 +216,35 @@ export function DocumentCard({
   const docHref = getDocumentHref(doc);
 
   if (variant === "list") {
+    if (selectable) {
+      return (
+        <li>
+          <button
+            type="button"
+            onClick={() => onSelectToggle?.(doc.id)}
+            className={cn(
+              "group flex w-full flex-wrap items-center gap-3 px-4 py-3 text-sm transition-colors text-left",
+              selected ? "bg-muted-active" : "bg-muted hover:bg-muted-hover"
+            )}
+          >
+            <span className={cn(
+              "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
+              selected ? "border-foreground bg-foreground text-background" : "border-border bg-background"
+            )}>
+              {selected && <CheckIcon className="size-3" />}
+            </span>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-200 transition-colors dark:bg-muted-hover dark:group-hover:bg-muted-active group-hover:bg-zinc-300">
+              <Icon weight="fill" className="size-5 shrink-0" style={{ color: typeConfig.color }} />
+            </span>
+            <span className="min-w-0 flex-1 truncate font-medium">{doc.title}</span>
+            {doc.client_name && (
+              <span className="text-muted-foreground text-xs">{doc.client_name}</span>
+            )}
+            <span className="text-muted-foreground">{timeAgo}</span>
+          </button>
+        </li>
+      );
+    }
     return (
       <li>
         <Link
@@ -298,6 +333,43 @@ export function DocumentCard({
   // grid
   const thumbnailUrl = doc.thumbnail_url?.trim();
   const showPreviewHtml = !thumbnailUrl && doc.preview_html?.trim();
+
+  if (selectable) {
+    return (
+      <li
+        className={cn("cursor-pointer", selected && "ring-2 ring-foreground ring-offset-2 rounded-lg")}
+        onClick={() => onSelectToggle?.(doc.id)}
+      >
+        <Card className={cn("overflow-hidden transition-colors", selected ? "bg-muted-active" : "")}>
+          <div className="relative flex aspect-[4/3] min-h-0 items-center justify-center overflow-hidden border-b border-border bg-zinc-200 transition-colors dark:bg-muted-hover">
+            <span className={cn(
+              "absolute left-2.5 top-2.5 z-10 flex size-5 items-center justify-center rounded border transition-colors",
+              selected ? "border-foreground bg-foreground text-background" : "border-border bg-background/90"
+            )}>
+              {selected && <CheckIcon className="size-3.5" />}
+            </span>
+            {thumbnailUrl ? (
+              <img src={thumbnailUrl} alt="" className="absolute inset-0 h-full w-full object-cover object-left-top" />
+            ) : showPreviewHtml ? (
+              <DocumentCardPreview previewHtml={showPreviewHtml} className="absolute inset-0 h-full w-full border-0 pointer-events-none" />
+            ) : (
+              <span className="flex size-12 shrink-0 items-center justify-center">
+                <Icon weight="fill" className="size-12 h-12 w-12" style={{ color: typeConfig.color }} />
+              </span>
+            )}
+          </div>
+          <CardContent className={cn("flex flex-col gap-2 p-3 transition-colors", selected ? "bg-muted-active" : "bg-muted")}>
+            <div className="flex min-w-0 items-center gap-2">
+              <Icon weight="fill" className="size-4 shrink-0" style={{ color: typeConfig.color }} />
+              <p className="min-w-0 flex-1 truncate text-sm font-medium">{doc.title}</p>
+            </div>
+            <span className="text-xs text-muted-foreground">{timeAgo}</span>
+          </CardContent>
+        </Card>
+      </li>
+    );
+  }
+
   return (
     <li className={cn(isNavigating && "pointer-events-none opacity-70")}>
       <Link href={docHref} onClick={handleOpen} className="group block">

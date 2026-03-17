@@ -200,7 +200,7 @@ const BlockCommentContent = ({
 
         <PopoverContent
           align="center"
-          className="max-h-[min(50dvh,calc(-24px+var(--radix-popper-available-height)))] w-[380px] min-w-[130px] max-w-[calc(100vw-24px)] overflow-y-auto p-0 data-[state=closed]:opacity-0"
+          className="document-editor-force-light max-h-[min(50dvh,calc(-24px+var(--radix-popper-available-height)))] w-[380px] min-w-[130px] max-w-[calc(100vw-24px)] overflow-y-auto border border-[#e5e5e5] bg-white p-0 text-[#0a0a0a] data-[state=closed]:opacity-0"
           onCloseAutoFocus={(e) => e.preventDefault()}
           onOpenAutoFocus={(e) => e.preventDefault()}
           side="bottom"
@@ -243,12 +243,13 @@ const BlockCommentContent = ({
         </PopoverContent>
 
         {totalCount > 0 && (
-          <div className="relative left-0 size-0 select-none">
+          <div className="relative flex shrink-0 select-none items-start pl-1">
             <PopoverTrigger asChild>
               <Button
-                className="!px-1.5 mt-1 ml-1 flex h-6 gap-1 py-0 text-muted-foreground/80 hover:text-muted-foreground/80 data-[active=true]:bg-muted"
+                className="document-editor-force-light mt-1 flex h-7 min-w-[28px] gap-1 rounded-md border border-[#e5e5e5] bg-white px-2 py-0 text-xs font-medium text-[#0a0a0a] hover:bg-[#f5f5f5] data-[active=true]:bg-[#f5f5f5] data-[active=true]:border-[#d4d4d4] dark:border-[#e5e5e5] dark:bg-white dark:text-[#0a0a0a] dark:hover:bg-[#f5f5f5]"
                 contentEditable={false}
                 data-active={open}
+                title={open ? 'Hide comments' : `View ${totalCount} comment${totalCount !== 1 ? 's' : ''}`}
                 variant="ghost"
               >
                 {suggestionsCount > 0 && discussionsCount === 0 && (
@@ -263,7 +264,7 @@ const BlockCommentContent = ({
                   <MessagesSquareIcon className="size-4 shrink-0" />
                 )}
 
-                <span className="font-semibold text-xs">{totalCount}</span>
+                <span className="font-semibold tabular-nums">{totalCount}</span>
               </Button>
             </PopoverTrigger>
           </div>

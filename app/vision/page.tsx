@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Brand Vision & Guidelines',
+  title: 'Brand Vision & Guidelines – Docsiv',
   description: 'The complete brand identity, product context, and technical guidelines for Docsiv.',
 };
 

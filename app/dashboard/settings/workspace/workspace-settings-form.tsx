@@ -116,7 +116,7 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
             {form.logo_url ? (
               <img src={form.logo_url} alt="" className="h-full w-full object-cover" />
             ) : (
-              <span className="font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">Logo</span>
+              <span className="font-body text-xs text-muted-foreground">Logo</span>
             )}
           </div>
           <div className="flex flex-col gap-2">
@@ -128,15 +128,15 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
-            <Input id="name" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Company name" />
+            <Input id="name" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Company name" className="border-border" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="handle">Handle</Label>
-            <Input id="handle" value={form.handle} onChange={(e) => update("handle", e.target.value)} placeholder="my-workspace" />
+            <Input id="handle" value={form.handle} onChange={(e) => update("handle", e.target.value)} placeholder="my-workspace" className="border-border" />
           </div>
           <div className="sm:col-span-2 space-y-2">
             <Label htmlFor="tagline">Tagline</Label>
-            <Input id="tagline" value={form.tagline} onChange={(e) => update("tagline", e.target.value)} placeholder="Short tagline" />
+            <Input id="tagline" value={form.tagline} onChange={(e) => update("tagline", e.target.value)} placeholder="Short tagline" className="border-border" />
           </div>
         </div>
       </section>
@@ -147,15 +147,15 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="website_url">Website URL</Label>
-            <Input id="website_url" type="url" value={form.website_url} onChange={(e) => update("website_url", e.target.value)} placeholder="https://..." />
+            <Input id="website_url" type="url" value={form.website_url} onChange={(e) => update("website_url", e.target.value)} placeholder="https://..." className="border-border" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="contact_email">Contact email</Label>
-            <Input id="contact_email" type="email" value={form.contact_email} onChange={(e) => update("contact_email", e.target.value)} placeholder="hello@company.com" />
+            <Input id="contact_email" type="email" value={form.contact_email} onChange={(e) => update("contact_email", e.target.value)} placeholder="hello@company.com" className="border-border" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="contact_phone">Contact phone</Label>
-            <Input id="contact_phone" value={form.contact_phone} onChange={(e) => update("contact_phone", e.target.value)} placeholder="+1 234 567 8900" />
+            <Input id="contact_phone" value={form.contact_phone} onChange={(e) => update("contact_phone", e.target.value)} placeholder="+1 234 567 8900" className="border-border" />
           </div>
         </div>
       </section>
@@ -166,11 +166,11 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="terms_url">Terms of service URL</Label>
-            <Input id="terms_url" type="url" value={form.terms_url} onChange={(e) => update("terms_url", e.target.value)} placeholder="https://..." />
+            <Input id="terms_url" type="url" value={form.terms_url} onChange={(e) => update("terms_url", e.target.value)} placeholder="https://..." className="border-border" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="privacy_url">Privacy policy URL</Label>
-            <Input id="privacy_url" type="url" value={form.privacy_url} onChange={(e) => update("privacy_url", e.target.value)} placeholder="https://..." />
+            <Input id="privacy_url" type="url" value={form.privacy_url} onChange={(e) => update("privacy_url", e.target.value)} placeholder="https://..." className="border-border" />
           </div>
         </div>
       </section>
@@ -188,7 +188,7 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
               onChange={(e) => update("brand_color", e.target.value)}
               className="h-10 w-14 cursor-pointer rounded border border-border bg-background"
             />
-            <Input value={form.brand_color} onChange={(e) => update("brand_color", e.target.value)} placeholder="#000000" className="flex-1 font-mono text-sm" />
+            <Input value={form.brand_color} onChange={(e) => update("brand_color", e.target.value)} placeholder="#000000" className="flex-1 font-mono text-sm border-border" />
           </div>
         </div>
       </section>
@@ -199,15 +199,15 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="social_linkedin">LinkedIn</Label>
-            <Input id="social_linkedin" type="url" value={form.social_linkedin} onChange={(e) => update("social_linkedin", e.target.value)} placeholder="https://linkedin.com/..." />
+            <Input id="social_linkedin" type="url" value={form.social_linkedin} onChange={(e) => update("social_linkedin", e.target.value)} placeholder="https://linkedin.com/..." className="border-border" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="social_twitter">Twitter / X</Label>
-            <Input id="social_twitter" type="url" value={form.social_twitter} onChange={(e) => update("social_twitter", e.target.value)} placeholder="https://twitter.com/..." />
+            <Input id="social_twitter" type="url" value={form.social_twitter} onChange={(e) => update("social_twitter", e.target.value)} placeholder="https://twitter.com/..." className="border-border" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="social_instagram">Instagram</Label>
-            <Input id="social_instagram" type="url" value={form.social_instagram} onChange={(e) => update("social_instagram", e.target.value)} placeholder="https://instagram.com/..." />
+            <Input id="social_instagram" type="url" value={form.social_instagram} onChange={(e) => update("social_instagram", e.target.value)} placeholder="https://instagram.com/..." className="border-border" />
           </div>
         </div>
       </section>
@@ -258,24 +258,24 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
       {/* White-label (Pro) */}
       <section className="space-y-4">
         <h2 className="font-ui text-sm font-semibold text-foreground">White-label</h2>
-        <p className="font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">
+        <p className="font-body text-xs text-muted-foreground">
           Pro features. Store now, use when enabled for your plan.
         </p>
         <div className="space-y-4">
           <div className="flex items-center justify-between rounded-lg border border-border p-4">
             <div>
               <p className="font-ui text-sm font-medium text-foreground">Hide Docsiv branding</p>
-              <p className="font-[family-name:var(--font-dm-sans)] text-xs text-muted-foreground">Remove branding from client-facing documents</p>
+              <p className="font-body text-xs text-muted-foreground">Remove branding from client-facing documents</p>
             </div>
             <Switch checked={form.hide_docsiv_branding} onCheckedChange={(v) => update("hide_docsiv_branding", v)} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="custom_domain">Custom domain</Label>
-            <Input id="custom_domain" value={form.custom_domain} onChange={(e) => update("custom_domain", e.target.value)} placeholder="docs.yourcompany.com" />
+            <Input id="custom_domain" value={form.custom_domain} onChange={(e) => update("custom_domain", e.target.value)} placeholder="docs.yourcompany.com" className="border-border" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="custom_email_from">Custom email sender</Label>
-            <Input id="custom_email_from" value={form.custom_email_from} onChange={(e) => update("custom_email_from", e.target.value)} placeholder="noreply@yourcompany.com" />
+            <Input id="custom_email_from" value={form.custom_email_from} onChange={(e) => update("custom_email_from", e.target.value)} placeholder="noreply@yourcompany.com" className="border-border" />
           </div>
         </div>
       </section>
@@ -290,7 +290,7 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
               id="plan"
               value={form.plan}
               onChange={(e) => update("plan", e.target.value)}
-              className="flex h-10 w-full rounded-lg border border-border bg-background px-3 font-[family-name:var(--font-dm-sans)] text-sm text-foreground outline-none focus:border-foreground/30"
+              className="flex h-10 w-full rounded-lg border border-border bg-background px-3 font-body text-sm text-foreground outline-none focus:border-foreground/30"
             >
               <option value="free">Free</option>
               <option value="pro">Pro</option>
@@ -299,13 +299,13 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
           </div>
           <div className="space-y-2">
             <Label htmlFor="billing_country">Billing country</Label>
-            <Input id="billing_country" value={form.billing_country} onChange={(e) => update("billing_country", e.target.value)} placeholder="e.g. Canada" />
+            <Input id="billing_country" value={form.billing_country} onChange={(e) => update("billing_country", e.target.value)} placeholder="e.g. Canada" className="border-border" />
           </div>
         </div>
       </section>
 
       <div className="flex gap-2 pt-4">
-        <Button variant="main" onClick={handleSave} disabled={saving}>
+        <Button onClick={handleSave} disabled={saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>

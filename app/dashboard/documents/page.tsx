@@ -1,8 +1,15 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { APP_CONFIG } from "@/config/app-config";
 import { getCurrentUserProfile, getMyWorkspaces, setWorkspaceCookie } from "@/lib/actions/onboarding";
 import { getDocuments, getDocumentTypes } from "@/lib/actions/documents";
 import { getClients } from "@/lib/actions/clients";
 import { DocumentsView } from "./documents-view";
+
+export const metadata: Metadata = {
+  title: `Documents – ${APP_CONFIG.name}`,
+  description: "Create and manage your documents.",
+};
 
 export default async function DocumentsPage() {
   const cookieStore = await cookies();

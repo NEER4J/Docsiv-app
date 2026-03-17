@@ -30,6 +30,7 @@ export function AppSidebar({
   workspaces = [],
   currentWorkspaceId = null,
   showUpgrade = true,
+  notificationCount = 0,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   readonly user: {
@@ -40,6 +41,7 @@ export function AppSidebar({
   readonly workspaces?: readonly WorkspaceOption[];
   readonly currentWorkspaceId?: string | null;
   readonly showUpgrade?: boolean;
+  readonly notificationCount?: number;
 }) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -82,7 +84,7 @@ export function AppSidebar({
         )}
       </SidebarHeader>
       <SidebarContent className={cn(sidebarPaddingX)}>
-        <NavMain items={sidebarItems} />
+        <NavMain items={sidebarItems} notificationCount={notificationCount} />
       </SidebarContent>
       <SidebarFooter className={cn(sidebarPaddingX, "pb-3")}>
         {showUpgrade && (

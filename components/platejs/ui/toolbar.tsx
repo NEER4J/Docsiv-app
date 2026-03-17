@@ -14,6 +14,7 @@ import {
 import { Separator } from '@/components/platejs/ui/separator';
 import { Tooltip, TooltipTrigger } from '@/components/platejs/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { usePortalContainer } from './portal-container-context';
 
 export function Toolbar({
   className,
@@ -334,8 +335,10 @@ function TooltipContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+  const container = usePortalContainer();
+
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={container}>
       <TooltipPrimitive.Content
         className={cn(
           'z-50 w-fit origin-(--radix-tooltip-content-transform-origin) text-balance rounded-md bg-primary px-3 py-1.5 text-primary-foreground text-xs',

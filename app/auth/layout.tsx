@@ -1,7 +1,13 @@
 import { ReactNode } from "react";
 import Image from "next/image";
+import type { Metadata } from "next";
 
 import { APP_CONFIG } from "@/config/app-config";
+
+export const metadata: Metadata = {
+  title: `Sign in – ${APP_CONFIG.name}`,
+  description: "Sign in to your Docsive account.",
+};
 
 export default function Layout({ children }: Readonly<{ children: ReactNode }>) {
   return (

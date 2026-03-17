@@ -276,7 +276,10 @@ export function EditorSidebar({
                       : BASE_TYPE_FALLBACK[doc.base_type];
                     const DocIcon = typeConfig.icon;
                     return (
-                      <SidebarMenuItem key={doc.id}>
+                      <SidebarMenuItem
+                        key={doc.id}
+                        className={cn(isActive && "rounded-md bg-sidebar-accent")}
+                      >
                         <SidebarMenuButton
                           asChild
                           isActive={isActive}

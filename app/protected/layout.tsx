@@ -1,6 +1,12 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 
 import { APP_CONFIG } from "@/config/app-config";
+
+export const metadata: Metadata = {
+  title: `Protected – ${APP_CONFIG.name}`,
+  description: "Protected area.",
+};
 
 export default function ProtectedLayout({
   children,

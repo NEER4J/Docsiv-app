@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { EllipsisVertical, CircleUser, Settings, CreditCard, MessageSquareDot, LogOut, Moon, Sun, Trash2 } from "lucide-react";
+import { EllipsisVertical, CircleUser, Building2, CreditCard, MessageSquareDot, LogOut, Moon, Sun, Trash2, Plug, ShieldCheck, Settings } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -83,29 +83,45 @@ export function NavUser({
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
         <DropdownMenuItem asChild>
-          <Link href="/dashboard/settings">
+          <Link href="/dashboard/settings?tab=profile">
             <CircleUser />
-            Account
+            Profile
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/dashboard/settings">
-            <Settings />
-            Settings
+          <Link href="/dashboard/settings?tab=workspace">
+            <Building2 />
+            Workspace
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem>
-          <CreditCard />
-          Billing
+        <DropdownMenuItem asChild>
+          <Link href="/dashboard/settings?tab=billing">
+            <CreditCard />
+            Billing
+          </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem>
-          <MessageSquareDot />
-          Notifications
+        <DropdownMenuItem asChild>
+          <Link href="/dashboard/settings?tab=notifications">
+            <MessageSquareDot />
+            Notifications
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/dashboard/trash">
             <Trash2 />
             Trash
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/dashboard/settings?tab=integrations"> 
+            <Plug />
+            Integrations
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>  
+          <Link href="/dashboard/settings">
+            <Settings />
+            Settings
           </Link>
         </DropdownMenuItem>
       </DropdownMenuGroup>
@@ -148,7 +164,7 @@ export function NavUser({
                         "hover:bg-muted-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                         "data-[state=open]:bg-muted-hover"
                       )}
-                      aria-label="Open account menu"
+                      aria-label="Open profile menu"
                     >
                       <Avatar className="h-7 w-7 rounded-full grayscale shrink-0">
                         <AvatarImage src={user.avatar || undefined} alt={user.name} />
@@ -158,7 +174,7 @@ export function NavUser({
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={8}>
-                  Account menu
+                  Profile menu
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

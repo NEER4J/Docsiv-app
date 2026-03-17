@@ -1,3 +1,11 @@
+import type { Metadata } from "next";
+import { APP_CONFIG } from "@/config/app-config";
+
+export const metadata: Metadata = {
+  title: `Integrations – ${APP_CONFIG.name}`,
+  description: "Connect your tools and services.",
+};
+
 export default function IntegrationsPage() {
   return (
     <div className="space-y-6">

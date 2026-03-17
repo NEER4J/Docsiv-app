@@ -209,6 +209,36 @@ export async function restoreDocument(documentId: string): Promise<{ error?: str
   return {};
 }
 
+export async function bulkSoftDeleteDocuments(documentIds: string[]): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const results = await Promise.all(
+    documentIds.map((id) => supabase.rpc("soft_delete_document", { p_document_id: id }))
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) return { error: failed.error.message };
+  return {};
+}
+
+export async function bulkRestoreDocuments(documentIds: string[]): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const results = await Promise.all(
+    documentIds.map((id) => supabase.rpc("restore_document", { p_document_id: id }))
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) return { error: failed.error.message };
+  return {};
+}
+
+export async function bulkDeleteDocumentRecords(documentIds: string[]): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const results = await Promise.all(
+    documentIds.map((id) => supabase.rpc("delete_document", { p_document_id: id }))
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) return { error: failed.error.message };
+  return {};
+}
+
 export async function updateDocumentContent(
   documentId: string,
   content: unknown,
@@ -342,13 +372,24 @@ export async function findActiveDocumentLink(
   return data as { token: string; role: string; has_password: boolean; require_identity: boolean };
 }
 
-export async function getDocumentByToken(
-  token: string
-): Promise<{ document: { id: string; title: string; content: unknown; base_type: string; status: string }; role: string; workspace_name?: string } | null> {
+export type DocumentByToken = {
+  document: {
+    id: string;
+    title: string;
+    content: unknown;
+    base_type: string;
+    status: string;
+    thumbnail_url: string | null;
+  };
+  role: string;
+  workspace_name?: string;
+};
+
+export async function getDocumentByToken(token: string): Promise<DocumentByToken | null> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("get_document_by_token", { p_token: token });
   if (error || data == null) return null;
-  return data as { document: { id: string; title: string; content: unknown; base_type: string; status: string }; role: string; workspace_name?: string };
+  return data as DocumentByToken;
 }
 
 export async function updateDocumentLinkRole(

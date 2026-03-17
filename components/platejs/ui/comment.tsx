@@ -582,6 +582,12 @@ export function CommentCreateForm({
       );
       editor.tf.unsetNodes([getDraftCommentKey()], { at: path });
     });
+
+    // Persist document content so comment marks are saved (visible after reload/share)
+    const currentValue = editor.children as Value;
+    if (currentValue?.length && commentsCtx?.saveContentNow) {
+      void commentsCtx.saveContentNow(JSON.parse(JSON.stringify(currentValue)));
+    }
   }, [commentValue, commentEditor.tf, discussionId, editor, discussions, commentsCtx]);
 
   return (

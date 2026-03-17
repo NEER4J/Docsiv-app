@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 
 interface NavMainProps {
   readonly items: readonly NavGroup[];
+  readonly notificationCount?: number;
 }
 
 const IsComingSoon = () => (
@@ -54,22 +55,32 @@ const ProTag = () => (
   </Badge>
 );
 
+const NotificationBadge = ({ count }: { count: number }) =>
+  count > 0 ? (
+    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[0.7rem] font-medium tabular-nums text-foreground">
+      {count > 99 ? "99+" : count}
+    </span>
+  ) : null;
+
 const NavItemExpanded = ({
   item,
   isActive,
   isSubmenuOpen,
   onProClick,
+  notificationCount = 0,
 }: {
   item: NavMainItem;
   isActive: (url: string, subItems?: NavMainItem["subItems"]) => boolean;
   isSubmenuOpen: (subItems?: NavMainItem["subItems"]) => boolean;
   onProClick?: (item: NavMainItem) => void;
+  notificationCount?: number;
 }) => {
   const active = isActive(item.url, item.subItems);
+  const showNotificationBadge = item.url === "/dashboard/notifications" && notificationCount > 0;
 
   return (
     <Collapsible key={item.title} asChild defaultOpen={isSubmenuOpen(item.subItems)} className="group/collapsible">
-      <SidebarMenuItem>
+      <SidebarMenuItem className={cn(!item.subItems && active && "rounded-md bg-sidebar-accent")}>
         <CollapsibleTrigger asChild>
           {item.subItems ? (
             <SidebarMenuButton
@@ -114,6 +125,7 @@ const NavItemExpanded = ({
               <Link href={item.url} target={item.newTab ? "_blank" : undefined}>
                 {item.icon && <item.icon className={cn("size-[1.0625rem] shrink-0", active ? "opacity-100" : "opacity-60")} />}
                 <span>{item.title}</span>
+                {showNotificationBadge && <NotificationBadge count={notificationCount} />}
                 {item.comingSoon && <IsComingSoon />}
               </Link>
             </SidebarMenuButton>
@@ -197,7 +209,7 @@ const NavItemCollapsed = ({
   );
 };
 
-export function NavMain({ items }: NavMainProps) {
+export function NavMain({ items, notificationCount = 0 }: NavMainProps) {
   const path = usePathname();
   const { state, isMobile } = useSidebar();
   const [proDialogOpen, setProDialogOpen] = useState(false);
@@ -212,7 +224,7 @@ export function NavMain({ items }: NavMainProps) {
     if (subItems?.length) {
       return subItems.some((sub) => path.startsWith(sub.url));
     }
-    return path === url;
+    return path === url || path.startsWith(url + "/");
   };
 
   const isSubmenuOpen = (subItems?: NavMainItem["subItems"]) => {
@@ -234,12 +246,13 @@ export function NavMain({ items }: NavMainProps) {
                 if (state === "collapsed" && !isMobile) {
                   if (!item.subItems) {
                     if (item.pro) {
+                      const active = isItemActive(item.url);
                       return (
-                        <SidebarMenuItem key={item.title}>
+                        <SidebarMenuItem key={item.title} className={cn(active && "rounded-md bg-sidebar-accent")}>
                           <SidebarMenuButton
                             onClick={() => handleProClick(item)}
                             tooltip={`${item.title} (Pro)`}
-                            isActive={isItemActive(item.url)}
+                            isActive={active}
                             className="cursor-pointer"
                           >
                             {item.icon && <item.icon className="size-[1.125rem] shrink-0" />}
@@ -248,17 +261,20 @@ export function NavMain({ items }: NavMainProps) {
                         </SidebarMenuItem>
                       );
                     }
+                    const showBadge = item.url === "/dashboard/notifications" && notificationCount > 0;
+                    const active = isItemActive(item.url);
                     return (
-                      <SidebarMenuItem key={item.title}>
+                      <SidebarMenuItem key={item.title} className={cn(active && "rounded-md bg-sidebar-accent")}>
                         <SidebarMenuButton
                           asChild
                           aria-disabled={item.comingSoon}
                           tooltip={item.title}
-                          isActive={isItemActive(item.url)}
+                          isActive={active}
                         >
                           <Link href={item.url} target={item.newTab ? "_blank" : undefined}>
                             {item.icon && <item.icon className="size-[1.125rem] shrink-0" />}
                             <span>{item.title}</span>
+                            {showBadge && <NotificationBadge count={notificationCount} />}
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -273,6 +289,7 @@ export function NavMain({ items }: NavMainProps) {
                     isActive={isItemActive}
                     isSubmenuOpen={isSubmenuOpen}
                     onProClick={handleProClick}
+                    notificationCount={notificationCount}
                   />
                 );
               })}

@@ -43,15 +43,15 @@ export async function upsertUserProfile(input: UpsertUserProfileInput) {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  const row: Record<string, unknown> = {
-    id: user.id,
-    first_name: input.first_name ?? null,
-    last_name: input.last_name ?? null,
-    avatar_url: input.avatar_url ?? null,
-    theme: input.theme ?? null,
-    subscribed_to_updates: input.subscribed_to_updates ?? false,
-    onboarding_completed: input.onboarding_completed ?? false,
-  };
+  // Only include fields that are explicitly provided (partial update).
+  // This prevents e.g. saving "Product updates" from wiping first_name, avatar_url, etc.
+  const row: Record<string, unknown> = { id: user.id };
+  if (input.first_name !== undefined) row.first_name = input.first_name;
+  if (input.last_name !== undefined) row.last_name = input.last_name;
+  if (input.avatar_url !== undefined) row.avatar_url = input.avatar_url;
+  if (input.theme !== undefined) row.theme = input.theme;
+  if (input.subscribed_to_updates !== undefined) row.subscribed_to_updates = input.subscribed_to_updates;
+  if (input.onboarding_completed !== undefined) row.onboarding_completed = input.onboarding_completed;
   if (input.team_size !== undefined) row.team_size = input.team_size;
   if (input.preferred_doc_types !== undefined) row.preferred_doc_types = input.preferred_doc_types;
   if (input.hear_about_us !== undefined) row.hear_about_us = input.hear_about_us;

@@ -1,5 +1,12 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { FileText } from "lucide-react";
+import { APP_CONFIG } from "@/config/app-config";
+
+export const metadata: Metadata = {
+  title: `Templates – ${APP_CONFIG.name}`,
+  description: "Use and create document templates.",
+};
 
 const TABS = ["All", "Proposals", "Reports", "Decks"];
 const STARTER_TEMPLATES = [

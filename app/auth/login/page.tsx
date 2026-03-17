@@ -1,10 +1,16 @@
 import Link from "next/link";
 import Image from "next/image";
+import type { Metadata } from "next";
 
 import { APP_CONFIG } from "@/config/app-config";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { GoogleButton } from "@/components/auth/social-auth/google-button";
+
+export const metadata: Metadata = {
+  title: `Sign in – ${APP_CONFIG.name}`,
+  description: "Sign in to your Docsive account.",
+};
 
 export default async function LoginV2({
   searchParams,

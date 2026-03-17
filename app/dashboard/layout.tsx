@@ -1,7 +1,8 @@
 import { ReactNode } from "react";
-
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
+import { APP_CONFIG } from "@/config/app-config";
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
 import { SidebarCloseOnNavigate } from "@/components/sidebar/sidebar-close-on-navigate";
 import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
@@ -13,8 +14,14 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/server";
 import { SearchDialog } from "@/components/sidebar/search-dialog";
 import { getMyWorkspaces, getCurrentUserProfile, setWorkspaceCookie } from "@/lib/actions/onboarding";
+import { getMyPendingDocumentAccessRequests, getPendingWorkspaceInvitesForMe } from "@/lib/actions/notifications";
 
 const WORKSPACE_ID_COOKIE = "workspace_id";
+
+export const metadata: Metadata = {
+  title: `Dashboard – ${APP_CONFIG.name}`,
+  description: "Your Docsive workspace: documents, clients, and team.",
+};
 
 export default async function Layout({ children }: Readonly<{ children: ReactNode }>) {
   const supabase = await createClient();
@@ -51,6 +58,12 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
     await setWorkspaceCookie(workspaces[0].id).catch(() => {});
   }
 
+  const [accessRes, invitesRes] = await Promise.all([
+    getMyPendingDocumentAccessRequests(),
+    getPendingWorkspaceInvitesForMe(),
+  ]);
+  const notificationCount = (accessRes.requests?.length ?? 0) + (invitesRes.invites?.length ?? 0);
+
   const userData = {
     id: user.id,
     name: displayName,
@@ -72,6 +85,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
         }}
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
+        notificationCount={notificationCount}
       />
       <SidebarInset className={cn("min-w-0 max-w-full flex flex-col overflow-hidden")}>
         <KonvaAiProvider>

@@ -1,4 +1,5 @@
 import type React from 'react';
+import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -13,6 +14,7 @@ import {
   getLinkVerifiedToken,
   findActiveDocumentLink,
 } from '@/lib/actions/documents';
+import { contentToMetaDescription } from '@/lib/seo';
 import { getCurrentUserProfile, getWorkspaceDetails, setWorkspaceCookie } from '@/lib/actions/onboarding';
 import { DocumentRoomProvider } from '@/components/platejs/editors/document-room-provider';
 import { DocumentEditorView } from './document-editor-view';
@@ -20,9 +22,89 @@ import { SharedDocumentView } from './shared-document-view';
 import { LinkPasswordGate } from './link-password-gate';
 import { ViewerIdentityGate } from './viewer-identity-gate';
 import type { DocumentDetail } from '@/types/database';
+import { APP_CONFIG } from '@/config/app-config';
 
 const WORKSPACE_ID_COOKIE = 'workspace_id';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const METADATA_BASE = process.env.NEXT_PUBLIC_APP_URL ?? 'https://docsiv.com';
+const DEFAULT_OG_IMAGE = '/opengraph.png';
+
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ share?: string }>;
+}): Promise<Metadata> {
+  const { share: shareToken } = await searchParams;
+
+  if (!shareToken) {
+    return {
+      title: `Document – ${APP_CONFIG.name}`,
+      description: APP_CONFIG.meta.description,
+      openGraph: {
+        title: `Document – ${APP_CONFIG.name}`,
+        description: APP_CONFIG.meta.description,
+        images: [new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString()],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: `Document – ${APP_CONFIG.name}`,
+        description: APP_CONFIG.meta.description,
+        images: [new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString()],
+      },
+    };
+  }
+
+  const data = await getDocumentByToken(shareToken);
+  if (!data) {
+    return {
+      title: `Document – ${APP_CONFIG.name}`,
+      description: APP_CONFIG.meta.description,
+      openGraph: {
+        title: `Document – ${APP_CONFIG.name}`,
+        description: APP_CONFIG.meta.description,
+        images: [new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString()],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: `Document – ${APP_CONFIG.name}`,
+        description: APP_CONFIG.meta.description,
+        images: [new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString()],
+      },
+    };
+  }
+
+  const { document: doc } = data;
+  const title = `${doc.title || 'Untitled'} – ${APP_CONFIG.name}`;
+  const description =
+    contentToMetaDescription(doc.content, doc.base_type) ??
+    'View this document on Docsive.';
+
+  const ogImage =
+    doc.thumbnail_url && doc.thumbnail_url.startsWith('http')
+      ? doc.thumbnail_url
+      : doc.thumbnail_url
+        ? new URL(doc.thumbnail_url, METADATA_BASE).toString()
+        : new URL(DEFAULT_OG_IMAGE, METADATA_BASE).toString();
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      images: [ogImage],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [ogImage],
+    },
+  };
+}
 
 export default async function DocumentEditorPage({
   params,

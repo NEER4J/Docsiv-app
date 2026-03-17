@@ -1,8 +1,15 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { User } from "lucide-react";
+import { APP_CONFIG } from "@/config/app-config";
 import { getClients } from "@/lib/actions/clients";
 import { NewClientDialog } from "@/components/clients/new-client-dialog";
+
+export const metadata: Metadata = {
+  title: `Clients – ${APP_CONFIG.name}`,
+  description: "Manage your clients and their documents.",
+};
 
 export default async function ClientsPage() {
   const cookieStore = await cookies();

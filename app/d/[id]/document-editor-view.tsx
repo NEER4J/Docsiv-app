@@ -65,6 +65,7 @@ import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
+import { ForceLightContainer } from '@/components/documents/force-light-container';
 import { getDisplayForDocumentType } from '@/lib/document-type-icons';
 import { BASE_TYPE_FALLBACK } from '@/app/dashboard/documents/document-types';
 
@@ -360,19 +361,9 @@ export function DocumentEditorView({
     [document.id, workspaceId]
   );
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* Locked banner */}
-      {isLocked && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-sm dark:bg-yellow-900/20 dark:border-yellow-800 dark:text-yellow-400">
-          <Lock className="size-4 shrink-0" />
-          <span>This document is signed and locked. Only the owner can unlock it.</span>
-        </div>
-      )}
-
-      {/* Top bar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border shrink-0">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+  const topBar = (
+    <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-2 shrink-0">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <DocumentTypeIcon documentType={document.document_type} baseType={baseType} />
           {isEditingTitle ? (
             <input
@@ -392,7 +383,7 @@ export function DocumentEditorView({
                   titleInputRef.current?.blur();
                 }
               }}
-              className="font-ui text-sm font-medium text-foreground bg-transparent border border-border rounded px-1.5 py-0.5 min-w-[120px] max-w-[40vw] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+              className="font-ui rounded border border-border bg-transparent px-1.5 py-0.5 text-sm font-medium text-foreground min-w-[120px] max-w-[40vw] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
               aria-label="Document name"
             />
           ) : (
@@ -401,8 +392,8 @@ export function DocumentEditorView({
                 type="button"
                 onClick={startEditingTitle}
                 className={cn(
-                  'font-ui text-sm font-medium text-foreground truncate text-left min-w-0 rounded px-1.5 py-0.5 -ml-1',
-                  canRenameTitle && 'hover:bg-muted/80 cursor-pointer'
+                  'font-ui -ml-1 min-w-0 truncate rounded px-1.5 py-0.5 text-left text-sm font-medium text-foreground',
+                  canRenameTitle && 'cursor-pointer hover:bg-muted/80'
                 )}
                 title={canRenameTitle ? 'Rename document' : barTitle}
               >
@@ -412,7 +403,7 @@ export function DocumentEditorView({
                 <button
                   type="button"
                   onClick={startEditingTitle}
-                  className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/80"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
                   aria-label="Rename document"
                 >
                   <Pencil className="size-3.5" />
@@ -423,7 +414,7 @@ export function DocumentEditorView({
 
           {/* Role badge + request access */}
           {badge && (
-            <div className="flex items-center gap-1.5 rounded-full border border-border bg-muted/50 pl-2.5 pr-1 py-0.5 shrink-0">
+            <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted/50 pl-2.5 pr-1 py-0.5">
               <span className="inline-flex items-center gap-1 text-[0.6875rem] font-medium whitespace-nowrap">
                 <badge.icon className="size-3" />
                 {badge.label}
@@ -432,7 +423,7 @@ export function DocumentEditorView({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 rounded-full text-[0.6875rem] text-muted-foreground hover:text-foreground px-2"
+                  className="h-6 rounded-full px-2 text-[0.6875rem] text-muted-foreground hover:text-foreground"
                   disabled={editRequested}
                   onClick={async () => {
                     setEditRequested(true);
@@ -458,13 +449,13 @@ export function DocumentEditorView({
           )}
 
           {isDocOrContract && !effectiveReadOnly && (
-            <span className="font-body text-xs text-muted-foreground whitespace-nowrap shrink-0">
+            <span className="font-body shrink-0 whitespace-nowrap text-xs text-muted-foreground">
               {saveStatus === 'saving' && 'Saving...'}
               {saveStatus === 'saved' && 'Saved'}
             </span>
           )}
           {(isReport || isPresentation || isSheet) && !effectiveReadOnly && (
-            <span className="font-body text-xs text-muted-foreground whitespace-nowrap shrink-0">
+            <span className="font-body shrink-0 whitespace-nowrap text-xs text-muted-foreground">
               {grapesSaveStatus === 'saving' && 'Saving...'}
               {grapesSaveStatus === 'saved' && 'Saved'}
             </span>
@@ -527,11 +518,12 @@ export function DocumentEditorView({
           />
         </div>
       </div>
+  );
 
-      {/* Editor area: force light theme so canvas/editor stays consistent; header above follows app theme. */}
-      <div className="document-editor-force-light flex min-h-0 flex-1 flex-col overflow-hidden">
-        {/* Live collaboration cursors (Supabase Realtime) */}
-        <DocumentPresenceCursors />
+  const editorArea = (
+    <ForceLightContainer className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* Live collaboration cursors (Supabase Realtime) */}
+      <DocumentPresenceCursors />
 
         {/* Editor */}
         {isReportKonva ? (
@@ -570,8 +562,8 @@ export function DocumentEditorView({
           />
         </div>
       ) : isDocOrContract ? (
-        <div
-          className="min-h-0 flex-1 flex flex-col overflow-x-hidden overflow-y-auto canvas-dot-pattern document-editor-force-light min-w-0"
+        <ForceLightContainer
+          className="min-h-0 flex-1 flex flex-col overflow-x-hidden overflow-y-auto canvas-dot-pattern min-w-0"
           style={{ backgroundColor: '#e5e5e5', backgroundImage: 'radial-gradient(circle, #a3a3a3 1px, transparent 1px)', backgroundSize: '16px 16px' }}
         >
           <div className="plate-doc-toolbar-full w-full min-w-0 flex-1 flex flex-col min-h-0">
@@ -579,6 +571,9 @@ export function DocumentEditorView({
               documentId={document.id}
               currentUserId={currentUserId}
               currentUserDisplay={currentUserDisplay}
+              saveContentNow={async (value) => {
+                await updateDocumentContent(document.id, value);
+              }}
             >
               <DocumentUploadProvider
                 workspaceId={workspaceId}
@@ -598,7 +593,7 @@ export function DocumentEditorView({
               </DocumentUploadProvider>
             </DocumentCommentsProvider>
           </div>
-        </div>
+        </ForceLightContainer>
       ) : isPresentation ? (
         <div
           key={document.updated_at ?? document.id}
@@ -652,7 +647,19 @@ export function DocumentEditorView({
           </div>
         </div>
       )}
-      </div>
+    </ForceLightContainer>
+  );
+
+  return (
+    <ForceLightContainer className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {isLocked && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-sm">
+          <Lock className="size-4 shrink-0" />
+          <span>This document is signed and locked. Only the owner can unlock it.</span>
+        </div>
+      )}
+      {topBar}
+      {editorArea}
 
       {/* Share dialog */}
       <ShareDialog
@@ -725,6 +732,6 @@ export function DocumentEditorView({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </ForceLightContainer>
   );
 }

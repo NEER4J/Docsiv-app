@@ -39,6 +39,7 @@ import {
   TooltipTrigger,
 } from '@/components/platejs/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { usePortalContainer } from './portal-container-context';
 
 export function EmojiToolbarButton({
   options,
@@ -80,11 +81,13 @@ export function EmojiPopover({
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
 }) {
+  const container = usePortalContainer();
+
   return (
     <Popover.Root onOpenChange={setIsOpen} open={isOpen}>
       <Popover.Trigger asChild>{control}</Popover.Trigger>
 
-      <Popover.Portal>
+      <Popover.Portal container={container}>
         <Popover.Content className="z-100">{children}</Popover.Content>
       </Popover.Portal>
     </Popover.Root>

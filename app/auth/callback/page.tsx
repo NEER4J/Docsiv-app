@@ -1,5 +1,12 @@
+import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { APP_CONFIG } from '@/config/app-config'
+
+export const metadata: Metadata = {
+  title: `Redirecting – ${APP_CONFIG.name}`,
+  robots: { index: false },
+};
 
 export default async function AuthCallback({
   searchParams,

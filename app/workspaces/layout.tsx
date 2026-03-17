@@ -1,8 +1,15 @@
 import { ReactNode } from "react";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { APP_CONFIG } from "@/config/app-config";
 import { getCurrentUserProfile } from "@/lib/actions/onboarding";
 import { WorkspaceHeader } from "./workspace-header";
+
+export const metadata: Metadata = {
+  title: `Workspaces – ${APP_CONFIG.name}`,
+  description: "Manage your workspaces and switch between them.",
+};
 
 export default async function WorkspacesLayout({
   children,

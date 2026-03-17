@@ -1,10 +1,16 @@
 import Link from "next/link";
 import Image from "next/image";
+import type { Metadata } from "next";
 
 import { APP_CONFIG } from "@/config/app-config";
 
 import { RegisterForm } from "@/components/auth/register-form";
 import { GoogleButton } from "@/components/auth/social-auth/google-button";
+
+export const metadata: Metadata = {
+  title: `Create account – ${APP_CONFIG.name}`,
+  description: "Create your Docsive account.",
+};
 
 export default async function RegisterV2({
   searchParams,

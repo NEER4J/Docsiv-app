@@ -1,11 +1,12 @@
 import { ReactNode } from "react";
-import { SettingsNav } from "@/components/settings/settings-nav";
+import type { Metadata } from "next";
+import { APP_CONFIG } from "@/config/app-config";
+
+export const metadata: Metadata = {
+  title: `Settings – ${APP_CONFIG.name}`,
+  description: "Workspace and account settings.",
+};
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0 md:flex-row">
-      <SettingsNav />
-      <main className="min-w-0 flex-1 p-4">{children}</main>
-    </div>
-  );
+  return <div className="flex flex-1 flex-col min-h-0">{children}</div>;
 }

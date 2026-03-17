@@ -157,6 +157,8 @@ const setBlockMap: Record<
   [KEYS.codeBlock]: (editor) => toggleCodeBlock(editor),
 };
 
+const HEADING_TYPES = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+
 export const setBlockType = (
   editor: PlateEditor,
   type: string,
@@ -174,6 +176,16 @@ export const setBlockType = (
       }
       if (node.type !== type) {
         editor.tf.setNodes({ type }, { at: path });
+      }
+
+      // Strip fontSize marks from text nodes when converting to a heading,
+      // so the heading's CSS font-size class applies correctly.
+      if (HEADING_TYPES.has(type)) {
+        editor.tf.unsetNodes(KEYS.fontSize, {
+          at: path,
+          mode: 'lowest',
+          match: (n) => 'text' in n && KEYS.fontSize in n,
+        });
       }
     };
 

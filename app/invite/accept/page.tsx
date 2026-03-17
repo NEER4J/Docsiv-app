@@ -1,7 +1,13 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { getInviteByToken } from "@/lib/actions/onboarding";
 import { APP_CONFIG } from "@/config/app-config";
 import { AcceptInviteClient } from "./accept-invite-client";
+
+export const metadata: Metadata = {
+  title: `Accept invite – ${APP_CONFIG.name}`,
+  description: "Join a workspace on Docsive.",
+};
 
 export default async function AcceptInvitePage({
   searchParams,

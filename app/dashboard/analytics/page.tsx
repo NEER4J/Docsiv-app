@@ -1,3 +1,11 @@
+import type { Metadata } from "next";
+import { APP_CONFIG } from "@/config/app-config";
+
+export const metadata: Metadata = {
+  title: `Analytics – ${APP_CONFIG.name}`,
+  description: "Track document engagement, opens, and signatures.",
+};
+
 export default async function AnalyticsPage() {
   return (
     <div className="space-y-8">

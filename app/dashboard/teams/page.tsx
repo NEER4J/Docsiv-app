@@ -1,8 +1,15 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { APP_CONFIG } from "@/config/app-config";
 import { getMyWorkspaces, getWorkspaceTeam } from "@/lib/actions/onboarding";
 import { TeamsView } from "./teams-view";
 
 const WORKSPACE_ID_COOKIE = "workspace_id";
+
+export const metadata: Metadata = {
+  title: `Team – ${APP_CONFIG.name}`,
+  description: "Manage your workspace team members.",
+};
 
 export default async function TeamsPage() {
   const cookieStore = await cookies();

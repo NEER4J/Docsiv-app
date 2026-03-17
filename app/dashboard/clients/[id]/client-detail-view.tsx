@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, CheckSquare, Trash2, X } from "lucide-react";
 import { User, FileText, Globe, Phone, Envelope } from "@phosphor-icons/react";
 import {
   DocumentTypeSwitcher,
@@ -12,12 +12,15 @@ import {
 } from "@/components/documents/document-type-switcher";
 import { DocumentsFilterBar } from "@/components/documents/documents-filter-bar";
 import { DocumentsList } from "@/components/documents/documents-list";
-import { getDocumentById, uploadDocumentThumbnail } from "@/lib/actions/documents";
+import { Button } from "@/components/ui/button";
+import { getDocumentById, uploadDocumentThumbnail, softDeleteDocument, bulkSoftDeleteDocuments } from "@/lib/actions/documents";
+import { toast } from "sonner";
 import { captureHtmlAsPngBase64, captureKonvaContentAsPngBase64, captureUniverContentAsPngBase64 } from "@/lib/capture-thumbnail";
 import { getFirstPageContent, isGrapesJSContent } from "@/lib/grapesjs-content";
 import { isKonvaContent } from "@/lib/konva-content";
 import { isUniverSheetContent } from "@/lib/univer-sheet-content";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import type { ClientWithDocCount } from "@/types/database";
 import type { DocumentListItem, DocumentType } from "@/types/database";
 
@@ -115,6 +118,7 @@ type DocumentsTabProps = {
   onNavigateStart?: (docId: string) => void;
   onUpdateThumbnail?: (doc: DocumentListItem) => void;
   updatingThumbnailId?: string | null;
+  onMoveToTrash?: (docId: string) => void;
 };
 
 function DocumentsTab(props: DocumentsTabProps) {
@@ -133,7 +137,27 @@ function DocumentsTab(props: DocumentsTabProps) {
     onNavigateStart,
     onUpdateThumbnail,
     updatingThumbnailId,
+    onMoveToTrash,
   } = props;
+
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const router = useRouter();
+
+  const toggleSelectMode = () => {
+    setSelectMode((v) => !v);
+    setSelectedIds(new Set());
+  };
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const statusLower = status.toLowerCase();
@@ -146,19 +170,80 @@ function DocumentsTab(props: DocumentsTabProps) {
     });
   }, [documents, search, status, documentTypeSlug]);
 
+  const handleBulkMoveToTrash = async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    setBulkLoading(true);
+    const { error } = await bulkSoftDeleteDocuments(ids);
+    setBulkLoading(false);
+    if (error) { toast.error(error); return; }
+    toast.success(`${ids.length} document${ids.length === 1 ? "" : "s"} moved to trash`);
+    setSelectedIds(new Set());
+    setSelectMode(false);
+    router.refresh();
+  };
+
   return (
     <div className="mt-6 space-y-4">
-      <DocumentsFilterBar
-        searchQuery={search}
-        onSearchChange={onSearchChange}
-        documentTypes={documentTypes}
-        documentTypeSlug={documentTypeSlug}
-        onDocumentTypeChange={onDocumentTypeChange}
-        status={status}
-        onStatusChange={onStatusChange}
-        layout={layout}
-        onLayoutChange={onLayoutChange}
-      />
+      <div className="flex items-start gap-2">
+        <div className="flex-1">
+          <DocumentsFilterBar
+            searchQuery={search}
+            onSearchChange={onSearchChange}
+            documentTypes={documentTypes}
+            documentTypeSlug={documentTypeSlug}
+            onDocumentTypeChange={onDocumentTypeChange}
+            status={status}
+            onStatusChange={onStatusChange}
+            layout={layout}
+            onLayoutChange={onLayoutChange}
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={toggleSelectMode}
+          className={cn("h-9 shrink-0", selectMode && "bg-muted-active")}
+          aria-pressed={selectMode}
+        >
+          <CheckSquare className="size-4" />
+          <span className="hidden sm:inline">{selectMode ? "Cancel" : "Select"}</span>
+        </Button>
+      </div>
+      {selectMode && selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted px-4 py-2.5">
+          <span className="text-sm font-medium text-foreground">
+            {selectedIds.size} selected
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleBulkMoveToTrash}
+              disabled={bulkLoading}
+              className="h-8 gap-1.5 text-destructive hover:text-destructive"
+            >
+              <Trash2 className="size-3.5" />
+              Move to trash
+            </Button>
+            <Button size="sm" variant="ghost" onClick={clearSelection} className="h-8">
+              <X className="size-3.5" />
+              <span className="sr-only">Clear selection</span>
+            </Button>
+          </div>
+        </div>
+      )}
+      {selectMode && (
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => selectedIds.size === filtered.length ? clearSelection() : setSelectedIds(new Set(filtered.map((d) => d.id)))}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {selectedIds.size === filtered.length ? "Deselect all" : "Select all"}
+          </button>
+        </div>
+      )}
       <DocumentsList
         layout={layout}
         docs={filtered}
@@ -167,10 +252,14 @@ function DocumentsTab(props: DocumentsTabProps) {
             ? "No documents for this client yet."
             : "No documents match your filters."
         }
+        onMoveToTrash={onMoveToTrash}
         navigatingToDocId={navigatingToDocId}
         onNavigateStart={onNavigateStart}
         onUpdateThumbnail={onUpdateThumbnail}
         updatingThumbnailId={updatingThumbnailId}
+        selectable={selectMode}
+        selectedIds={selectedIds}
+        onSelectionChange={toggleSelection}
       />
     </div>
   );
@@ -192,6 +281,12 @@ export function ClientDetailView({
   const [navigatingToDocId, setNavigatingToDocId] = useState<string | null>(null);
   const [updatingThumbnailId, setUpdatingThumbnailId] = useState<string | null>(null);
   const [docSearch, setDocSearch] = useState("");
+
+  const handleMoveToTrash = async (docId: string) => {
+    const { error } = await softDeleteDocument(docId);
+    if (error) toast.error(error);
+    else { toast.success("Moved to trash"); router.refresh(); }
+  };
 
   const handleUpdateThumbnail = async (doc: DocumentListItem) => {
     if (!workspaceId) return;
@@ -282,6 +377,7 @@ export function ClientDetailView({
             onNavigateStart={setNavigatingToDocId}
             onUpdateThumbnail={handleUpdateThumbnail}
             updatingThumbnailId={updatingThumbnailId}
+            onMoveToTrash={handleMoveToTrash}
           />
         </DocumentTypeSwitcherContent>
       </DocumentTypeSwitcher>

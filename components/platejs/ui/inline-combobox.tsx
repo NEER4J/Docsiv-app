@@ -14,6 +14,7 @@ import {
   useComboboxStore,
 } from '@ariakit/react';
 import { filterWords } from '@platejs/combobox';
+import { usePortalContainer } from './portal-container-context';
 import {
   type UseComboboxInputResult,
   useComboboxInput,
@@ -271,6 +272,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
 }) => {
   // Portal prevents CSS from leaking into popover
   const store = useComboboxContext();
+  const portalContainer = usePortalContainer();
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (!store) return;
@@ -292,7 +294,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
   }
 
   return (
-    <Portal>
+    <Portal portalElement={portalContainer ?? undefined}>
       <ComboboxPopover
         className={cn(
           'z-500 max-h-[288px] w-[300px] overflow-y-auto rounded-md bg-popover shadow-md',

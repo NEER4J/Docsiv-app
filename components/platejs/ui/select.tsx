@@ -5,6 +5,7 @@ import { Select as SelectPrimitive } from 'radix-ui';
 import type * as React from 'react';
 
 import { cn } from '@/lib/utils';
+import { usePortalContainer } from './portal-container-context';
 
 function Select({
   ...props
@@ -57,8 +58,10 @@ function SelectContent({
   align = 'center',
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  const container = usePortalContainer();
+
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={container}>
       <SelectPrimitive.Content
         align={align}
         className={cn(
