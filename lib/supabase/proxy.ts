@@ -4,6 +4,7 @@ import { hasEnvVars } from "../utils";
 
 const WORKSPACE_ID_COOKIE = "workspace_id";
 const PLATFORM_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "docsiv.com";
+const PLATFORM_APP_HOST = process.env.NEXT_PUBLIC_APP_HOST ?? `app.${PLATFORM_DOMAIN}`;
 
 function getNormalizedHost(request: NextRequest): string {
   const forwarded = request.headers.get("x-forwarded-host");
@@ -15,6 +16,7 @@ function isRootPlatformHost(host: string, platformDomain: string): boolean {
   return (
     !host ||
     host === platformDomain ||
+    host === PLATFORM_APP_HOST ||
     host === `www.${platformDomain}` ||
     host === "localhost" ||
     host === "127.0.0.1"
