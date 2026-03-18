@@ -154,6 +154,7 @@ export default async function DocumentEditorPage({
               shareToken={activeLink.token}
               workspaceName={data.workspace_name}
               workspaceLogoUrl={data.workspace_logo_url}
+              hideDocsivBranding={data.hide_docsiv_branding ?? false}
             />
           </DocumentRoomProvider>
         );
@@ -188,7 +189,9 @@ export default async function DocumentEditorPage({
             shareToken={activeLink.token}
             workspaceName={data.workspace_name}
             workspaceLogoUrl={data.workspace_logo_url}
+            hideDocsivBranding={data.hide_docsiv_branding ?? false}
             isAuthenticated
+            currentUserId={user.id}
           />
         </DocumentRoomProvider>
       );
@@ -239,7 +242,9 @@ async function handleSharedAccess(
           shareToken={token}
           workspaceName={data.workspace_name}
           workspaceLogoUrl={data.workspace_logo_url}
+          hideDocsivBranding={data.hide_docsiv_branding ?? false}
           isAuthenticated
+          currentUserId={user.id}
         />
       </DocumentRoomProvider>
     );
@@ -277,6 +282,7 @@ async function handleSharedAccess(
         shareToken={token}
         workspaceName={data.workspace_name}
         workspaceLogoUrl={data.workspace_logo_url}
+        hideDocsivBranding={data.hide_docsiv_branding ?? false}
       />
     </DocumentRoomProvider>
   );

@@ -61,6 +61,7 @@ export async function updateSession(request: NextRequest) {
   const user = data?.claims;
   const pathname = request.nextUrl.pathname;
   const host = getNormalizedHost(request);
+  const isClientPortalPath = pathname.startsWith("/client/");
 
   // ── Legacy auth aliases -> canonical white-label auth routes ───────────────
   if (pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/reset-password" || pathname === "/auth/forgot-password") {
@@ -75,6 +76,10 @@ export async function updateSession(request: NextRequest) {
   // ── Domain resolver (priority: custom domain -> subdomain -> app root) ─────
   const isVercelPreview = host.endsWith(".vercel.app");
   const rootHost = isRootPlatformHost(host, PLATFORM_DOMAIN);
+  if (isClientPortalPath && (rootHost || isVercelPreview)) {
+    const url = new URL(`https://${PLATFORM_DOMAIN}`);
+    return applyCookiesTo(NextResponse.redirect(url));
+  }
   if (!rootHost && !isVercelPreview) {
     const { data: hostWorkspace } = await supabase.rpc("resolve_workspace_for_host", {
       p_host: host,
@@ -122,6 +127,7 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/vision") ||
     pathname.startsWith("/invite") ||
     pathname.startsWith("/p/") ||
+    pathname.startsWith("/client/") ||
     // /d/{id}?share={token} is public — anonymous users can view shared docs
     (pathname.startsWith("/d/") && hasShareParam);
 
@@ -157,6 +163,34 @@ export async function updateSession(request: NextRequest) {
   // Onboarding gate: /dashboard requires profile + onboarding_completed
   // /d/ paths skip onboarding gate entirely — page handles access checks + public link fallback
   const userId = user?.sub as string | undefined;
+  const isDocsivAppPath = pathname.startsWith("/dashboard") || pathname.startsWith("/workspaces");
+  if (userId && isDocsivAppPath) {
+    const workspaceIdForRole =
+      requestHeaders.get("x-workspace-id") ??
+      request.cookies.get(WORKSPACE_ID_COOKIE)?.value ??
+      null;
+    if (workspaceIdForRole) {
+      const { data: roleRow } = await supabase
+        .from("workspace_members")
+        .select("role")
+        .eq("workspace_id", workspaceIdForRole)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (roleRow?.role === "client") {
+        const { data: portalMembership } = await supabase
+          .from("client_portal_memberships")
+          .select("client_id")
+          .eq("workspace_id", workspaceIdForRole)
+          .eq("user_id", userId)
+          .eq("status", "active")
+          .limit(1)
+          .maybeSingle();
+        const url = request.nextUrl.clone();
+        url.pathname = portalMembership?.client_id ? `/client/${portalMembership.client_id}` : "/";
+        return applyCookiesTo(NextResponse.redirect(url));
+      }
+    }
+  }
   if (userId && pathname.startsWith("/dashboard")) {
     const { data: profile } = await supabase
       .from("users")

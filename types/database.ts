@@ -1,6 +1,6 @@
 export type UserTheme = "light" | "dark";
 export type WorkspacePlan = "free" | "pro" | "agency";
-export type WorkspaceMemberRole = "owner" | "admin" | "member";
+export type WorkspaceMemberRole = "owner" | "admin" | "member" | "client";
 
 export interface User {
   id: string;

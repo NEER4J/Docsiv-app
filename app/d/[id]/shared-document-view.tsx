@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
-import { MoreHorizontal, Download, MessageSquare } from 'lucide-react';
+import { MoreHorizontal, Download, MessageSquare, Plus, Loader2 } from 'lucide-react';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
 import type { PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { requestEditAccess } from '@/lib/actions/documents';
 import { toast } from 'sonner';
 import { DocumentPresenceAvatars } from '@/components/platejs/editors/document-room-provider';
@@ -21,9 +22,12 @@ import type { Value } from 'platejs';
 import { Presentation } from 'lucide-react';
 import { PageBuilderPreview } from '@/components/grapesjs/page-builder-preview';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
-import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
-import { isUniverSheetContent } from '@/lib/univer-sheet-content';
+import { isKonvaContent, normalizeKonvaPresentationContent, emptyKonvaReportContent, type KonvaStoredContent } from '@/lib/konva-content';
+import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
+import type { KonvaReportEditorHandle } from '@/components/konva/report-editor';
+import type { KonvaPresentationEditorHandle } from '@/components/konva/presentation-editor';
+import type { UniverSheetEditorHandle } from '@/components/univer/univer-sheet-editor';
 
 const RevealPresentationViewer = dynamic(
   () => import('@/components/konva/reveal-presentation-viewer').then((m) => ({ default: m.RevealPresentationViewer })),
@@ -37,6 +41,21 @@ const KonvaReportPreview = dynamic(
 
 const UniverSheetViewer = dynamic(
   () => import('@/components/univer/univer-sheet-viewer').then((m) => ({ default: m.UniverSheetViewer })),
+  { ssr: false }
+);
+
+const KonvaReportEditor = dynamic(
+  () => import('@/components/konva/report-editor').then((m) => ({ default: m.KonvaReportEditor })),
+  { ssr: false }
+);
+
+const KonvaPresentationEditor = dynamic(
+  () => import('@/components/konva/presentation-editor').then((m) => ({ default: m.KonvaPresentationEditor })),
+  { ssr: false }
+);
+
+const UniverSheetEditor = dynamic(
+  () => import('@/components/univer/univer-sheet-editor').then((m) => ({ default: m.UniverSheetEditor })),
   { ssr: false }
 );
 
@@ -62,7 +81,9 @@ export function SharedDocumentView({
   shareToken,
   workspaceName,
   workspaceLogoUrl,
+  hideDocsivBranding = false,
   isAuthenticated = false,
+  currentUserId,
 }: {
   document: Doc;
   role: string;
@@ -70,10 +91,19 @@ export function SharedDocumentView({
   shareToken: string;
   workspaceName?: string;
   workspaceLogoUrl?: string | null;
+  hideDocsivBranding?: boolean;
   isAuthenticated?: boolean;
+  currentUserId?: string;
 }) {
   const [editRequested, setEditRequested] = useState(false);
+  const [newCommentText, setNewCommentText] = useState('');
+  const [commentAddOpen, setCommentAddOpen] = useState(false);
+  const [addingComment, setAddingComment] = useState(false);
+  const commentInputRef = useRef<HTMLInputElement>(null);
   const plateEditorRef = useRef<PlateDocumentEditorHandle>(null);
+  const konvaReportRef = useRef<KonvaReportEditorHandle>(null);
+  const konvaPresentationRef = useRef<KonvaPresentationEditorHandle>(null);
+  const univerSheetRef = useRef<UniverSheetEditorHandle>(null);
   const rootContainerClass = isAuthenticated
     ? 'flex h-full min-h-0 flex-col overflow-hidden bg-background'
     : 'flex h-screen min-h-0 flex-col overflow-hidden bg-background';
@@ -90,13 +120,44 @@ export function SharedDocumentView({
     platePages.length > 0 ? mergePlatePagesToSingle(platePages) : EMPTY_PLATE_VALUE;
 
   const canEdit = role === 'edit';
-  // Any logged-in user with access can add comments; anonymous view users must sign in to comment.
-  const canComment = role === 'edit' || role === 'comment' || (role === 'view' && !!isAuthenticated);
-  const canUseComments = isDocOrContract;
+  // Only logged-in users can see/add comments; anonymous users see no comment UI.
+  const canComment = !!isAuthenticated && (role === 'edit' || role === 'comment');
+  const canUseComments = isDocOrContract || isSheetDoc || isKonvaDoc;
 
   const openCommentsPanel = useCallback(() => {
     if (isDocOrContract) plateEditorRef.current?.toggleCommentsPanel();
-  }, [isDocOrContract]);
+    else if (isSheetDoc) univerSheetRef.current?.toggleCommentsPanel();
+    else if (isPresentation) konvaPresentationRef.current?.toggleCommentsPanel();
+    else if (isKonvaDoc) konvaReportRef.current?.toggleCommentsPanel();
+  }, [isDocOrContract, isSheetDoc, isPresentation, isKonvaDoc]);
+
+  const isKonvaReport = isKonvaDoc && !isPresentation;
+
+  const addCommentFromTopbar = useCallback(async () => {
+    if (addingComment) return;
+    const text = newCommentText.trim();
+    if (!isKonvaReport && !isPresentation && !text) return;
+    setAddingComment(true);
+    try {
+      if (isKonvaReport) await konvaReportRef.current?.addCommentFromInput(text);
+      else if (isPresentation) await konvaPresentationRef.current?.addCommentFromInput(text);
+      else if (isSheetDoc) await univerSheetRef.current?.addCommentFromInput(text);
+      else if (isDocOrContract) await plateEditorRef.current?.addCommentFromInput(text);
+      setCommentAddOpen(false);
+      setNewCommentText('');
+    } finally {
+      setAddingComment(false);
+    }
+  }, [newCommentText, addingComment, isKonvaReport, isPresentation, isSheetDoc, isDocOrContract]);
+
+  // Auto-focus comment input when dropdown opens
+  useEffect(() => {
+    if (!commentAddOpen) return;
+    const frame = requestAnimationFrame(() => {
+      commentInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [commentAddOpen]);
 
   // After sign-in, redirect back to this same URL → server will auto-claim access and show editor
   const signInHref = `/login?next=${encodeURIComponent(`/d/${documentId}?share=${shareToken}`)}`;
@@ -157,7 +218,7 @@ export function SharedDocumentView({
           <DocumentPresenceAvatars />
           <div className="flex items-center gap-1.5 rounded-full border border-border bg-muted/50 pl-3 pr-1 py-0.5">
             <span className="text-sm font-medium whitespace-nowrap">
-              {canEdit ? 'Edit' : canComment ? 'Comment only' : 'View only'}
+              {role === 'edit' ? 'Edit' : role === 'comment' ? 'Comment only' : 'View only'}
             </span>
             {isAuthenticated ? (
               <Button
@@ -177,22 +238,76 @@ export function SharedDocumentView({
                 asChild
               >
                 <Link href={signInHref}>
-                  {canEdit ? 'Sign in to edit' : canComment ? 'Sign in to comment' : 'Sign in to edit'}
+                  {role === 'edit' ? 'Sign in to edit' : role === 'comment' ? 'Sign in to comment' : 'Sign in'}
                 </Link>
               </Button>
             )}
           </div>
 
           {canUseComments && canComment && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 text-sm"
-              onClick={openCommentsPanel}
-            >
-              <MessageSquare className="size-3.5" />
-              Comments
-            </Button>
+            <div className="flex items-center">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-sm rounded-r-none border-r-0"
+                onClick={openCommentsPanel}
+              >
+                <MessageSquare className="size-3.5" />
+                Comments
+              </Button>
+              {isKonvaReport || isPresentation ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 rounded-l-none px-2.5 text-sm"
+                  disabled={addingComment}
+                  aria-label="Add comment"
+                  onClick={() => void addCommentFromTopbar()}
+                >
+                  {addingComment ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                  Add
+                </Button>
+              ) : (
+                <DropdownMenu open={commentAddOpen} onOpenChange={setCommentAddOpen}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5 rounded-l-none px-2.5 text-sm"
+                      aria-label="Add comment"
+                    >
+                      <Plus className="size-3.5" />
+                      Add
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-80 p-2">
+                    <div className="space-y-2 p-1">
+                      <Input
+                        ref={commentInputRef}
+                        placeholder={isSheetDoc ? 'Type comment for selected cell' : 'Type comment for current selection'}
+                        value={newCommentText}
+                        onChange={(e) => setNewCommentText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void addCommentFromTopbar();
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        disabled={!newCommentText.trim() || addingComment}
+                        onClick={() => void addCommentFromTopbar()}
+                      >
+                        {addingComment ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                        {addingComment ? 'Adding...' : 'Add comment'}
+                      </Button>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           )}
 
           <DropdownMenu>
@@ -226,25 +341,64 @@ export function SharedDocumentView({
       >
         {isSheetDoc ? (
           <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden" style={{ minHeight: 520 }}>
-            <UniverSheetViewer
-              initialSnapshot={isUniverSheetContent(document.content) ? (document.content.snapshot as Record<string, unknown>) : {}}
-              className="min-h-0 flex-1"
-            />
+            {canComment ? (
+              <UniverSheetEditor
+                ref={univerSheetRef}
+                documentId={documentId}
+                workspaceId=""
+                initialContent={isUniverSheetContent(document.content) ? (document.content as UniverStoredContent) : emptyUniverSheetContent()}
+                readOnly
+                canComment
+                currentUserId={currentUserId}
+                className="min-h-0 flex-1"
+              />
+            ) : (
+              <UniverSheetViewer
+                initialSnapshot={isUniverSheetContent(document.content) ? (document.content.snapshot as Record<string, unknown>) : {}}
+                className="min-h-0 flex-1"
+              />
+            )}
           </div>
         ) : isKonvaDoc ? (
           isPresentation ? (
             <div className="flex min-h-0 w-full flex-1 flex-col">
-              <RevealPresentationViewer
-                content={document.content as KonvaStoredContent}
-                className="min-h-0 w-full flex-1"
-              />
+              {canComment ? (
+                <KonvaPresentationEditor
+                  ref={konvaPresentationRef}
+                  documentId={documentId}
+                  workspaceId=""
+                  initialContent={normalizeKonvaPresentationContent(document.content as KonvaStoredContent)}
+                  readOnly
+                  canComment
+                  currentUserId={currentUserId}
+                  className="min-h-0 w-full flex-1"
+                />
+              ) : (
+                <RevealPresentationViewer
+                  content={document.content as KonvaStoredContent}
+                  className="min-h-0 w-full flex-1"
+                />
+              )}
             </div>
           ) : (
-            <div className="w-full flex-1 px-4 py-8 md:px-6 flex justify-center min-h-0 overflow-auto">
-              <KonvaReportPreview
-                content={document.content as KonvaStoredContent}
-                className="min-h-[200px] w-full"
-              />
+            <div className={`w-full flex-1 min-h-0 ${canComment ? 'flex flex-col overflow-hidden' : 'px-4 py-8 md:px-6 flex justify-center overflow-auto'}`}>
+              {canComment ? (
+                <KonvaReportEditor
+                  ref={konvaReportRef}
+                  documentId={documentId}
+                  workspaceId=""
+                  initialContent={isKonvaContent(document.content) ? (document.content as KonvaStoredContent) : emptyKonvaReportContent()}
+                  readOnly
+                  canComment
+                  currentUserId={currentUserId}
+                  className="min-h-[200px] w-full flex-1"
+                />
+              ) : (
+                <KonvaReportPreview
+                  content={document.content as KonvaStoredContent}
+                  className="min-h-[200px] w-full"
+                />
+              )}
             </div>
           )
         ) : isGrapesJSDoc ? (
@@ -283,6 +437,27 @@ export function SharedDocumentView({
           </div>
         )}
       </main>
+      {!hideDocsivBranding && (
+        <div className="fixed bottom-5 right-5 z-50">
+          <a
+            href="https://docsiv.com/?source=shared-doc-badge"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-2.5 rounded-[10px] border border-border bg-white px-3 py-2 transition-colors hover:bg-muted/30"
+          >
+            <Image
+              src="/docsiv-icon.png"
+              alt="Docsiv"
+              width={16}
+              height={16}
+              className="size-[16px] shrink-0"
+            />
+            <span className="text-sm font-ui font-semibold leading-none text-foreground">
+              Made in Docsiv
+            </span>
+          </a>
+        </div>
+      )}
     </div>
   );
 }

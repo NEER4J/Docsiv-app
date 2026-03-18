@@ -47,7 +47,6 @@ import { NavUser } from "./nav-user";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import { useOptionalAiAssistant } from "./ai-assistant-sidebar";
 import { NewDocumentDialog } from "@/components/documents/new-document-dialog";
-import type { WorkspaceBrandingSummary } from "./app-sidebar";
 
 const RECENT_DOCS_LIMIT = 12;
 
@@ -57,7 +56,6 @@ export function EditorSidebar({
   user,
   workspaces = [],
   currentWorkspaceId = null,
-  workspaceBranding = null,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   readonly user: {
@@ -67,14 +65,11 @@ export function EditorSidebar({
   };
   readonly workspaces?: readonly WorkspaceOption[];
   readonly currentWorkspaceId?: string | null;
-  readonly workspaceBranding?: WorkspaceBrandingSummary | null;
 }) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
   const pathname = usePathname();
   const currentDocId = pathname.startsWith("/d/") ? pathname.split("/d/")[1]?.split("?")[0]?.split("/")[0] : null;
-  const brandName = workspaceBranding?.name ?? APP_CONFIG.name;
-  const brandLogoUrl = workspaceBranding?.logoUrl ?? null;
 
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [clients, setClients] = useState<ClientWithDocCount[]>([]);
@@ -133,30 +128,20 @@ export function EditorSidebar({
             isCollapsed ? "justify-center w-full" : "gap-2.5"
           )}
         >
-          {brandLogoUrl ? (
-            <Image
-              src={brandLogoUrl}
-              alt={brandName}
-              width={22}
-              height={22}
-              className="size-[22px] shrink-0 rounded object-contain"
-            />
-          ) : (
-            <Image
-              src="/docsiv-icon.png"
-              alt={brandName}
-              width={22}
-              height={22}
-              className="size-[22px] shrink-0"
-            />
-          )}
+          <Image
+            src="/docsiv-icon.png"
+            alt={APP_CONFIG.name}
+            width={22}
+            height={22}
+            className="size-[22px] shrink-0"
+          />
           <span
             className={cn(
-              "font-playfair text-[1rem] font-semibold tracking-[-0.02em] truncate",
+              "font-playfair text-[1rem] font-semibold tracking-[-0.02em]",
               isCollapsed && "hidden"
             )}
           >
-            {brandName}
+            {APP_CONFIG.name}
           </span>
         </Link>
         {!isCollapsed && (
@@ -165,7 +150,6 @@ export function EditorSidebar({
             <WorkspaceSwitcher
               workspaces={workspaces}
               currentWorkspaceId={currentWorkspaceId}
-              currentWorkspaceLogoUrl={workspaceBranding?.logoUrl ?? null}
             />
           </>
         )}

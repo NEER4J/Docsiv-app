@@ -13,7 +13,6 @@ import { createClient } from "@/lib/supabase/server";
 import { SearchDialog } from "@/components/sidebar/search-dialog";
 import { getMyWorkspaces, getCurrentUserProfile, setWorkspaceCookie } from "@/lib/actions/onboarding";
 import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
-import { getWorkspaceBrandingForWorkspaceId } from "@/lib/workspace-context/branding";
 
 export default async function DocumentEditorRootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const supabase = await createClient();
@@ -50,8 +49,6 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
     await setWorkspaceCookie(workspaces[0].id).catch(() => {});
   }
 
-  const workspaceBranding = await getWorkspaceBrandingForWorkspaceId(currentWorkspaceId);
-
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <SidebarCloseOnNavigate />
@@ -65,7 +62,6 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
         }}
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
-        workspaceBranding={workspaceBranding}
       />
       <SidebarInset className={cn("document-editor-force-light min-w-0 max-w-full flex h-screen flex-col overflow-hidden bg-background text-foreground")}>
         <KonvaAiProvider>

@@ -577,7 +577,7 @@ const KonvaEditorCoreInner = (
 
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (readOnly) return;
+      if (readOnly && !(unifiedCommentsEnabled && canComment && commentPlacementMode)) return;
       if (unifiedCommentsEnabled && canComment && commentPlacementMode) {
         const pos = screenToStage(e.clientX, e.clientY);
         if (pos) {
@@ -627,7 +627,7 @@ const KonvaEditorCoreInner = (
 
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (readOnly) return;
+      if (readOnly && !(commentPlacementMode && unifiedCommentsEnabled && canComment)) return;
       if (commentPlacementMode && unifiedCommentsEnabled && canComment) {
         const containerRect = canvasContainerRef.current?.getBoundingClientRect();
         if (containerRect) {
@@ -829,7 +829,7 @@ const KonvaEditorCoreInner = (
       getCurrentPageImage,
       toggleCommentsPanel: () => setCommentsOpen((v) => !v),
       addCommentFromInput: async (text: string) => {
-        if (!canComment || readOnly || !unifiedCommentsEnabled) return;
+        if (!canComment || !unifiedCommentsEnabled) return;
         setPendingCommentText(text.trim());
         setPendingCommentAnchor(null);
         setPendingCommentPopoverPos(null);

@@ -1,6 +1,5 @@
 import { cache } from "react";
 
-import { getWorkspaceDetails } from "@/lib/actions/onboarding";
 import { resolveWorkspaceByHost } from "@/lib/workspace-context/server";
 
 export type WorkspaceBranding = {
@@ -10,12 +9,6 @@ export type WorkspaceBranding = {
   faviconUrl: string | null;
   brandColor: string;
   hideDocsivBranding: boolean;
-};
-
-/** For dashboard/editor when workspace is selected by cookie (not host). Returns name + logo for sidebar/header. */
-export type WorkspaceBrandingSummary = {
-  name: string;
-  logoUrl: string | null;
 };
 
 const DEFAULT_BRAND_COLOR = "#0a0a0a";
@@ -36,25 +29,13 @@ function normalizeHexColor(input: string | null | undefined): string {
 export const getWorkspaceBrandingForRequest = cache(async (): Promise<WorkspaceBranding | null> => {
   const workspace = await resolveWorkspaceByHost();
   if (!workspace) return null;
+  const isPaidWhitelabel = workspace.hide_docsiv_branding === true;
   return {
     workspaceId: workspace.id,
     name: workspace.name,
     logoUrl: workspace.logo_url,
-    faviconUrl: workspace.favicon_url,
+    faviconUrl: isPaidWhitelabel ? workspace.favicon_url : null,
     brandColor: normalizeHexColor(workspace.brand_color),
     hideDocsivBranding: workspace.hide_docsiv_branding,
   };
 });
-
-/** Get workspace name + logo for sidebar/header by workspace ID (e.g. from cookie). Use when not on a custom host. */
-export const getWorkspaceBrandingForWorkspaceId = cache(
-  async (workspaceId: string | null): Promise<WorkspaceBrandingSummary | null> => {
-    if (!workspaceId) return null;
-    const { workspace, error } = await getWorkspaceDetails(workspaceId);
-    if (error || !workspace) return null;
-    return {
-      name: workspace.name ?? "Workspace",
-      logoUrl: workspace.logo_url ?? null,
-    };
-  }
-);

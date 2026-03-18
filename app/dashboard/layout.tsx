@@ -16,7 +16,6 @@ import { SearchDialog } from "@/components/sidebar/search-dialog";
 import { getMyWorkspaces, getCurrentUserProfile, setWorkspaceCookie } from "@/lib/actions/onboarding";
 import { getMyPendingDocumentAccessRequests, getPendingWorkspaceInvitesForMe } from "@/lib/actions/notifications";
 import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
-import { getWorkspaceBrandingForWorkspaceId } from "@/lib/workspace-context/branding";
 
 export const metadata: Metadata = {
   title: `Dashboard – ${APP_CONFIG.name}`,
@@ -57,10 +56,9 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
     await setWorkspaceCookie(workspaces[0].id).catch(() => {});
   }
 
-  const [accessRes, invitesRes, workspaceBranding] = await Promise.all([
+  const [accessRes, invitesRes] = await Promise.all([
     getMyPendingDocumentAccessRequests(),
     getPendingWorkspaceInvitesForMe(),
-    getWorkspaceBrandingForWorkspaceId(currentWorkspaceId),
   ]);
   const notificationCount = (accessRes.requests?.length ?? 0) + (invitesRes.invites?.length ?? 0);
 
@@ -85,7 +83,6 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
         }}
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
-        workspaceBranding={workspaceBranding}
         notificationCount={notificationCount}
       />
       <SidebarInset className={cn("min-w-0 max-w-full flex flex-col overflow-hidden")}>

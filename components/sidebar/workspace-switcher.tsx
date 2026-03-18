@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, Check, Settings, LayoutGrid, LoaderIcon } from "lucide-react";
 
@@ -17,16 +16,12 @@ import { cn } from "@/lib/utils";
 import { setWorkspaceCookie } from "@/lib/actions/onboarding";
 import type { WorkspaceOption } from "./app-sidebar";
 
-const FALLBACK_LOGO = "/docsiv-icon.png";
-
 export function WorkspaceSwitcher({
   workspaces,
   currentWorkspaceId,
-  currentWorkspaceLogoUrl = null,
 }: {
   workspaces: readonly WorkspaceOption[];
   currentWorkspaceId: string | null;
-  currentWorkspaceLogoUrl?: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -54,24 +49,11 @@ export function WorkspaceSwitcher({
       <DropdownMenuTrigger
         disabled={isSwitching}
         className={cn(
-          "font-ui flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-[0.8125rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted-hover hover:text-foreground border border-border disabled:opacity-70 disabled:pointer-events-none",
+          "font-ui flex w-full items-center justify-between gap-1 rounded-md px-3 py-2 text-left text-[0.8125rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted-hover hover:text-foreground border border-border disabled:opacity-70 disabled:pointer-events-none",
           "group-data-[collapsible=icon]:hidden"
         )}
       >
-        <span className="flex min-w-0 items-center gap-2">
-          {current && (
-            <span className="relative size-5 shrink-0 overflow-hidden rounded">
-              <Image
-                src={currentWorkspaceLogoUrl || FALLBACK_LOGO}
-                alt=""
-                width={20}
-                height={20}
-                className="object-contain"
-              />
-            </span>
-          )}
-          <span className="truncate">{displayName}</span>
-        </span>
+        <span className="truncate">{displayName}</span>
         {isSwitching ? (
           <LoaderIcon className="size-3.5 shrink-0 animate-spin opacity-70" aria-label="Loading" />
         ) : (
