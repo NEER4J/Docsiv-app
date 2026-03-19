@@ -61,8 +61,8 @@ function UpgradeIllustration({ className }: { className?: string }) {
 }
 
 export function UpgradeCard() {
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+  const { state, hoverOpen } = useSidebar();
+  const isCollapsed = state === "collapsed" && !hoverOpen;
 
   const cardContent = (
     <Card className="overflow-hidden border-border bg-muted-hover/50">

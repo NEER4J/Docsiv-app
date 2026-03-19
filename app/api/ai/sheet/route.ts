@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
   let body: {
     messages?: Array<{ role: string; content: string; images?: string[] }>;
     content?: unknown;
+    documentTitle?: string;
     model?: string;
     apiKey?: string;
   };
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { messages = [], content, apiKey: key } = body;
+  const { messages = [], content, documentTitle, apiKey: key } = body;
 
   if (!content || typeof content !== 'object') {
     return NextResponse.json({ error: 'Missing or invalid content' }, { status: 400 });
@@ -70,7 +71,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const docContext = `Current workbook (JSON):\n${truncatedContent}`;
+  const contextLines: string[] = [];
+  if (documentTitle && typeof documentTitle === 'string' && documentTitle.trim()) {
+    contextLines.push(`Document/sheet name: ${documentTitle.trim()}`);
+  }
+  contextLines.push(`Current workbook (JSON):\n${truncatedContent}`);
+  const docContext = contextLines.join('\n');
   const responseInstruction = `\n\nRespond with a JSON object containing "action", "message", and optionally "document" per the response format in your instructions. No markdown fences.`;
 
   if (conversationMessages.length > 0) {

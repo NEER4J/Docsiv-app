@@ -23,6 +23,7 @@ import UniverPresetSheetsHyperLinkEnUS from '@univerjs/preset-sheets-hyper-link/
 import LuckyExcel from '@mertdeveci55/univer-import-export';
 import { updateDocumentContent, createDocumentVersion } from '@/lib/actions/documents';
 import type { UniverStoredContent } from '@/lib/univer-sheet-content';
+import type { UniverSelectionContextResult, UniverSelectionRange } from '@/components/univer/univer-ai-provider';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -50,6 +51,11 @@ export type UniverSheetEditorHandle = {
   addCommentFromInput: (text: string) => Promise<void>;
   getContent: () => UniverStoredContent | null;
   applyContent: (content: UniverStoredContent) => void;
+  getSelectionContext: () => UniverSelectionContextResult | null;
+  applySelectionEdit: (
+    content: Record<string, Record<string, unknown>>,
+    rangeInfo: UniverSelectionRange
+  ) => void;
 };
 
 type UniverSheetEditorProps = {
@@ -296,6 +302,70 @@ const UniverSheetEditorInner = (
     [performSave]
   );
 
+  const getSelectionContext = useCallback((): UniverSelectionContextResult | null => {
+    const api = univerRef.current?.univerAPI;
+    const wb = api?.getActiveWorkbook();
+    const sheet = wb?.getActiveSheet();
+    const selection = sheet?.getSelection?.();
+    const activeRange = selection?.getActiveRange?.();
+    const rangeRaw = activeRange?.getRange?.() as Record<string, unknown> | undefined;
+    const currentCell = selection?.getCurrentCell?.() as { actualRow?: number; actualColumn?: number } | undefined;
+    const range = normalizeRange(
+      rangeRaw ?? (currentCell ? { row: currentCell.actualRow, column: currentCell.actualColumn } : null)
+    );
+    const sheetId =
+      (activeRange?.getSheetId?.() as string) ??
+      (sheet as { getSheetId?: () => string })?.getSheetId?.() ??
+      '';
+    if (!range || !sheetId) return null;
+    const snapshot = wb?.save?.() as { sheets?: Record<string, { cellData?: Record<string, Record<string, unknown>> }> } | undefined;
+    const sheets = snapshot?.sheets;
+    const sheetData = sheets?.[sheetId];
+    const cellData = sheetData?.cellData as Record<string, Record<string, unknown>> | undefined;
+    const selectedContent: Record<string, Record<string, unknown>> = {};
+    for (let r = range.startRow; r <= range.endRow; r++) {
+      const rowKey = String(r);
+      const rowCells = cellData?.[rowKey];
+      if (!rowCells) continue;
+      const outRow: Record<string, unknown> = {};
+      for (let c = range.startCol; c <= range.endCol; c++) {
+        const colKey = String(c);
+        if (rowCells[colKey] != null) outRow[colKey] = rowCells[colKey];
+      }
+      if (Object.keys(outRow).length > 0) selectedContent[rowKey] = outRow;
+    }
+    return {
+      sheetId,
+      range: { startRow: range.startRow, endRow: range.endRow, startCol: range.startCol, endCol: range.endCol },
+      selectedContent,
+    };
+  }, []);
+
+  const applySelectionEdit = useCallback(
+    (content: Record<string, Record<string, unknown>>, rangeInfo: UniverSelectionRange) => {
+      const current = getContent();
+      if (!current?.snapshot || typeof current.snapshot !== 'object') return;
+      const snapshot = JSON.parse(JSON.stringify(current.snapshot)) as Record<string, unknown>;
+      const sheets = snapshot.sheets as Record<string, Record<string, unknown>> | undefined;
+      if (!sheets?.[rangeInfo.sheetId]) return;
+      const sheet = sheets[rangeInfo.sheetId] as Record<string, unknown>;
+      let cellData = sheet.cellData as Record<string, Record<string, unknown>> | undefined;
+      if (!cellData) {
+        cellData = {};
+        sheet.cellData = cellData;
+      }
+      for (const rowKey of Object.keys(content)) {
+        const rowCells = content[rowKey];
+        if (!cellData[rowKey]) cellData[rowKey] = {};
+        for (const colKey of Object.keys(rowCells)) {
+          (cellData[rowKey] as Record<string, unknown>)[colKey] = rowCells[colKey];
+        }
+      }
+      applyContent({ editor: 'univer-sheets', snapshot });
+    },
+    [getContent, applyContent]
+  );
+
   useImperativeHandle(ref, () => ({
     save: () => save(),
     saveWithLabel: async (label: string) => {
@@ -315,7 +385,9 @@ const UniverSheetEditorInner = (
     },
     getContent,
     applyContent,
-  }), [save, exportExcel, exportCsv, documentId, getContent, applyContent]);
+    getSelectionContext,
+    applySelectionEdit,
+  }), [save, exportExcel, exportCsv, documentId, getContent, applyContent, getSelectionContext, applySelectionEdit]);
 
   const replaceWithImportedData = useCallback(
     (univerData: object) => {

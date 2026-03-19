@@ -37,8 +37,8 @@ export function NavUser({
     readonly avatar: string;
   };
 }) {
-  const { isMobile, state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+  const { isMobile, state, hoverOpen } = useSidebar();
+  const isCollapsed = state === "collapsed" && !hoverOpen;
   const { signOut } = useAuth();
   const router = useRouter();
   const { setTheme, resolvedTheme } = useTheme();

@@ -34,7 +34,7 @@ function VerifyEmailContent() {
       setTimeout(() => {
         setVerificationStatus('success');
         setIsVerifying(false);
-        const target = redirectNext || '/dashboard/documents';
+        const target = redirectNext || '/dashboard/ai';
         setTimeout(() => {
           router.push(target);
         }, 2000);
@@ -45,7 +45,7 @@ function VerifyEmailContent() {
   // If user is already verified and logged in, redirect
   useEffect(() => {
     if (user && verificationStatus === 'pending') {
-      router.push(redirectNext || '/dashboard/documents');
+      router.push(redirectNext || '/dashboard/ai');
     }
   }, [user, router, verificationStatus, redirectNext]);
 

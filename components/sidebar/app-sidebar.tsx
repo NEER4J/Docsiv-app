@@ -43,8 +43,8 @@ export function AppSidebar({
   readonly showUpgrade?: boolean;
   readonly notificationCount?: number;
 }) {
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+  const { state, hoverOpen } = useSidebar();
+  const isCollapsed = state === "collapsed" && !hoverOpen;
   const sidebarPaddingX = isCollapsed ? "px-2" : "px-3";
 
   return (

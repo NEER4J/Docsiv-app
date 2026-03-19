@@ -18,12 +18,12 @@ export default async function AuthCallback({
 
   const code = Array.isArray(params.code) ? params.code[0] : params.code
   const rawNext = Array.isArray(params.next) ? params.next[0] : params.next
-  const next = typeof rawNext === 'string' && rawNext.startsWith('/') ? rawNext : '/dashboard/documents'
+  const next = typeof rawNext === 'string' && rawNext.startsWith('/') ? rawNext : '/dashboard/ai'
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
-      const loginUrl = next !== '/dashboard/documents'
+      const loginUrl = next !== '/dashboard/ai'
         ? `/login?error=callback_error&next=${encodeURIComponent(next)}`
         : '/login?error=callback_error'
       redirect(loginUrl)
@@ -31,7 +31,7 @@ export default async function AuthCallback({
   } else {
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError || !user) {
-      const loginUrl = next !== '/dashboard/documents'
+      const loginUrl = next !== '/dashboard/ai'
         ? `/login?error=no_code&next=${encodeURIComponent(next)}`
         : '/login?error=no_code'
       redirect(loginUrl)
@@ -40,7 +40,7 @@ export default async function AuthCallback({
 
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   if (userError || !user) {
-    const loginUrl = next !== '/dashboard/documents'
+    const loginUrl = next !== '/dashboard/ai'
       ? `/login?error=session_missing&next=${encodeURIComponent(next)}`
       : '/login?error=session_missing'
     redirect(loginUrl)

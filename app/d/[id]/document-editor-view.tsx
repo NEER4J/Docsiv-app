@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag, Pencil, Plus, Loader2 } from 'lucide-react';
 import { DocumentUploadProvider } from '@/components/platejs/editors/document-upload-context';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
@@ -58,6 +58,7 @@ import { useOptionalKonvaAi } from '@/components/konva/konva-ai-provider';
 import { useOptionalPlateAi, type PlateEditOperation } from '@/components/platejs/plate-ai-provider';
 import { useOptionalUniverAi } from '@/components/univer/univer-ai-provider';
 import { useOptionalGlobalAi } from '@/components/global-ai';
+import { useOptionalAiAssistant } from '@/components/sidebar/ai-assistant-sidebar';
 import type { DocumentEditorSubType } from '@/lib/global-ai-types';
 import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
@@ -134,6 +135,8 @@ export function DocumentEditorView({
   role?: string;
 }) {
   const router = useRouter();
+  const aiAssistant = useOptionalAiAssistant();
+  const searchParams = useSearchParams();
   const baseType = document.base_type;
   const docTypeSlug = document.document_type?.slug ?? '';
   const isReport = docTypeSlug === 'report';
@@ -184,6 +187,11 @@ export function DocumentEditorView({
   const commentInputRef = useRef<HTMLInputElement>(null);
 
   // Prefetch share dialog data when editor loads so the dialog opens instantly
+  useEffect(() => {
+    if (searchParams.get('aiOpen') !== '1') return;
+    aiAssistant?.setOpen(true);
+  }, [searchParams, aiAssistant]);
+
   useEffect(() => {
     if (!canShare || !document.id) return;
     getShareDialogData(document.id).then((res) => {
@@ -302,15 +310,20 @@ export function DocumentEditorView({
     const api = univerAiRef.current;
     if (!api) return;
     if (isSheet && !effectiveReadOnly) {
-      // Register immediately (like Konva does), then again after delay to catch late-mounted editor
       api.register({
         getContent: () => univerSheetRef.current?.getContent() ?? null,
         applyContent: (c) => univerSheetRef.current?.applyContent(c),
+        getSelectionContext: () => univerSheetRef.current?.getSelectionContext() ?? null,
+        applySelectionEdit: (content, rangeInfo) =>
+          univerSheetRef.current?.applySelectionEdit(content, rangeInfo),
       });
       const t = setTimeout(() => {
         univerAiRef.current?.register({
           getContent: () => univerSheetRef.current?.getContent() ?? null,
           applyContent: (c) => univerSheetRef.current?.applyContent(c),
+          getSelectionContext: () => univerSheetRef.current?.getSelectionContext() ?? null,
+          applySelectionEdit: (content, rangeInfo) =>
+            univerSheetRef.current?.applySelectionEdit(content, rangeInfo),
         });
       }, 300);
       return () => {

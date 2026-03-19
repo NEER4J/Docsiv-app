@@ -7,6 +7,7 @@ import {
   Plug,
   Share2,
   Bell,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,6 +41,7 @@ export const sidebarItems: NavGroup[] = [
   {
     id: 1,
     items: [
+      { title: "AI", url: "/dashboard/ai", icon: Sparkles },
       { title: "Documents", url: "/dashboard/documents", icon: FileText },
       { title: "Shared with me", url: "/dashboard/shared", icon: Share2 },
       { title: "Notifications", url: "/dashboard/notifications", icon: Bell },

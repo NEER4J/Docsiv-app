@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { APP_CONFIG } from "@/config/app-config";
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
 import { SidebarCloseOnNavigate } from "@/components/sidebar/sidebar-close-on-navigate";
-import { AiAssistantProvider } from "@/components/sidebar/ai-assistant-sidebar";
+import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
 import { KonvaAiProvider } from "@/components/konva/konva-ai-provider";
 import { PlateAiProvider } from "@/components/platejs/plate-ai-provider";
 import { UniverAiProvider } from "@/components/univer/univer-ai-provider";
@@ -106,6 +106,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
               <DashboardNavbar />
               <div className="ml-auto flex shrink-0 items-center gap-1">
                 <SearchDialog />
+                <AiAssistantSidebar />
               </div>
             </div>
           </header>

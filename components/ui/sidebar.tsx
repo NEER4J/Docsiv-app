@@ -40,6 +40,8 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  hoverOpen: boolean
+  setHoverOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -68,6 +70,7 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const [hoverOpen, setHoverOpen] = React.useState(false)
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -113,6 +116,11 @@ function SidebarProvider({
   // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? "expanded" : "collapsed"
 
+  // Close hover overlay when sidebar is permanently opened
+  React.useEffect(() => {
+    if (open) setHoverOpen(false)
+  }, [open])
+
   const contextValue = React.useMemo<SidebarContextProps>(
     () => ({
       state,
@@ -122,8 +130,10 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      hoverOpen,
+      setHoverOpen,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, hoverOpen]
   )
 
   return (
@@ -163,7 +173,19 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, hoverOpen, setHoverOpen } = useSidebar()
+  const isHoverExpanded = !isMobile && state === "collapsed" && hoverOpen && collapsible === "icon"
+  // Track whether we're in hover mode to disable width transitions (instant open/close)
+  const isHoverMode = !isMobile && state === "collapsed" && collapsible === "icon"
+
+  const handleMouseEnter = React.useCallback(() => {
+    if (state !== "collapsed" || collapsible !== "icon" || isMobile) return
+    setHoverOpen(true)
+  }, [state, collapsible, isMobile, setHoverOpen])
+
+  const handleMouseLeave = React.useCallback(() => {
+    setHoverOpen(false)
+  }, [setHoverOpen])
 
   if (collapsible === "none") {
     return (
@@ -209,7 +231,7 @@ function Sidebar({
     <div
       className="group peer text-foreground hidden md:block"
       data-state={state}
-      data-collapsible={state === "collapsed" ? collapsible : ""}
+      data-collapsible={isHoverExpanded ? "" : (state === "collapsed" ? collapsible : "")}
       data-variant={variant}
       data-side={side}
       data-slot="sidebar"
@@ -225,11 +247,15 @@ function Sidebar({
             ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+1rem)]"
             : "group-data-[collapsible=icon]:w-[var(--sidebar-width-icon)]"
         )}
+        // Keep gap at icon width when hover-expanded (don't push content)
+        style={isHoverExpanded ? { width: 'var(--sidebar-width-icon)' } : undefined}
       />
       <div
         data-slot="sidebar-container"
         className={cn(
-          "fixed inset-y-0 z-10 hidden h-svh w-[var(--sidebar-width)] transition-[left,right,width] duration-200 ease-linear md:flex",
+          "fixed inset-y-0 hidden h-svh w-[var(--sidebar-width)] md:flex",
+          isHoverMode ? "transition-[width] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]" : "transition-[left,right,width] duration-200 ease-linear",
+          isHoverExpanded ? "z-[100] shadow-2xl" : "z-10",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -239,6 +265,8 @@ function Sidebar({
             : "group-data-[collapsible=icon]:w-[var(--sidebar-width-icon)] group-data-[side=left]:border-r group-data-[side=right]:border-l border-border",
           className
         )}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         {...props}
       >
         <div
@@ -509,7 +537,7 @@ function SidebarMenuButton({
   tooltip?: string | React.ComponentProps<typeof TooltipContent>
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? SlotPrimitive.Slot : "button"
-  const { isMobile, state } = useSidebar()
+  const { isMobile, state, hoverOpen } = useSidebar()
 
   const button = (
     <Comp
@@ -538,7 +566,7 @@ function SidebarMenuButton({
       <TooltipContent
         side="right"
         align="center"
-        hidden={state !== "collapsed" || isMobile}
+        hidden={state !== "collapsed" || isMobile || hoverOpen}
         {...tooltip}
       />
     </Tooltip>

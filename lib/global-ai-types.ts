@@ -25,6 +25,7 @@ export type GlobalAiPageType =
   | 'analytics'
   | 'integrations'
   | 'settings'
+  | 'ai'
   | 'unknown';
 
 export interface GlobalAiPageContext {
@@ -84,6 +85,7 @@ export function getPageTypeFromPathname(pathname: string): Omit<GlobalAiPageCont
       analytics: 'analytics',
       integrations: 'integrations',
       settings: 'settings',
+      ai: 'ai',
     };
 
     let pageType: GlobalAiPageType = segmentToPageType[first] ?? 'unknown';
@@ -125,5 +127,6 @@ export const GLOBAL_AI_PAGE_LABELS: Record<GlobalAiPageType, string> = {
   analytics: 'Analytics',
   integrations: 'Integrations',
   settings: 'Settings',
+  ai: 'AI Assistant',
   unknown: 'this page',
 };

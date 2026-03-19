@@ -211,7 +211,7 @@ const NavItemCollapsed = ({
 
 export function NavMain({ items, notificationCount = 0 }: NavMainProps) {
   const path = usePathname();
-  const { state, isMobile } = useSidebar();
+  const { state, isMobile, hoverOpen } = useSidebar();
   const [proDialogOpen, setProDialogOpen] = useState(false);
   const [proFeatureTitle, setProFeatureTitle] = useState<string>("");
 
@@ -243,7 +243,7 @@ export function NavMain({ items, notificationCount = 0 }: NavMainProps) {
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
               {group.items.map((item) => {
-                if (state === "collapsed" && !isMobile) {
+                if (state === "collapsed" && !isMobile && !hoverOpen) {
                   if (!item.subItems) {
                     if (item.pro) {
                       const active = isItemActive(item.url);

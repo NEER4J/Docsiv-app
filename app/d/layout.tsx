@@ -1,9 +1,8 @@
 import { ReactNode } from "react";
-import { cookies } from "next/headers";
 import { DocumentEditorTheme } from "@/components/documents/document-editor-theme";
 import { EditorSidebar } from "@/components/sidebar/editor-sidebar";
 import { SidebarCloseOnNavigate } from "@/components/sidebar/sidebar-close-on-navigate";
-import { AiAssistantProvider } from "@/components/sidebar/ai-assistant-sidebar";
+import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
 import { KonvaAiProvider } from "@/components/konva/konva-ai-provider";
 import { PlateAiProvider } from "@/components/platejs/plate-ai-provider";
 import { UniverAiProvider } from "@/components/univer/univer-ai-provider";
@@ -40,8 +39,9 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
     (user.user_metadata?.avatar_url as string | undefined) ??
     "";
 
-  const cookieStore = await cookies();
-  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
+  // Editor pages always start with collapsed sidebar for a focused editing experience.
+  // Users can hover to preview or click the trigger to pin it open.
+  const defaultOpen = false;
   const context = await getCurrentWorkspaceContext();
 
   const { workspaces } = await getMyWorkspaces();
@@ -84,6 +84,7 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
                       <DashboardNavbar />
                       <div className="ml-auto flex shrink-0 items-center gap-1">
                         <SearchDialog />
+                        <AiAssistantSidebar />
                       </div>
                     </div>
                   </header>

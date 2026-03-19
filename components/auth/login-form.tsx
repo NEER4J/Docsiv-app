@@ -57,9 +57,9 @@ export function LoginForm({ redirectNext, errorFromUrl }: { redirectNext?: strin
       });
     } else {
       toast.success("Login successful", {
-        description: redirectNext ? "Redirecting..." : "Redirecting to documents...",
+        description: redirectNext ? "Redirecting..." : "Redirecting to AI...",
       });
-      router.push(redirectNext ?? "/dashboard/documents");
+      router.push(redirectNext ?? "/dashboard/ai");
     }
     
     setIsLoading(false);

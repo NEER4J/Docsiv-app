@@ -5,6 +5,7 @@
 const SEGMENT_LABELS: Record<string, string> = {
   "": "Documents",
   documents: "Documents",
+  ai: "AI",
   clients: "Clients",
   teams: "Team",
   workspaces: "Workspaces",
@@ -12,6 +13,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   analytics: "Analytics",
   integrations: "Integrations",
   settings: "Settings",
+  shared: "Shared with me",
   // Settings sub-routes
   workspace: "Workspace",
   team: "Team",

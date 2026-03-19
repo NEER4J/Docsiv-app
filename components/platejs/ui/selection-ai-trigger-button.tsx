@@ -69,7 +69,7 @@ export function SelectionAITriggerButton() {
     setOption('previewMsg', '');
     setOption('insertedIds', []);
     setOption('mode', 'input');
-    setOption('isOpen', true);
+    setOption('isOpen', true as never);
   }, [editor, setOption]);
 
   return (

@@ -142,7 +142,7 @@ export const PlateDocumentEditor = React.forwardRef<
           (editor.tf as unknown as { setValue: (v: Value) => void }).setValue(value);
         } catch {
           editor.children = value as typeof editor.children;
-          editor.onChange();
+          (editor.onChange as () => void)();
         }
       },
       getValue: () => (editor.children as Value).slice(),

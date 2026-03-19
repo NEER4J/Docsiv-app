@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import { useSearchParams } from "next/navigation";
 import { useOptionalKonvaAi } from "@/components/konva/konva-ai-provider";
 import { useOptionalPlateAi } from "@/components/platejs/plate-ai-provider";
 import { useOptionalUniverAi } from "@/components/univer/univer-ai-provider";
@@ -37,7 +38,16 @@ export type PlateSelectionContext = {
   selectedBlockIds: string[];
 };
 
-export type SelectionContext = PlateSelectionContext | null;
+/** When set, the sidebar will send prompts as "edit only this range" (Univer sheet). */
+export type UniverSelectionContext = {
+  type: "univer";
+  sheetId: string;
+  range: { startRow: number; endRow: number; startCol: number; endCol: number };
+  /** Serialized cellData for the selected range (row -> col -> cell). */
+  selectedContent: Record<string, Record<string, unknown>>;
+};
+
+export type SelectionContext = PlateSelectionContext | UniverSelectionContext | null;
 
 const AiAssistantContext = React.createContext<{
   open: boolean;
@@ -194,11 +204,19 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
     isPlateActive &&
     plateAi?.getSelectionContext &&
     plateAi?.applySelectionEdit;
+  const isUniverSelectionMode =
+    selectionContext?.type === "univer" &&
+    isUniverActive &&
+    univerAi?.getSelectionContext &&
+    univerAi?.applySelectionEdit;
   const pageLabel = globalAi ? GLOBAL_AI_PAGE_LABELS[globalAi.pageType] : "this page";
   const isDocumentEditor = globalAi?.pageType === "document-editor";
   const isOtherEditor = isDocumentEditor && globalAi?.documentEditorSubType && !["konva-report", "konva-presentation", "plate", "univer"].includes(globalAi.documentEditorSubType);
   const documentId = globalAi?.documentId ?? null;
+  const searchParams = useSearchParams();
+  const aiAutoSend = searchParams.get("aiAutoSend") === "1";
   const sessionLoadedRef = React.useRef(false);
+  const autoSendTriggeredRef = React.useRef(false);
 
   // Load persisted AI chat session for this document (DB first, then localStorage fallback)
   React.useEffect(() => {
@@ -352,7 +370,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
             body: JSON.stringify({
               selectedContent: selectionContext.selectedContent,
               prompt: trimmed,
-              documentTitle: globalAi?.documentTitle ?? undefined,
+              documentTitle: undefined,
             }),
           });
           if (!res.ok) {
@@ -383,6 +401,49 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
           return;
         }
 
+        if (isUniverSelectionMode && selectionContext?.type === "univer" && univerAi?.applySelectionEdit) {
+          const res = await fetch("/api/ai/sheet/selection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              selectedContent: selectionContext.selectedContent,
+              sheetId: selectionContext.sheetId,
+              range: selectionContext.range,
+              prompt: trimmed,
+              documentTitle: undefined,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const msg = data?.error ?? `Request failed (${res.status})`;
+            toast.error(msg);
+            setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+            return;
+          }
+          const data = await res.json();
+          if (data.action === "chat") {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.message ?? "Here's what I think.", action: "chat" },
+            ]);
+            return;
+          }
+          if (data.action === "edit" && data.content && typeof data.content === "object") {
+            univerAi.applySelectionEdit(data.content as Record<string, Record<string, unknown>>, {
+              sheetId: selectionContext.sheetId,
+              range: selectionContext.range,
+            });
+            setSelectionContext(null);
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.message ?? "I've updated the selection.", action: "edit" },
+            ]);
+          } else {
+            setMessages((prev) => [...prev, { role: "assistant", content: data.message ?? "Done." }]);
+          }
+          return;
+        }
+
         if (isUniverActive && univerAi?.getContent && univerAi?.applyContent) {
           const sheetContent = univerAi.getContent();
           if (!sheetContent) {
@@ -397,7 +458,11 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
           const res = await fetch("/api/ai/sheet", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages: chatMessages, content: sheetContent }),
+            body: JSON.stringify({
+              messages: chatMessages,
+              content: sheetContent,
+              documentTitle: undefined,
+            }),
           });
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
@@ -476,7 +541,14 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
           return;
         }
 
-        const content = konvaAi.getContent?.() ?? null;
+        const konva = konvaAi;
+        if (!konva) {
+          setLoading(false);
+          toast.error("Could not read document. Try again.");
+          return;
+        }
+
+        const content = konva.getContent?.() ?? null;
         if (!content) {
           setLoading(false);
           toast.error("Could not read document. Try again.");
@@ -493,9 +565,9 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
           body: JSON.stringify({
             messages: chatMessages,
             content: content as KonvaStoredContent,
-            mode: konvaAi.mode,
-            pageWidthPx: konvaAi.pageWidthPx ?? undefined,
-            pageHeightPx: konvaAi.pageHeightPx ?? undefined,
+            mode: konva.mode,
+            pageWidthPx: konva.pageWidthPx ?? undefined,
+            pageHeightPx: konva.pageHeightPx ?? undefined,
           }),
         });
 
@@ -521,7 +593,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
             setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, the edit response was invalid." }]);
             return;
           }
-          konvaAi.applyContent(newContent as KonvaStoredContent);
+          konva.applyContent?.(newContent as KonvaStoredContent);
           setMessages((prev) => [
             ...prev,
             { role: "assistant", content: data.message ?? "I've updated the document.", action: "edit" },
@@ -530,7 +602,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
           // Fallback
           const newContent = data.content;
           if (newContent && typeof newContent === "object") {
-            konvaAi.applyContent(newContent as KonvaStoredContent);
+            konva.applyContent?.(newContent as KonvaStoredContent);
           }
           const msg = typeof data.message === "string" ? data.message : typeof data.summary === "string" ? data.summary : "Done.";
           setMessages((prev) => [...prev, { role: "assistant", content: msg, action: newContent ? "edit" : "chat" }]);
@@ -556,9 +628,31 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
       konvaAi,
       messages,
       attachedImages,
-      globalAi?.documentTitle,
+      globalAi?.documentId,
     ]
   );
+
+  // Auto-submit seeded prompts when we arrive from Main AI.
+  React.useEffect(() => {
+    if (!aiAutoSend || !documentId) return;
+    if (autoSendTriggeredRef.current) return;
+    if (!sessionLoadedRef.current) return; // wait for DB/localStorage seed to load into `input`
+    if (!input.trim()) return; // wait until seeded input is present
+    if (!isAnyEditorActive) return; // wait until the editor AI providers register
+
+    const storageKey = `habiv-ai-autosend-used-${documentId}`;
+    try {
+      if (typeof window !== "undefined" && localStorage.getItem(storageKey) === "1") return;
+      autoSendTriggeredRef.current = true;
+      localStorage.setItem(storageKey, "1");
+    } catch {
+      // If storage fails, we still attempt once per mount.
+      autoSendTriggeredRef.current = true;
+    }
+
+    const fakeEvent = { preventDefault: () => {} } as unknown as React.FormEvent;
+    void handleSubmit(fakeEvent);
+  }, [aiAutoSend, documentId, input, isAnyEditorActive, handleSubmit]);
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -652,7 +746,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
                 <div className="flex flex-col gap-3 text-sm">
                   <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
                     Context: {pageLabel} · {isPlateActive ? "Document" : isUniverActive ? "Sheet" : konvaAi?.mode === "presentation" ? "Presentation" : "Report"}
-                    {isPlateSelectionMode && (
+                    {(isPlateSelectionMode || isUniverSelectionMode) && (
                       <>
                         <span className="ml-1.5 inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                           Editing selection

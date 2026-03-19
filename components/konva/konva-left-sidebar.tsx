@@ -876,7 +876,8 @@ export function KonvaLeftSidebar({
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => onApplyTemplate(t.content)}
+                    onClick={() => onApplyTemplate?.(t.content)}
+                    disabled={!onApplyTemplate}
                     className="flex flex-col gap-1 rounded border border-zinc-700 bg-zinc-800 p-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-700"
                   >
                     <span className="text-xs font-medium text-zinc-200">{t.name}</span>
