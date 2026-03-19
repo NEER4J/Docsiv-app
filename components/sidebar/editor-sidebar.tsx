@@ -7,7 +7,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   FolderOpen,
   Plus,
-  Sparkles,
   ClipboardList,
   Search,
   LoaderIcon,
@@ -45,7 +44,6 @@ import type { ClientWithDocCount } from "@/types/database";
 
 import { NavUser } from "./nav-user";
 import { WorkspaceSwitcher } from "./workspace-switcher";
-import { useOptionalAiAssistant } from "./ai-assistant-sidebar";
 import { NewDocumentDialog } from "@/components/documents/new-document-dialog";
 
 const RECENT_DOCS_LIMIT = 12;
@@ -115,7 +113,6 @@ export function EditorSidebar({
     fetchDocsAndClients();
   }, [fetchDocsAndClients]);
 
-  const aiAssistant = useOptionalAiAssistant();
   const sidebarPaddingX = isCollapsed ? "px-2" : "px-3";
 
   return (
@@ -341,16 +338,6 @@ export function EditorSidebar({
           )}
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="AI Generate"
-                  className="h-9 gap-3 text-[0.8125rem]"
-                  onClick={() => aiAssistant?.setOpen(true)}
-                >
-                  <Sparkles className="size-[1.0625rem] shrink-0 opacity-70" />
-                  <span className={isCollapsed ? "hidden" : ""}>AI Generate</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild tooltip="Templates">
                   <Link
