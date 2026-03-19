@@ -55,6 +55,10 @@ import {
   type KonvaStoredContent,
 } from '@/lib/konva-content';
 import { useOptionalKonvaAi } from '@/components/konva/konva-ai-provider';
+import { useOptionalPlateAi, type PlateEditOperation } from '@/components/platejs/plate-ai-provider';
+import { useOptionalUniverAi } from '@/components/univer/univer-ai-provider';
+import { useOptionalGlobalAi } from '@/components/global-ai';
+import type { DocumentEditorSubType } from '@/lib/global-ai-types';
 import { isUniverSheetContent, emptyUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -135,8 +139,14 @@ export function DocumentEditorView({
   const isReport = docTypeSlug === 'report';
   const isProposal = docTypeSlug === 'proposal';
   const isPresentation = baseType === 'presentation' || isProposal;
-  const isDocOrContract = (baseType === 'doc' || baseType === 'contract') && !isReport && !isProposal;
-  const isSheet = baseType === 'sheet' || docTypeSlug === 'sheet';
+  const hasPlateContent = getPlatePages(document.content).length > 0;
+  const isSheet =
+    baseType === 'sheet' ||
+    docTypeSlug === 'sheet' ||
+    isUniverSheetContent(document.content);
+  const isDocOrContract =
+    ((baseType === 'doc' || baseType === 'contract') && !isReport && !isProposal) ||
+    (hasPlateContent && !isReport && !isPresentation && !isSheet);
   const isMobile = useIsMobile();
   const isLocked = document.status === 'signed';
   const effectiveReadOnly = readOnly || isLocked;
@@ -211,6 +221,24 @@ export function DocumentEditorView({
   const konvaAi = useOptionalKonvaAi();
   const konvaAiRef = useRef(konvaAi);
   konvaAiRef.current = konvaAi;
+  const globalAi = useOptionalGlobalAi();
+
+  // Register current document editor type with global AI so the assistant knows context
+  useEffect(() => {
+    if (!globalAi) return;
+    let subType: DocumentEditorSubType = null;
+    if (isReportKonva) subType = 'konva-report';
+    else if (isPresentation) subType = 'konva-presentation';
+    else if (isDocOrContract) subType = 'plate';
+    else if (isSheet) subType = 'univer';
+    else if (isReportGrapes) subType = 'grapes';
+    globalAi.setDocumentEditorSubType(subType);
+    globalAi.setPageContext({ documentId: document.id });
+    return () => {
+      globalAi.setDocumentEditorSubType(null);
+      globalAi.setPageContext({ documentId: null });
+    };
+  }, [globalAi, isReportKonva, isPresentation, isDocOrContract, isSheet, isReportGrapes, document.id]);
 
   useEffect(() => {
     const api = konvaAiRef.current;
@@ -267,6 +295,36 @@ export function DocumentEditorView({
     api.unregister();
   }, [isReportKonva, isPresentation, grapesReadOnly, document.content]);
 
+  const univerAi = useOptionalUniverAi();
+  const univerAiRef = useRef(univerAi);
+  univerAiRef.current = univerAi;
+  useEffect(() => {
+    const api = univerAiRef.current;
+    if (!api) return;
+    if (isSheet && !effectiveReadOnly) {
+      // Register immediately (like Konva does), then again after delay to catch late-mounted editor
+      api.register({
+        getContent: () => univerSheetRef.current?.getContent() ?? null,
+        applyContent: (c) => univerSheetRef.current?.applyContent(c),
+      });
+      const t = setTimeout(() => {
+        univerAiRef.current?.register({
+          getContent: () => univerSheetRef.current?.getContent() ?? null,
+          applyContent: (c) => univerSheetRef.current?.applyContent(c),
+        });
+      }, 300);
+      return () => {
+        clearTimeout(t);
+        api.unregister();
+      };
+    }
+    api.unregister();
+  }, [isSheet, effectiveReadOnly]);
+
+  const plateAi = useOptionalPlateAi();
+  const plateAiRef = useRef(plateAi);
+  plateAiRef.current = plateAi;
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastVersionAtRef = useRef<number>(0);
   const valueRef = useRef<Value | null>(null);
@@ -277,6 +335,13 @@ export function DocumentEditorView({
   const rawPlateContent: Value =
     platePages.length > 0 ? mergePlatePagesToSingle(platePages) : [{ type: 'p', children: [{ text: '' }] }];
   const initialContent: Value = rawPlateContent;
+
+  const [plateValue, setPlateValue] = useState<Value>(initialContent);
+  const plateValueRef = useRef<Value>(plateValue);
+  plateValueRef.current = plateValue;
+  useEffect(() => {
+    setPlateValue(initialContent);
+  }, [document.id]);
 
   // Determine badge to show
   const badgeKey = isLocked ? 'signed' : (role !== 'edit' ? role : null);
@@ -403,6 +468,104 @@ export function DocumentEditorView({
     },
     [document.id, workspaceId]
   );
+
+  // Ref to access handleChange in Plate AI registration (must be after handleChange definition)
+  const handleChangeRef = useRef(handleChange);
+  handleChangeRef.current = handleChange;
+
+  // Plate AI registration effect (must be after handleChangeRef is defined)
+  useEffect(() => {
+    const api = plateAiRef.current;
+    if (!api) return;
+    if (isDocOrContract && !effectiveReadOnly) {
+      // Threshold below which the full document is sent (saves tokens for large docs)
+      const SMALL_DOC_CHARS = 12000;
+
+      const getContent = () => {
+        const fullValue = plateValueRef.current;
+        if (!fullValue) return null;
+        const fullJson = JSON.stringify(fullValue);
+        if (fullJson.length <= SMALL_DOC_CHARS) {
+          return {
+            content: fullValue,
+            isFullDocument: true,
+            totalNodeCount: fullValue.length,
+            documentTitle: document.title ?? undefined,
+          };
+        }
+        // Large doc: return a cursor-aware context window
+        const cursorCtx = plateThumbnailRef.current?.getCursorContext?.();
+        if (cursorCtx) {
+          return {
+            content: cursorCtx.nodes,
+            isFullDocument: false,
+            totalNodeCount: cursorCtx.totalNodes,
+            windowOffset: cursorCtx.startIndex,
+            documentTitle: document.title ?? undefined,
+          };
+        }
+        // Fallback: first 15 nodes
+        const window = fullValue.slice(0, 15);
+        return {
+          content: window,
+          isFullDocument: false,
+          totalNodeCount: fullValue.length,
+          windowOffset: 0,
+          documentTitle: document.title ?? undefined,
+        };
+      };
+
+      const applyContent = (op: PlateEditOperation) => {
+        const fullValue = plateValueRef.current ?? [];
+        let newValue: Value;
+
+        switch (op.type) {
+          case 'append':
+            newValue = [...fullValue, ...op.content];
+            break;
+          case 'prepend':
+            newValue = [...op.content, ...fullValue];
+            break;
+          case 'insert_at': {
+            const idx = Math.max(0, Math.min(op.insertAt ?? fullValue.length, fullValue.length));
+            newValue = [...fullValue.slice(0, idx), ...op.content, ...fullValue.slice(idx)];
+            break;
+          }
+          case 'full':
+          default:
+            newValue = op.content;
+        }
+
+        // 1. Update the Plate editor imperatively (makes changes visible immediately)
+        plateThumbnailRef.current?.setValue(newValue);
+        // 2. Update state so getContent() returns the latest value
+        setPlateValue(newValue);
+        // 3. Trigger debounced save
+        handleChangeRef.current?.(newValue);
+      };
+
+      const getSelectionContext = () => plateThumbnailRef.current?.getSelectionContext() ?? null;
+      const applySelectionEdit = (newContent: Value, blockIdsToReplace: string[]) => {
+        plateThumbnailRef.current?.applySelectionEdit(newContent, blockIdsToReplace);
+        const nextValue = plateThumbnailRef.current?.getValue?.();
+        if (nextValue) {
+          setPlateValue(nextValue);
+          handleChangeRef.current?.(nextValue);
+        }
+      };
+
+      // Register immediately (like Konva does), then again after delay
+      api.register({ getContent, applyContent, getSelectionContext, applySelectionEdit });
+      const t = setTimeout(() => {
+        plateAiRef.current?.register({ getContent, applyContent, getSelectionContext, applySelectionEdit });
+      }, 300);
+      return () => {
+        clearTimeout(t);
+        api.unregister();
+      };
+    }
+    api.unregister();
+  }, [isDocOrContract, effectiveReadOnly, document.title]);
 
   const topBar = (
     <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-2 shrink-0">
@@ -690,8 +853,16 @@ export function DocumentEditorView({
                 key={document.updated_at}
                 documentId={document.id}
                 currentUserId={currentUserId}
+                value={plateValue}
                 initialValue={initialContent}
-                onChange={effectiveReadOnly ? undefined : handleChange}
+                onChange={
+                  effectiveReadOnly
+                    ? undefined
+                    : (v) => {
+                        setPlateValue(v);
+                        handleChange(v);
+                      }
+                }
                 readOnly={effectiveReadOnly}
                 canComment={canComment}
                 placeholder="Start writing..."

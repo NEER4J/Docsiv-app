@@ -277,6 +277,7 @@
   width: 100%;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
+  border-radius: 0;
 }
 
 /* Editor selection: ensure Ctrl+A and text selection are always visible (Plate/Slate) */
@@ -381,6 +382,7 @@ body:has(.document-editor-force-light) > [data-portal] {
   --ring: #a3a3a3 !important;
   color-scheme: light !important;
 }
+
 .document-editor-force-light [data-slate-editor] ::selection,
 .document-editor-force-light [data-slate-editor]::selection {
   background: oklch(0.623 0.214 259.815 / 0.35) !important;
@@ -390,4 +392,14 @@ body:has(.document-editor-force-light) > [data-portal] {
 .document-editor-force-light [data-slate-editor] [data-slate-string]::selection,
 .document-editor-force-light [data-slate-editor] [data-slate-zero-width]::selection {
   background: oklch(0.623 0.214 259.815 / 0.35) !important;
+}
+
+/* Selection AI: keep toolbar fixed at bottom when loading/preview so it doesn’t overlap or scroll away */
+.selection-ai-fixed-toolbar {
+  position: fixed !important;
+  bottom: 1.5rem !important;
+  left: 50% !important;
+  top: auto !important;
+  transform: translateX(-50%) !important;
+  width: min(20rem, calc(100vw - 2rem)) !important;
 }

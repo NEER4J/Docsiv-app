@@ -77,6 +77,7 @@ export interface Client {
   id: string;
   workspace_id: string;
   name: string;
+  slug: string;
   email: string | null;
   phone: string | null;
   website: string | null;

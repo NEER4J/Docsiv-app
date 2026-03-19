@@ -13,17 +13,37 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { useOptionalKonvaAi } from "@/components/konva/konva-ai-provider";
+import { useOptionalPlateAi } from "@/components/platejs/plate-ai-provider";
+import { useOptionalUniverAi } from "@/components/univer/univer-ai-provider";
+import { useOptionalGlobalAi } from "@/components/global-ai";
+import { GLOBAL_AI_PAGE_LABELS } from "@/lib/global-ai-types";
+import { getDocumentAiChatSession, upsertDocumentAiChatSession } from "@/lib/actions/documents";
 import { toast } from "sonner";
 import type { KonvaStoredContent, KonvaAiChatMessage } from "@/lib/konva-content";
+import type { UniverStoredContent } from "@/lib/univer-sheet-content";
+import type { Value } from "platejs";
+
+const DOCUMENT_AI_CHAT_STORAGE_KEY = "document-ai-chat";
 
 const SIDEBAR_PADDING_X = "px-3";
 const AI_PANEL_WIDTH = "24rem";
 const MAX_IMAGES = 4;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 
+/** When set, the sidebar will send prompts as "edit only this selection" (Plate). */
+export type PlateSelectionContext = {
+  type: "plate";
+  selectedContent: Value;
+  selectedBlockIds: string[];
+};
+
+export type SelectionContext = PlateSelectionContext | null;
+
 const AiAssistantContext = React.createContext<{
   open: boolean;
   setOpen: (open: boolean) => void;
+  selectionContext: SelectionContext;
+  setSelectionContext: (ctx: SelectionContext) => void;
 } | null>(null);
 
 function useAiAssistant() {
@@ -40,8 +60,12 @@ export function useOptionalAiAssistant() {
 /** Renders dashboard content + right AI panel; use once in dashboard layout. */
 export function AiAssistantProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
+  const [selectionContext, setSelectionContext] = React.useState<SelectionContext>(null);
   const isMobile = useIsMobile();
-  const value = React.useMemo(() => ({ open, setOpen }), [open]);
+  const value = React.useMemo(
+    () => ({ open, setOpen, selectionContext, setSelectionContext }),
+    [open, selectionContext]
+  );
 
   return (
     <AiAssistantContext.Provider value={value}>
@@ -142,7 +166,11 @@ function resizeImageDataUrl(dataUrl: string, maxDim = 1024): Promise<string> {
 }
 
 function AiAssistantPanel({ onClose }: { onClose: () => void }) {
+  const { selectionContext, setSelectionContext } = useAiAssistant();
   const konvaAi = useOptionalKonvaAi();
+  const plateAi = useOptionalPlateAi();
+  const univerAi = useOptionalUniverAi();
+  const globalAi = useOptionalGlobalAi();
   const [messages, setMessages] = React.useState<KonvaAiChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -154,6 +182,94 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   const isKonvaActive = Boolean(
     konvaAi?.getContent && konvaAi?.applyContent && konvaAi?.mode
   );
+  const isPlateActive = Boolean(
+    plateAi?.getContent && plateAi?.applyContent
+  );
+  const isUniverActive = Boolean(
+    univerAi?.getContent && univerAi?.applyContent
+  );
+  const isAnyEditorActive = isKonvaActive || isPlateActive || isUniverActive;
+  const isPlateSelectionMode =
+    selectionContext?.type === "plate" &&
+    isPlateActive &&
+    plateAi?.getSelectionContext &&
+    plateAi?.applySelectionEdit;
+  const pageLabel = globalAi ? GLOBAL_AI_PAGE_LABELS[globalAi.pageType] : "this page";
+  const isDocumentEditor = globalAi?.pageType === "document-editor";
+  const isOtherEditor = isDocumentEditor && globalAi?.documentEditorSubType && !["konva-report", "konva-presentation", "plate", "univer"].includes(globalAi.documentEditorSubType);
+  const documentId = globalAi?.documentId ?? null;
+  const sessionLoadedRef = React.useRef(false);
+
+  // Load persisted AI chat session for this document (DB first, then localStorage fallback)
+  React.useEffect(() => {
+    if (!documentId || typeof window === "undefined") {
+      sessionLoadedRef.current = false;
+      return;
+    }
+    sessionLoadedRef.current = false;
+    let cancelled = false;
+    getDocumentAiChatSession(documentId).then(({ session, error }) => {
+      if (cancelled) return;
+      sessionLoadedRef.current = true;
+      if (!error && session && (session.messages.length > 0 || session.input)) {
+        const msgs = session.messages as Array<{ role?: string; content?: string; action?: string }>;
+        setMessages(
+          msgs.map((m) => ({
+            role: (m.role ?? "user") as "user" | "assistant",
+            content: typeof m.content === "string" ? m.content : "",
+            ...(m.action && { action: m.action as "edit" | "chat" }),
+          }))
+        );
+        if (typeof session.input === "string") setInput(session.input);
+        return;
+      }
+      try {
+        const raw = localStorage.getItem(`${DOCUMENT_AI_CHAT_STORAGE_KEY}-${documentId}`);
+        if (!raw) return;
+        const data = JSON.parse(raw) as { messages?: Array<{ role: string; content: string; action?: string }>; input?: string };
+        if (data?.messages && Array.isArray(data.messages)) {
+          setMessages(
+            data.messages.map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              ...(m.action && { action: m.action as "edit" | "chat" }),
+            }))
+          );
+        }
+        if (typeof data?.input === "string") setInput(data.input);
+      } catch {
+        // ignore parse errors
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
+
+  // Persist AI chat session when messages or input change (after load has run)
+  React.useEffect(() => {
+    if (!documentId || typeof window === "undefined" || !sessionLoadedRef.current) return;
+    const payload = {
+      messages: messages.map((m) => ({ role: m.role, content: m.content, action: m.action })),
+      input,
+    };
+    try {
+      localStorage.setItem(`${DOCUMENT_AI_CHAT_STORAGE_KEY}-${documentId}`, JSON.stringify(payload));
+    } catch {
+      // ignore
+    }
+    const t = setTimeout(() => {
+      upsertDocumentAiChatSession(documentId, payload).then(({ error }) => {
+        if (error) {
+          console.warn("[AI Assistant] Failed to save session:", error);
+          if (error === "Not authenticated") {
+            toast.error("Sign in to sync chat across devices");
+          }
+        }
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [documentId, messages, input]);
 
   // Auto-scroll to latest message
   React.useEffect(() => {
@@ -207,8 +323,8 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
       e.preventDefault();
       const trimmed = input.trim();
       if (!trimmed && attachedImages.length === 0) return;
-      if (!isKonvaActive || !konvaAi?.getContent || !konvaAi?.applyContent || !konvaAi?.mode) {
-        toast.error("Open a report or presentation to use AI editing.");
+      if (!isAnyEditorActive) {
+        toast.error("Open a report, presentation, sheet, or document to use AI editing.");
         return;
       }
 
@@ -222,14 +338,6 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
       setMessages((prev) => [...prev, userMessage]);
       setLoading(true);
 
-      const content = konvaAi.getContent?.() ?? null;
-      if (!content) {
-        setLoading(false);
-        toast.error("Could not read document. Try again.");
-        setMessages((prev) => [...prev, { role: "assistant", content: "Could not read the current document. Make sure the editor is ready and try again." }]);
-        return;
-      }
-
       const chatMessages = [...messages, userMessage].map((m) => ({
         role: m.role,
         content: m.content,
@@ -237,6 +345,148 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
       }));
 
       try {
+        if (isPlateSelectionMode && selectionContext?.type === "plate" && plateAi?.applySelectionEdit) {
+          const res = await fetch("/api/ai/selection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              selectedContent: selectionContext.selectedContent,
+              prompt: trimmed,
+              documentTitle: globalAi?.documentTitle ?? undefined,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const msg = data?.error ?? `Request failed (${res.status})`;
+            toast.error(msg);
+            setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+            return;
+          }
+          const data = await res.json();
+          if (data.action === "chat") {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.message ?? "Here’s what I think.", action: "chat" },
+            ]);
+            return;
+          }
+          if (data.content && Array.isArray(data.content) && data.content.length > 0) {
+            plateAi.applySelectionEdit(data.content as Value, selectionContext.selectedBlockIds);
+            setSelectionContext(null);
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.message ?? "I’ve updated the selected content.", action: "edit" },
+            ]);
+          } else {
+            setMessages((prev) => [...prev, { role: "assistant", content: data.message ?? "No changes made." }]);
+          }
+          return;
+        }
+
+        if (isUniverActive && univerAi?.getContent && univerAi?.applyContent) {
+          const sheetContent = univerAi.getContent();
+          if (!sheetContent) {
+            setLoading(false);
+            toast.error("Could not read sheet. Try again.");
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: "Could not read the current sheet. Make sure the editor is ready and try again." },
+            ]);
+            return;
+          }
+          const res = await fetch("/api/ai/sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: chatMessages, content: sheetContent }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const msg = data?.error ?? `Request failed (${res.status})`;
+            toast.error(msg);
+            setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+            return;
+          }
+          const data = await res.json();
+          if (data.action === "chat") {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.message ?? "I reviewed the sheet.", action: "chat" },
+            ]);
+          } else if (data.action === "edit" && data.content) {
+            univerAi.applyContent(data.content as UniverStoredContent);
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.message ?? "I've updated the sheet.", action: "edit" },
+            ]);
+          } else {
+            setMessages((prev) => [...prev, { role: "assistant", content: data.message ?? "Done.", action: "chat" }]);
+          }
+          return;
+        }
+
+        if (isPlateActive && plateAi?.getContent && plateAi?.applyContent) {
+          const plateCtx = plateAi.getContent();
+          if (!plateCtx || !Array.isArray(plateCtx.content) || plateCtx.content.length === 0) {
+            setLoading(false);
+            toast.error("Could not read document. Try again.");
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: "Could not read the current document. Make sure the editor is ready and try again." },
+            ]);
+            return;
+          }
+          const res = await fetch("/api/ai/plate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: chatMessages,
+              content: plateCtx.content,
+              isFullDocument: plateCtx.isFullDocument,
+              totalNodeCount: plateCtx.totalNodeCount,
+              windowOffset: plateCtx.windowOffset,
+              documentTitle: plateCtx.documentTitle,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const msg = data?.error ?? `Request failed (${res.status})`;
+            toast.error(msg);
+            setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+            return;
+          }
+          const data = await res.json();
+          if (data.action === "chat") {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.message ?? "I reviewed the document.", action: "chat" },
+            ]);
+          } else if (data.action === "edit" && data.content) {
+            plateAi.applyContent({
+              type: (data.operation as "full" | "append" | "prepend" | "insert_at") ?? "full",
+              content: data.content,
+              insertAt: typeof data.insertAt === "number" ? data.insertAt : undefined,
+            });
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.message ?? "I've updated the document.", action: "edit" },
+            ]);
+          } else {
+            setMessages((prev) => [...prev, { role: "assistant", content: data.message ?? "Done.", action: "chat" }]);
+          }
+          return;
+        }
+
+        const content = konvaAi.getContent?.() ?? null;
+        if (!content) {
+          setLoading(false);
+          toast.error("Could not read document. Try again.");
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: "Could not read the current document. Make sure the editor is ready and try again." },
+          ]);
+          return;
+        }
+
         const res = await fetch("/api/ai/konva", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -293,7 +543,21 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
         setLoading(false);
       }
     },
-    [input, isKonvaActive, konvaAi, messages, attachedImages]
+    [
+      input,
+      isAnyEditorActive,
+      isPlateActive,
+      isUniverActive,
+      isPlateSelectionMode,
+      selectionContext,
+      setSelectionContext,
+      plateAi,
+      univerAi,
+      konvaAi,
+      messages,
+      attachedImages,
+      globalAi?.documentTitle,
+    ]
   );
 
   return (
@@ -325,20 +589,31 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
 
       <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", SIDEBAR_PADDING_X)}>
         <div className="flex flex-1 flex-col overflow-hidden">
-          {!isKonvaActive ? (
+          {!isAnyEditorActive ? (
             <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
               <div className="flex-1 overflow-auto py-4">
-                <p className="text-muted-foreground text-sm">
-                  Open a report or presentation to edit it with AI. You can ask to add pages, change text, add headings, and more.
+                <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                  Context: {pageLabel}
+                </p>
+                <p className="text-muted-foreground text-sm mt-2">
+                  {isOtherEditor
+                    ? "This document uses the in-editor AI (slash commands and AI menu in the toolbar). Use the editor toolbar for suggestions and edits."
+                    : isDocumentEditor
+                      ? "Open a report, presentation, sheet, or document to edit it with AI here. You can ask to add pages, change text, add data, and more."
+                      : `You're on ${pageLabel}. I have context of this page. Ask me to help with documents, clients, or next steps—or open a report or presentation to edit with AI.`}
                 </p>
                 <div className="mt-4 rounded-lg border border-border bg-muted-hover/50 p-3 text-muted-foreground text-xs">
-                  No document open. Create or open a report or presentation, then use this panel to prompt changes.
+                  {isOtherEditor
+                    ? "For contracts, SOWs, and sheets use the AI options inside the document editor."
+                    : isDocumentEditor
+                      ? "Create or open a report, presentation, sheet, or document, then use this panel to prompt changes."
+                      : "The assistant sees where you are in the app. Full edit-in-place is available when you open a report or presentation."}
                 </div>
               </div>
               <div className="flex-shrink-0 border-t border-border py-3">
                 <div className="flex gap-2">
                   <div className="min-h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-2 text-sm text-muted-foreground opacity-50">
-                    Open a document to enable
+                    Page-aware AI: open a report, presentation, sheet, or document to edit
                   </div>
                   <Button type="button" size="sm" className="shrink-0" disabled>
                     Send
@@ -348,8 +623,50 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             <>
+              {(messages.length > 0 || input.trim()) && documentId && (
+                <div className="flex shrink-0 items-center justify-end border-b border-border py-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setMessages([]);
+                      setInput("");
+                      const emptyPayload = { messages: [], input: "" };
+                      try {
+                        localStorage.setItem(`${DOCUMENT_AI_CHAT_STORAGE_KEY}-${documentId}`, JSON.stringify(emptyPayload));
+                        upsertDocumentAiChatSession(documentId, emptyPayload).then(({ error }) => {
+                          if (error) toast.error("Could not clear chat session");
+                        });
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                  >
+                    Reset chat
+                  </Button>
+                </div>
+              )}
               <div className="flex-1 overflow-auto py-4">
                 <div className="flex flex-col gap-3 text-sm">
+                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                    Context: {pageLabel} · {isPlateActive ? "Document" : isUniverActive ? "Sheet" : konvaAi?.mode === "presentation" ? "Presentation" : "Report"}
+                    {isPlateSelectionMode && (
+                      <>
+                        <span className="ml-1.5 inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          Editing selection
+                        </span>
+                        <button
+                          type="button"
+                          className="ml-1.5 text-[10px] text-muted-foreground underline hover:text-foreground"
+                          onClick={() => setSelectionContext(null)}
+                        >
+                          Clear
+                        </button>
+                      </>
+                    )}
+                  </p>
                   {messages.length === 0 && (
                     <p className="text-muted-foreground">
                       Ask me to edit, review, or improve your design. For example: &quot;Add a title page&quot;, &quot;What&apos;s on this page?&quot;, or &quot;Suggest improvements&quot;.

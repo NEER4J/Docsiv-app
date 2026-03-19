@@ -5,6 +5,9 @@ import { EditorSidebar } from "@/components/sidebar/editor-sidebar";
 import { SidebarCloseOnNavigate } from "@/components/sidebar/sidebar-close-on-navigate";
 import { AiAssistantProvider, AiAssistantSidebar } from "@/components/sidebar/ai-assistant-sidebar";
 import { KonvaAiProvider } from "@/components/konva/konva-ai-provider";
+import { PlateAiProvider } from "@/components/platejs/plate-ai-provider";
+import { UniverAiProvider } from "@/components/univer/univer-ai-provider";
+import { GlobalAiProvider } from "@/components/global-ai";
 import { DashboardNavbar } from "@/components/dashboard/dashboard-navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -65,27 +68,33 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
       />
       <SidebarInset className={cn("document-editor-force-light min-w-0 max-w-full flex h-screen flex-col overflow-hidden bg-background text-foreground")}>
         <KonvaAiProvider>
-          <AiAssistantProvider>
-            <header
-              className={cn(
-                "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
-                "sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
-              )}
-            >
-              <div className="flex w-full items-center gap-2 px-4 lg:px-6">
-                <SidebarTrigger className="-ml-1 shrink-0" />
-                <Separator orientation="vertical" className="h-4 shrink-0" />
-                <DashboardNavbar />
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                  <SearchDialog />
-                  <AiAssistantSidebar />
-                </div>
-              </div>
-            </header>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              {children}
-            </div>
-          </AiAssistantProvider>
+          <UniverAiProvider>
+            <PlateAiProvider>
+              <GlobalAiProvider>
+                <AiAssistantProvider>
+                  <header
+                    className={cn(
+                      "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
+                      "sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
+                    )}
+                  >
+                    <div className="flex w-full items-center gap-2 px-4 lg:px-6">
+                      <SidebarTrigger className="-ml-1 shrink-0" />
+                      <Separator orientation="vertical" className="h-4 shrink-0" />
+                      <DashboardNavbar />
+                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                        <SearchDialog />
+                        <AiAssistantSidebar />
+                      </div>
+                    </div>
+                  </header>
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    {children}
+                  </div>
+                </AiAssistantProvider>
+              </GlobalAiProvider>
+            </PlateAiProvider>
+          </UniverAiProvider>
         </KonvaAiProvider>
       </SidebarInset>
     </SidebarProvider>

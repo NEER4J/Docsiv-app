@@ -48,6 +48,8 @@ export type UniverSheetEditorHandle = {
   openImportDialog: () => void;
   toggleCommentsPanel: () => void;
   addCommentFromInput: (text: string) => Promise<void>;
+  getContent: () => UniverStoredContent | null;
+  applyContent: (content: UniverStoredContent) => void;
 };
 
 type UniverSheetEditorProps = {
@@ -258,6 +260,42 @@ const UniverSheetEditorInner = (
     return () => window.removeEventListener('habiv-univer-insert-action', handler);
   }, []);
 
+  const getContent = useCallback((): UniverStoredContent | null => {
+    const api = univerRef.current?.univerAPI;
+    const wb = api?.getActiveWorkbook();
+    if (!wb) return null;
+    const snapshot = wb.save();
+    try {
+      const jsonSafe = JSON.parse(JSON.stringify(snapshot)) as object;
+      return { editor: 'univer-sheets', snapshot: jsonSafe };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const applyContent = useCallback(
+    (content: UniverStoredContent) => {
+      const api = univerRef.current?.univerAPI;
+      if (!api || !content?.snapshot) return;
+      const currentWb = api.getActiveWorkbook();
+      const unitId = currentWb?.getId();
+      if (unitId) api.disposeUnit(unitId);
+      api.createWorkbook(content.snapshot as Record<string, unknown>);
+      const wb = api.getActiveWorkbook();
+      if (!wb) return;
+      const snapshot = wb.save();
+      try {
+        const jsonSafe = JSON.parse(JSON.stringify(snapshot)) as object;
+        lastSnapshotRef.current = jsonSafe;
+        dirtyRef.current = false;
+        performSave({ editor: 'univer-sheets', snapshot: jsonSafe });
+      } catch {
+        toast.error('Failed to apply content');
+      }
+    },
+    [performSave]
+  );
+
   useImperativeHandle(ref, () => ({
     save: () => save(),
     saveWithLabel: async (label: string) => {
@@ -275,7 +313,9 @@ const UniverSheetEditorInner = (
     addCommentFromInput: async (text: string) => {
       await addCommentFromSelectionRef.current(text);
     },
-  }), [save, exportExcel, exportCsv, documentId]);
+    getContent,
+    applyContent,
+  }), [save, exportExcel, exportCsv, documentId, getContent, applyContent]);
 
   const replaceWithImportedData = useCallback(
     (univerData: object) => {

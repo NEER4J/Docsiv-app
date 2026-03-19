@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { APP_CONFIG } from "@/config/app-config";
 import { getClientById } from "@/lib/actions/clients";
 import { getDocuments, getDocumentTypes } from "@/lib/actions/documents";
+import { getWorkspaceDetails } from "@/lib/actions/onboarding";
 import { ClientDetailView } from "./client-detail-view";
 import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
 
@@ -34,13 +35,16 @@ export default async function ClientDetailPage({
 
   if (!workspaceId) notFound();
 
-  const [{ client }, { documents }, { types: documentTypes }] = await Promise.all([
+  const [{ client }, { documents }, { types: documentTypes }, { workspace }] = await Promise.all([
     getClientById(workspaceId, id),
     getDocuments(workspaceId, { client_id: id }),
     getDocumentTypes(),
+    getWorkspaceDetails(workspaceId),
   ]);
 
   if (!client) notFound();
+
+  const hasClientPortal = Boolean(workspace?.hide_docsiv_branding);
 
   return (
     <ClientDetailView
@@ -48,6 +52,7 @@ export default async function ClientDetailPage({
       workspaceId={workspaceId}
       documents={documents}
       documentTypes={documentTypes}
+      hasClientPortal={hasClientPortal}
     />
   );
 }

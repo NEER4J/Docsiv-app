@@ -5,6 +5,7 @@ import { type TPlateEditor, useEditorRef } from 'platejs/react';
 
 import { BaseEditorKit } from '@/components/platejs/editor/editor-base-kit';
 import { AIKit } from '@/components/platejs/editor/plugins/ai-kit';
+import { SelectionAIKit } from '@/components/platejs/editor/plugins/selection-ai-plugin';
 import { AlignKit } from '@/components/platejs/editor/plugins/align-kit';
 import { BlockSelectionKit } from '@/components/platejs/editor/plugins/block-selection-kit';
 import { AutoformatKit } from '@/components/platejs/editor/plugins/autoformat-kit';
@@ -40,6 +41,7 @@ import { ToggleKit } from '@/components/platejs/editor/plugins/toggle-kit';
 export const EditorKit = [
   ...CopilotKit,
   ...AIKit,
+  ...SelectionAIKit,
 
   // Elements
   ...BasicBlocksKit,

@@ -35,7 +35,7 @@ export async function getClients(
 
   const { data: clientsData, error: clientsError } = await supabase
     .from("clients")
-    .select("id, workspace_id, name, email, phone, website, logo_url, created_by, created_at, updated_at")
+    .select("id, workspace_id, name, slug, email, phone, website, logo_url, created_by, created_at, updated_at")
     .eq("workspace_id", workspaceId)
     .order("name");
 
@@ -72,7 +72,7 @@ export async function getClientById(
 
   const { data, error } = await supabase
     .from("clients")
-    .select("id, workspace_id, name, email, phone, website, logo_url, notes, created_by, created_at, updated_at")
+    .select("id, workspace_id, name, slug, email, phone, website, logo_url, notes, created_by, created_at, updated_at")
     .eq("id", clientId)
     .eq("workspace_id", workspaceId)
     .single();
@@ -87,6 +87,35 @@ export async function getClientById(
     .eq("workspace_id", workspaceId);
 
   return { client: { ...data, doc_count: count ?? 0 } };
+}
+
+/** Resolve client by slug (for portal /client/[slug]). Uses RPC so it works for anon. */
+export async function getClientBySlug(
+  workspaceId: string,
+  slug: string
+): Promise<{ client: { id: string; name: string; slug: string; email: string | null } | null; error?: string }> {
+  const supabase = await createSupabaseClient();
+  const { data, error } = await supabase.rpc("get_client_by_slug", {
+    p_workspace_id: workspaceId,
+    p_slug: slug,
+  });
+  if (error) return { client: null, error: error.message };
+  const row = data as { id: string; name: string; slug: string; email: string | null } | null;
+  return { client: row ?? null };
+}
+
+/** Get client slug by id (for building /client/[slug] URLs). */
+export async function getClientSlug(
+  workspaceId: string,
+  clientId: string
+): Promise<{ slug: string | null; error?: string }> {
+  const supabase = await createSupabaseClient();
+  const { data, error } = await supabase.rpc("get_client_slug", {
+    p_workspace_id: workspaceId,
+    p_client_id: clientId,
+  });
+  if (error) return { slug: null, error: error.message };
+  return { slug: data as string | null };
 }
 
 export type UpdateClientInput = {

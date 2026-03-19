@@ -600,15 +600,13 @@ export const TableElement = withHOC(
         ),
       } as React.CSSProperties;
     }, [colSizes]);
+    const totalColWidth = colSizes.reduce((total, colSize) => total + colSize, 0);
     const tableStyle = React.useMemo(
       () =>
-        ({
-          width: `${
-            colSizes.reduce((total, colSize) => total + colSize, 0) +
-            controlColumnWidth
-          }px`,
-        }) as React.CSSProperties,
-      [colSizes, controlColumnWidth]
+        totalColWidth > 0
+          ? ({ width: `${totalColWidth + controlColumnWidth}px` } as React.CSSProperties)
+          : ({ width: '100%' } as React.CSSProperties),
+      [totalColWidth, controlColumnWidth]
     );
 
     const isSelectingTable = useBlockSelected(props.element.id as string);
@@ -624,7 +622,7 @@ export const TableElement = withHOC(
       >
         <TableResizeContext.Provider value={resizeController}>
           <div
-            className="group/table relative w-fit"
+            className={cn('group/table relative', totalColWidth > 0 ? 'w-fit' : 'w-full')}
             ref={wrapperRef}
             style={tableVariableStyle}
           >
@@ -640,7 +638,8 @@ export const TableElement = withHOC(
             />
             <table
               className={cn(
-                'mr-0 ml-px table h-px table-fixed border-collapse',
+                'mr-0 ml-px table h-px border-collapse',
+                totalColWidth > 0 ? 'table-fixed' : 'table-auto',
                 isSelectingCell && 'selection:bg-transparent'
               )}
               ref={tableRef}

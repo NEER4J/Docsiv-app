@@ -3,8 +3,9 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, CheckSquare, Trash2, X } from "lucide-react";
+import { ChevronLeft, CheckSquare, Loader2, Trash2, X, Send, Link2 } from "lucide-react";
 import { User, FileText, Globe, Phone, Envelope } from "@phosphor-icons/react";
+import { sendClientPortalInvite, getClientPortalUrl } from "@/lib/actions/client-portal";
 import {
   DocumentTypeSwitcher,
   DocumentTypeSwitcherContent,
@@ -269,14 +270,18 @@ export function ClientDetailView({
   workspaceId,
   documents = [],
   documentTypes = [],
+  hasClientPortal = false,
 }: {
   client: ClientWithDocCount;
   workspaceId: string;
   documents?: DocumentListItem[];
   documentTypes?: DocumentType[];
+  hasClientPortal?: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState("overview");
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [copyingLink, setCopyingLink] = useState(false);
   const [navigatingToDocId, setNavigatingToDocId] = useState<string | null>(null);
   const [updatingThumbnailId, setUpdatingThumbnailId] = useState<string | null>(null);
   const [docSearch, setDocSearch] = useState("");
@@ -338,16 +343,79 @@ export function ClientDetailView({
           <ChevronLeft className="size-3.5" />
           Clients
         </Link>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-lg border border-border bg-muted">
             <User className="size-5 text-muted-foreground" />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="font-ui text-xl font-semibold">{client.name}</h1>
             <p className="text-xs text-muted-foreground">
               {client.doc_count} {client.doc_count === 1 ? "document" : "documents"}
             </p>
           </div>
+          {hasClientPortal && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={copyingLink}
+                onClick={async () => {
+                  setCopyingLink(true);
+                  const { url, error } = await getClientPortalUrl(workspaceId, client.id);
+                  setCopyingLink(false);
+                  if (error) {
+                    toast.error(error);
+                    return;
+                  }
+                  if (!url) return;
+                  try {
+                    await navigator.clipboard.writeText(url);
+                    toast.success("Portal link copied to clipboard");
+                  } catch {
+                    toast.error("Could not copy link");
+                  }
+                }}
+              >
+                {copyingLink ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Link2 className="size-4" />
+                )}
+                Copy portal link
+              </Button>
+              {client.email?.trim() && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={sendingInvite}
+                  onClick={async () => {
+                    setSendingInvite(true);
+                    const { error } = await sendClientPortalInvite(workspaceId, client.id);
+                    setSendingInvite(false);
+                    if (error) toast.error(error);
+                    else {
+                      toast.success("Portal invite sent to " + client.email);
+                      router.refresh();
+                    }
+                  }}
+                >
+                  {sendingInvite ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    <>
+                      <Send className="size-4" />
+                      Send portal invite
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

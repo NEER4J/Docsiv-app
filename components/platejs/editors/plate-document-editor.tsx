@@ -47,6 +47,23 @@ export interface PlateDocumentEditorHandle {
   captureThumbnail: () => Promise<string | null>;
   toggleCommentsPanel: () => void;
   addCommentFromInput: (text: string) => Promise<void>;
+  /** Programmatically replace the entire editor content (used by AI applyContent). */
+  setValue: (value: Value) => void;
+  /** Current editor value (for syncing after programmatic edits). */
+  getValue: () => Value;
+  /**
+   * Returns a context window of nodes around the current cursor position.
+   * Used by AI to get targeted context for large documents.
+   */
+  getCursorContext: () => { startIndex: number; nodes: Value; totalNodes: number } | null;
+  /**
+   * Returns the currently selected top-level blocks (for "edit selection" from AI sidebar).
+   */
+  getSelectionContext: () => { selectedContent: Value; selectedBlockIds: string[] } | null;
+  /**
+   * Replaces the blocks with the given IDs with newContent (used when editing selection from sidebar).
+   */
+  applySelectionEdit: (newContent: Value, blockIdsToReplace: string[]) => void;
 }
 
 export const PlateDocumentEditor = React.forwardRef<
@@ -119,6 +136,75 @@ export const PlateDocumentEditor = React.forwardRef<
       toggleCommentsPanel: () => setCommentsOpen((v) => !v),
       addCommentFromInput: async (text: string) => {
         await addCommentFromSelection(text);
+      },
+      setValue: (value: Value) => {
+        try {
+          (editor.tf as unknown as { setValue: (v: Value) => void }).setValue(value);
+        } catch {
+          editor.children = value as typeof editor.children;
+          editor.onChange();
+        }
+      },
+      getValue: () => (editor.children as Value).slice(),
+      getCursorContext: () => {
+        const children = editor.children as Value;
+        const total = children.length;
+        if (total === 0) return null;
+        const selection = editor.selection;
+        const cursorTopIdx = selection ? (selection.anchor.path[0] ?? 0) : 0;
+        const WINDOW = 6;
+        const start = Math.max(0, cursorTopIdx - WINDOW);
+        const end = Math.min(total - 1, cursorTopIdx + WINDOW);
+        return { startIndex: start, nodes: children.slice(start, end + 1), totalNodes: total };
+      },
+      getSelectionContext: () => {
+        const sel = editor.selection;
+        if (!sel) return null;
+        const nodes: Value = [];
+        const ids: string[] = [];
+        for (const [node, path] of editor.api.nodes({
+          at: sel,
+          match: (_n, p) => p.length === 1,
+        })) {
+          const n = node as { id?: string; [k: string]: unknown };
+          nodes.push(n as Value[number]);
+          if (n.id && typeof n.id === "string") ids.push(n.id);
+        }
+        if (nodes.length === 0) return null;
+        return { selectedContent: nodes, selectedBlockIds: ids };
+      },
+      applySelectionEdit: (newContent: Value, blockIdsToReplace: string[]) => {
+        if (blockIdsToReplace.length === 0) return;
+        const paths: number[][] = [];
+        for (const id of blockIdsToReplace) {
+          for (const [, path] of editor.api.nodes({
+            at: [],
+            match: (n: unknown, p: number[]) =>
+              p.length === 1 && (n as { id?: string }).id === id,
+          })) {
+            paths.push(path as number[]);
+            break;
+          }
+        }
+        if (paths.length === 0) return;
+        const sorted = [...paths].sort((a, b) => b[0] - a[0]);
+        for (const path of sorted) {
+          try {
+            editor.tf.removeNodes({ at: path });
+          } catch {
+            /* ignore */
+          }
+        }
+        const insertIndex = sorted[sorted.length - 1][0];
+        try {
+          editor.tf.insertNodes(newContent as Parameters<typeof editor.tf.insertNodes>[0], {
+            at: [insertIndex],
+          });
+        } catch {
+          editor.tf.insertNodes(newContent as Parameters<typeof editor.tf.insertNodes>[0], {
+            at: [editor.children.length],
+          });
+        }
       },
     }),
     [editor, addCommentFromSelection]

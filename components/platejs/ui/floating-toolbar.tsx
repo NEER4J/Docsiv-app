@@ -10,11 +10,7 @@ import {
 } from '@platejs/floating';
 import { useComposedRef } from '@udecode/cn';
 import { KEYS } from 'platejs';
-import {
-  useEditorId,
-  useEventEditorValue,
-  usePluginOption,
-} from 'platejs/react';
+import { useEditorId, useEventEditorValue, usePluginOption } from 'platejs/react';
 
 import { cn } from '@/lib/utils';
 
@@ -34,7 +30,26 @@ export class FloatingToolbarErrorBoundary extends React.Component<
   }
 }
 
-export function FloatingToolbar({
+/** Class component wrapper to catch render-phase errors from hooks */
+class FloatingToolbarClass extends React.Component<
+  React.ComponentProps<typeof Toolbar> & { state?: FloatingToolbarState }
+> {
+  state = { hasError: false, error: null as Error | null };
+  
+  static getDerivedStateFromError(error: Error): { hasError: boolean; error: Error } {
+    return { hasError: true, error };
+  }
+  
+  render() {
+    if (this.state.hasError) {
+      return null;
+    }
+    return <FloatingToolbarHook {...this.props} />;
+  }
+}
+
+/** Hook-based implementation - separated so class wrapper can catch its errors */
+function FloatingToolbarHook({
   children,
   className,
   state,
@@ -44,14 +59,16 @@ export function FloatingToolbar({
 }) {
   const editorId = useEditorId();
   const focusedEditorId = useEventEditorValue('focus');
-  // Default to falsy when Link/AI plugins are not in the editor (e.g. ViewerKit/CommenterKit)
+  
+  // Only check for floating link — checking AIChatPlugin 'open' throws
+  // "isEqual is not a function" due to a plugin state comparison bug, so
+  // we skip that check entirely (the custom SelectionAIPopover handles its own visibility).
   const isFloatingLinkOpen = !!usePluginOption({ key: KEYS.link }, 'mode', undefined);
-  const isAIChatOpen = usePluginOption({ key: KEYS.aiChat }, 'open', false);
 
   const floatingToolbarState = useFloatingToolbarState({
     editorId,
     focusedEditorId,
-    hideToolbar: isFloatingLinkOpen || isAIChatOpen,
+    hideToolbar: isFloatingLinkOpen,
     ...state,
     floatingOptions: {
       middleware: [
@@ -99,3 +116,6 @@ export function FloatingToolbar({
     </div>
   );
 }
+
+/** Exported FloatingToolbar with error boundary */
+export const FloatingToolbar = FloatingToolbarClass;

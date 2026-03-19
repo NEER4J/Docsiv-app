@@ -231,16 +231,21 @@ export function SharedDocumentView({
                 {editRequested ? 'Edit access requested' : 'Request edit access'}
               </Button>
             ) : (
-              <Button
-                variant={canEdit ? 'default' : 'ghost'}
-                size="sm"
-                className={`h-7 rounded-full text-xs ${canEdit ? '' : 'text-muted-foreground hover:text-foreground'}`}
-                asChild
-              >
-                <Link href={signInHref}>
-                  {role === 'edit' ? 'Sign in to edit' : role === 'comment' ? 'Sign in to comment' : 'Sign in'}
-                </Link>
-              </Button>
+              <div className="flex flex-col items-end gap-0.5">
+                <Button
+                  variant={canEdit ? 'default' : 'ghost'}
+                  size="sm"
+                  className={`h-7 rounded-full text-xs ${canEdit ? '' : 'text-muted-foreground hover:text-foreground'}`}
+                  asChild
+                >
+                  <Link href={signInHref}>
+                    {role === 'edit' ? 'Sign in to edit' : role === 'comment' ? 'Sign in to comment' : 'Sign in'}
+                  </Link>
+                </Button>
+                <span className="text-[10px] text-muted-foreground">
+                  For collaborators. Clients: use the portal link we sent you.
+                </span>
+              </div>
             )}
           </div>
 

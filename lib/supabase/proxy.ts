@@ -77,12 +77,14 @@ export async function updateSession(request: NextRequest) {
 
   // ── Domain resolver (priority: custom domain -> subdomain -> app root) ─────
   const isVercelPreview = host.endsWith(".vercel.app");
+  const isLocalhost = host === "localhost" || host === "127.0.0.1";
   const rootHost = isRootPlatformHost(host, PLATFORM_DOMAIN);
-  if (isClientPortalPath && (rootHost || isVercelPreview)) {
+  // Allow /client/* on localhost for local dev; only redirect on production platform domains
+  if (isClientPortalPath && (rootHost || isVercelPreview) && !isLocalhost) {
     const url = new URL(`https://${PLATFORM_DOMAIN}`);
     return applyCookiesTo(NextResponse.redirect(url));
   }
-  if (!rootHost && !isVercelPreview) {
+  if (!rootHost && !isVercelPreview && !isLocalhost) {
     const { data: hostWorkspace } = await supabase.rpc("resolve_workspace_for_host", {
       p_host: host,
       p_platform_domain: PLATFORM_DOMAIN,
@@ -188,7 +190,15 @@ export async function updateSession(request: NextRequest) {
           .limit(1)
           .maybeSingle();
         const url = request.nextUrl.clone();
-        url.pathname = portalMembership?.client_id ? `/client/${portalMembership.client_id}` : "/";
+        if (portalMembership?.client_id) {
+          const { data: slug } = await supabase.rpc("get_client_slug", {
+            p_workspace_id: workspaceIdForRole,
+            p_client_id: portalMembership.client_id,
+          });
+          url.pathname = slug ? `/client/${slug}` : `/client/${portalMembership.client_id}`;
+        } else {
+          url.pathname = "/";
+        }
         return applyCookiesTo(NextResponse.redirect(url));
       }
     }

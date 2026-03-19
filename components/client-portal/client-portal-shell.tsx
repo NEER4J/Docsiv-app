@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 type PortalClient = {
   id: string;
   name: string;
+  slug?: string;
 };
 
 export function ClientPortalShell({
@@ -22,6 +23,7 @@ export function ClientPortalShell({
   client: PortalClient;
   children: React.ReactNode;
 }) {
+  const portalPath = client.slug ? `/client/${client.slug}` : `/client/${client.id}`;
   return (
     <div className="min-h-dvh bg-background text-foreground">
       <div className="grid min-h-dvh grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -44,7 +46,7 @@ export function ClientPortalShell({
           </div>
           <nav className="space-y-1 p-2">
             <Link
-              href={`/client/${client.id}`}
+              href={portalPath}
               className={cn(
                 "flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground"
               )}

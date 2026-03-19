@@ -74,7 +74,13 @@ export const aiChatPlugin = AIChatPlugin.extend({
           withAIBatch(
             editor,
             () => {
-              applyAISuggestions(editor, content);
+              try {
+                applyAISuggestions(editor, content);
+              } catch (err) {
+                // applyAISuggestions requires a SuggestionPlugin API method
+                // (suggestionData) that is absent in the current package version.
+                console.warn('[AI] applyAISuggestions skipped:', err);
+              }
             },
             {
               split: isFirst,

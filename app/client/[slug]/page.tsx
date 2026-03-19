@@ -3,26 +3,41 @@ import { notFound } from "next/navigation";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ClientPortalLoginForm } from "@/components/client-portal/client-portal-login-form";
-import { getClientById } from "@/lib/actions/clients";
+import { ClientPortalSetPasswordForm } from "@/components/client-portal/client-portal-set-password-form";
+import { getClientBySlug } from "@/lib/actions/clients";
 import { activateClientPortalMembership, getClientPortalDocuments } from "@/lib/actions/client-portal";
-import { resolveWorkspaceByHost } from "@/lib/workspace-context/server";
+import {
+  resolveWorkspaceByHost,
+  resolveWorkspaceAndClientBySlug,
+  getRequestHost,
+} from "@/lib/workspace-context/server";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function ClientPortalPage({
   params,
 }: {
-  params: Promise<{ clientId: string }>;
+  params: Promise<{ slug: string }>;
 }) {
-  const { clientId } = await params;
-  const hostWorkspace = await resolveWorkspaceByHost();
-  if (!hostWorkspace || !hostWorkspace.hide_docsiv_branding) {
-    notFound();
-  }
+  const { slug } = await params;
+  const host = await getRequestHost();
+  const isLocalDevHost =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".127.0.0.1");
 
-  const { client, error: clientError } = await getClientById(hostWorkspace.id, clientId);
-  if (clientError || !client) {
-    notFound();
+  let hostWorkspace = await resolveWorkspaceByHost();
+  if (!hostWorkspace && isLocalDevHost) {
+    const resolved = await resolveWorkspaceAndClientBySlug(slug);
+    if (resolved) hostWorkspace = resolved.workspace;
   }
+  if (!hostWorkspace) notFound();
+  if (!isLocalDevHost && !hostWorkspace.hide_docsiv_branding) notFound();
+
+  const { client } = await getClientBySlug(hostWorkspace.id, slug);
+  if (!client) notFound();
+  const clientId = client.id;
+  const clientName = client.name;
 
   const supabase = await createClient();
   const {
@@ -35,17 +50,17 @@ export default async function ClientPortalPage({
         <CardHeader>
           <CardTitle>Access client portal</CardTitle>
           <CardDescription>
-            Sign in with your invited email to view {client.name}&apos;s documents.
+            Sign in with your invited email to view {clientName}&apos;s documents.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ClientPortalLoginForm clientId={clientId} clientName={client.name} />
+          <ClientPortalLoginForm clientId={clientId} clientSlug={slug} clientName={clientName} />
         </CardContent>
       </Card>
     );
   }
 
-  const activation = await activateClientPortalMembership(client.id);
+  const activation = await activateClientPortalMembership(clientId);
   if (!activation.allowed) {
     return (
       <Card className="max-w-xl">
@@ -57,7 +72,23 @@ export default async function ClientPortalPage({
     );
   }
 
-  const { documents, error } = await getClientPortalDocuments(client.id);
+  if (activation.requiresPasswordSet) {
+    return (
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle>Set your password</CardTitle>
+          <CardDescription>
+            You signed in with a link. Set a password to use email and password next time.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ClientPortalSetPasswordForm clientId={clientId} />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const { documents, error } = await getClientPortalDocuments(clientId);
 
   if (error) {
     return (

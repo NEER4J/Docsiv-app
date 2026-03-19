@@ -45,6 +45,11 @@ export default async function LoginPage({
           </div>
           <LoginForm redirectNext={next} errorFromUrl={error} />
         </div>
+        {branding && (
+          <p className="text-xs text-muted-foreground text-center">
+            Invited to the client portal? Use the sign-in link we sent you by email.
+          </p>
+        )}
       </div>
       <div className="mt-8 text-sm text-muted-foreground">
         Don&apos;t have an account?{" "}
