@@ -5,13 +5,17 @@ import { generateText } from 'ai';
 import { NextResponse } from 'next/server';
 
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
+import { logAiUsage } from '@/lib/ai-usage';
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   const {
     apiKey: key,
     model = DEFAULT_AI_MODEL,
     prompt,
     system,
+    workspaceId,
+    documentId,
   } = await req.json();
 
   const apiKey = key || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -42,6 +46,15 @@ export async function POST(req: NextRequest) {
       system,
       temperature: 0.3,
     });
+    await logAiUsage({
+      route: '/api/ai/copilot',
+      model: modelId,
+      workspaceId: typeof workspaceId === 'string' ? workspaceId : undefined,
+      documentId: typeof documentId === 'string' ? documentId : undefined,
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      usage: result,
+    });
 
     let text = (result.text ?? '').trim();
     const contextMatch = /"""\s*([\s\S]*?)\s*"""/.exec(prompt);
@@ -57,6 +70,16 @@ export async function POST(req: NextRequest) {
       text,
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to process AI request';
+    await logAiUsage({
+      route: '/api/ai/copilot',
+      model: modelId,
+      workspaceId: typeof workspaceId === 'string' ? workspaceId : undefined,
+      documentId: typeof documentId === 'string' ? documentId : undefined,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
+      errorMessage: message,
+    });
     if (error instanceof Error && error.name === 'AbortError') {
       return NextResponse.json(null, { status: 408 });
     }

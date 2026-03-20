@@ -148,3 +148,32 @@ export interface DocumentDetail extends DocumentListItem {
   last_modified_by: string | null;
   require_signature?: boolean;
 }
+
+// ── Document templates (workspace + marketplace) ─────────────────────────────
+
+export interface DocumentTemplateTypeRef {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface DocumentTemplateListItem {
+  id: string;
+  is_marketplace: boolean;
+  workspace_id: string | null;
+  title: string;
+  description: string | null;
+  base_type: DocumentBaseType;
+  thumbnail_url: string | null;
+  sort_order: number;
+  created_at: string;
+  document_type_ids: string[];
+  document_types: DocumentTemplateTypeRef[];
+}
+
+export interface DocumentTemplateDetail extends DocumentTemplateListItem {
+  content: Record<string, unknown>;
+  source_document_id: string | null;
+  /** Present on full template fetch; marketplace admins may see inactive rows. */
+  is_active?: boolean;
+}

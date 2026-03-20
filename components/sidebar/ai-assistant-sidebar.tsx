@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Sparkles, X, Loader2, Paperclip, CheckCircle2 } from "lucide-react";
+import { Sparkles, X, Loader2, Paperclip, CheckCircle2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useOptionalKonvaAi } from "@/components/konva/konva-ai-provider";
 import { useOptionalPlateAi } from "@/components/platejs/plate-ai-provider";
 import { useOptionalUniverAi } from "@/components/univer/univer-ai-provider";
@@ -30,6 +30,21 @@ const SIDEBAR_PADDING_X = "px-3";
 const AI_PANEL_WIDTH = "24rem";
 const MAX_IMAGES = 4;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+
+/** Remove handoff query flags so closing the panel does not re-open via effects. */
+function stripDocumentEditorAiQueryParams(
+  pathname: string | null,
+  searchParams: { get: (k: string) => string | null; toString: () => string },
+  replace: (href: string) => void
+) {
+  if (!pathname || !/^\/d\/[^/?#]+/.test(pathname)) return;
+  if (searchParams.get("aiOpen") !== "1" && searchParams.get("aiAutoSend") !== "1") return;
+  const p = new URLSearchParams(searchParams.toString());
+  p.delete("aiOpen");
+  p.delete("aiAutoSend");
+  const q = p.toString();
+  replace(q ? `${pathname}?${q}` : pathname);
+}
 
 /** When set, the sidebar will send prompts as "edit only this selection" (Plate). */
 export type PlateSelectionContext = {
@@ -69,12 +84,28 @@ export function useOptionalAiAssistant() {
 
 /** Renders dashboard content + right AI panel; use once in dashboard layout. */
 export function AiAssistantProvider({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpenInner] = React.useState(false);
   const [selectionContext, setSelectionContext] = React.useState<SelectionContext>(null);
   const isMobile = useIsMobile();
+  const router = useRouter();
+  const pathname = usePathname();
+  const routeSearchParams = useSearchParams();
+
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      setOpenInner(next);
+      if (!next) {
+        stripDocumentEditorAiQueryParams(pathname, routeSearchParams, (href) =>
+          router.replace(href, { scroll: false })
+        );
+      }
+    },
+    [pathname, router, routeSearchParams]
+  );
+
   const value = React.useMemo(
     () => ({ open, setOpen, selectionContext, setSelectionContext }),
-    [open, selectionContext]
+    [open, setOpen, selectionContext]
   );
 
   return (
@@ -83,13 +114,19 @@ export function AiAssistantProvider({ children }: { children: React.ReactNode })
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {children}
         </div>
-        {/* Desktop: inline panel — always in layout flow, never overlapping */}
+        {/* Desktop: keep panel mounted so auto-send state/refs survive close — width hides it */}
         {!isMobile && (
           <div
             className="flex h-full shrink-0 flex-col overflow-hidden border-l border-border bg-background transition-[width] duration-200 ease-linear"
             style={{ width: open ? AI_PANEL_WIDTH : 0 }}
+            aria-hidden={!open}
           >
-            {open && <AiAssistantPanel onClose={() => setOpen(false)} />}
+            <div
+              className={cn("flex h-full min-w-0 shrink-0 flex-col", !open && "pointer-events-none")}
+              style={{ width: AI_PANEL_WIDTH }}
+            >
+              <AiAssistantPanel onClose={() => setOpen(false)} />
+            </div>
           </div>
         )}
       </div>
@@ -185,6 +222,8 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [attachedImages, setAttachedImages] = React.useState<Array<{ dataUrl: string; name: string }>>([]);
+  const [lastAiEditAt, setLastAiEditAt] = React.useState<number | null>(null);
+  const [autoSendStatus, setAutoSendStatus] = React.useState<"idle" | "preparing" | "running">("idle");
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -217,6 +256,11 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   const aiAutoSend = searchParams.get("aiAutoSend") === "1";
   const sessionLoadedRef = React.useRef(false);
   const autoSendTriggeredRef = React.useRef(false);
+
+  // New document → allow auto-send again for that doc
+  React.useEffect(() => {
+    autoSendTriggeredRef.current = false;
+  }, [documentId]);
 
   // Load persisted AI chat session for this document (DB first, then localStorage fallback)
   React.useEffect(() => {
@@ -371,6 +415,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
               selectedContent: selectionContext.selectedContent,
               prompt: trimmed,
               documentTitle: undefined,
+              documentId: globalAi?.documentId ?? undefined,
             }),
           });
           if (!res.ok) {
@@ -391,6 +436,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
           if (data.content && Array.isArray(data.content) && data.content.length > 0) {
             plateAi.applySelectionEdit(data.content as Value, selectionContext.selectedBlockIds);
             setSelectionContext(null);
+            setLastAiEditAt(Date.now());
             setMessages((prev) => [
               ...prev,
               { role: "assistant", content: data.message ?? "I’ve updated the selected content.", action: "edit" },
@@ -411,6 +457,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
               range: selectionContext.range,
               prompt: trimmed,
               documentTitle: undefined,
+              documentId: globalAi?.documentId ?? undefined,
             }),
           });
           if (!res.ok) {
@@ -434,6 +481,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
               range: selectionContext.range,
             });
             setSelectionContext(null);
+            setLastAiEditAt(Date.now());
             setMessages((prev) => [
               ...prev,
               { role: "assistant", content: data.message ?? "I've updated the selection.", action: "edit" },
@@ -462,6 +510,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
               messages: chatMessages,
               content: sheetContent,
               documentTitle: undefined,
+              documentId: globalAi?.documentId ?? undefined,
             }),
           });
           if (!res.ok) {
@@ -479,6 +528,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
             ]);
           } else if (data.action === "edit" && data.content) {
             univerAi.applyContent(data.content as UniverStoredContent);
+            setLastAiEditAt(Date.now());
             setMessages((prev) => [
               ...prev,
               { role: "assistant", content: data.message ?? "I've updated the sheet.", action: "edit" },
@@ -510,6 +560,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
               totalNodeCount: plateCtx.totalNodeCount,
               windowOffset: plateCtx.windowOffset,
               documentTitle: plateCtx.documentTitle,
+              documentId: globalAi?.documentId ?? undefined,
             }),
           });
           if (!res.ok) {
@@ -531,6 +582,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
               content: data.content,
               insertAt: typeof data.insertAt === "number" ? data.insertAt : undefined,
             });
+            setLastAiEditAt(Date.now());
             setMessages((prev) => [
               ...prev,
               { role: "assistant", content: data.message ?? "I've updated the document.", action: "edit" },
@@ -568,6 +620,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
             mode: konva.mode,
             pageWidthPx: konva.pageWidthPx ?? undefined,
             pageHeightPx: konva.pageHeightPx ?? undefined,
+            documentId: globalAi?.documentId ?? undefined,
           }),
         });
 
@@ -594,6 +647,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
             return;
           }
           konva.applyContent?.(newContent as KonvaStoredContent);
+          setLastAiEditAt(Date.now());
           setMessages((prev) => [
             ...prev,
             { role: "assistant", content: data.message ?? "I've updated the document.", action: "edit" },
@@ -603,6 +657,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
           const newContent = data.content;
           if (newContent && typeof newContent === "object") {
             konva.applyContent?.(newContent as KonvaStoredContent);
+            setLastAiEditAt(Date.now());
           }
           const msg = typeof data.message === "string" ? data.message : typeof data.summary === "string" ? data.summary : "Done.";
           setMessages((prev) => [...prev, { role: "assistant", content: msg, action: newContent ? "edit" : "chat" }]);
@@ -632,27 +687,80 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
     ]
   );
 
+  /** Stable ref so auto-send effect does not re-run on every `handleSubmit` identity change. */
+  const handleSubmitRef = React.useRef(handleSubmit);
+  handleSubmitRef.current = handleSubmit;
+
   // Auto-submit seeded prompts when we arrive from Main AI.
   React.useEffect(() => {
-    if (!aiAutoSend || !documentId) return;
+    if (!aiAutoSend || !documentId) {
+      setAutoSendStatus("idle");
+      if (!aiAutoSend) autoSendTriggeredRef.current = false;
+      return;
+    }
     if (autoSendTriggeredRef.current) return;
-    if (!sessionLoadedRef.current) return; // wait for DB/localStorage seed to load into `input`
-    if (!input.trim()) return; // wait until seeded input is present
-    if (!isAnyEditorActive) return; // wait until the editor AI providers register
+    if (!sessionLoadedRef.current) {
+      setAutoSendStatus("preparing");
+      return; // wait for DB/localStorage seed to load into `input`
+    }
+    if (!input.trim()) {
+      setAutoSendStatus("idle");
+      return;
+    }
 
-    const storageKey = `habiv-ai-autosend-used-${documentId}`;
+    const signature = `${documentId}:${input.trim()}`;
+    const storageKey = "habiv-ai-autosend-last-signature";
     try {
-      if (typeof window !== "undefined" && localStorage.getItem(storageKey) === "1") return;
-      autoSendTriggeredRef.current = true;
-      localStorage.setItem(storageKey, "1");
+      if (typeof window !== "undefined" && localStorage.getItem(storageKey) === signature) {
+        setAutoSendStatus("idle");
+        autoSendTriggeredRef.current = true;
+        return;
+      }
     } catch {
-      // If storage fails, we still attempt once per mount.
+      // ignore
+    }
+
+    if (!isAnyEditorActive) {
+      setAutoSendStatus("preparing");
+      return;
+    }
+
+    try {
+      autoSendTriggeredRef.current = true;
+      localStorage.setItem(storageKey, signature);
+    } catch {
       autoSendTriggeredRef.current = true;
     }
 
     const fakeEvent = { preventDefault: () => {} } as unknown as React.FormEvent;
-    void handleSubmit(fakeEvent);
-  }, [aiAutoSend, documentId, input, isAnyEditorActive, handleSubmit]);
+    setAutoSendStatus("running");
+    void handleSubmitRef.current(fakeEvent);
+  }, [aiAutoSend, documentId, input, isAnyEditorActive]);
+
+  React.useEffect(() => {
+    if (!loading && autoSendStatus === "running") {
+      setAutoSendStatus("idle");
+    }
+  }, [loading, autoSendStatus]);
+
+  const handleUndoLastAiEdit = React.useCallback(() => {
+    if (plateAi?.triggerUndo) {
+      plateAi.triggerUndo();
+      toast.success("Undid last AI edit");
+      return;
+    }
+    if (konvaAi?.triggerUndo) {
+      konvaAi.triggerUndo();
+      toast.success("Undid last AI edit");
+      return;
+    }
+    if (univerAi?.triggerUndo) {
+      univerAi.triggerUndo();
+      toast.success("Undid last AI edit");
+      return;
+    }
+    toast.error("Undo is not available in this editor");
+  }, [plateAi, konvaAi, univerAi]);
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -682,6 +790,36 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", SIDEBAR_PADDING_X)}>
+        {(autoSendStatus !== "idle" || lastAiEditAt) && (
+          <div className="mt-3 rounded-md border border-border bg-muted/40 px-2.5 py-2 text-[11px] text-muted-foreground">
+            {autoSendStatus !== "idle" ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="size-3 animate-spin" />
+                <span>
+                  {autoSendStatus === "preparing" ? "Preparing AI context..." : "Running your prompt..."}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate">Last AI edit applied. You can undo if needed.</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={handleUndoLastAiEdit}
+                >
+                  <RotateCcw className="mr-1 size-3" /> Undo
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {aiAutoSend && input.includes("Use this uploaded file context from Main AI:") && (
+          <div className="mt-2 rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[11px] text-muted-foreground">
+            Using uploaded files from Main AI handoff in this first prompt.
+          </div>
+        )}
         <div className="flex flex-1 flex-col overflow-hidden">
           {!isAnyEditorActive ? (
             <div className="flex flex-1 flex-col min-h-0 overflow-hidden">

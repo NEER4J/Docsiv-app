@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { BaseEditorKit } from '@/components/platejs/editor/editor-base-kit';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { markdownJoinerTransform } from '@/lib/markdown-joiner-transform';
+import { logAiUsage } from '@/lib/ai-usage';
 
 import {
   buildEditTableMultiCellPrompt,
@@ -33,7 +34,8 @@ import {
 } from './prompt';
 
 export async function POST(req: NextRequest) {
-  const { apiKey: key, ctx, messages: messagesRaw, model } = await req.json();
+  const startedAt = Date.now();
+  const { apiKey: key, ctx, messages: messagesRaw, model, workspaceId, documentId } = await req.json();
 
   const { children, selection, toolName: toolNameParam } = ctx;
 
@@ -76,6 +78,16 @@ export async function POST(req: NextRequest) {
             const result = await generateText({
               model: google(model && model.startsWith('google/') ? model.slice(7) : defaultModel) as unknown as LanguageModel,
               prompt: `${prompt}\n\nRespond with exactly one word: ${enumOptions.join(' or ')}.`,
+            });
+            await logAiUsage({
+              route: '/api/ai/command',
+              model: model && model.startsWith('google/') ? model.slice(7) : defaultModel,
+              workspaceId: typeof workspaceId === 'string' ? workspaceId : undefined,
+              documentId: typeof documentId === 'string' ? documentId : undefined,
+              status: 'success',
+              latencyMs: Date.now() - startedAt,
+              usage: result,
+              metadata: { phase: 'tool-selection' },
             });
             const raw = (result.text ?? '').trim().toLowerCase();
             const AIToolName = enumOptions.find((o) => raw.includes(o)) ?? enumOptions[0];
@@ -187,10 +199,29 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    await logAiUsage({
+      route: '/api/ai/command',
+      model: model && model.startsWith('google/') ? model.slice(7) : defaultModel,
+      workspaceId: typeof workspaceId === 'string' ? workspaceId : undefined,
+      documentId: typeof documentId === 'string' ? documentId : undefined,
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      metadata: { phase: 'stream-started' },
+    });
     return createUIMessageStreamResponse({ stream });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : null;
+    await logAiUsage({
+      route: '/api/ai/command',
+      model: model && model.startsWith('google/') ? model.slice(7) : defaultModel,
+      workspaceId: typeof workspaceId === 'string' ? workspaceId : undefined,
+      documentId: typeof documentId === 'string' ? documentId : undefined,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
+      errorMessage: message,
+      metadata: { cause: cause ?? undefined },
+    });
     console.error('[AI command]', message, cause ?? '', err);
     return NextResponse.json(
       {

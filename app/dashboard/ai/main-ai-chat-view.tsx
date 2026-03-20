@@ -2,16 +2,26 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowUp, Loader2, Paperclip, Plus, Sparkles, X } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowUp, Check, Loader2, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createDocumentRecord, upsertDocumentAiChatSession } from "@/lib/actions/documents";
+import { createDocumentRecord, updateDocumentRecord, upsertDocumentAiChatSession } from "@/lib/actions/documents";
+import { instantiateDocumentTemplate, listDocumentTemplates } from "@/lib/actions/templates";
+import { createClientRecord } from "@/lib/actions/clients";
+import {
+  createMainAiSession,
+  updateMainAiSession,
+  type MainAiSessionItem,
+  type MainAiHandoffStep,
+} from "@/lib/actions/ai-sessions";
 import { getDisplayForDocumentType } from "@/lib/document-type-icons";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { inferClientResolutionFromUserText } from "@/lib/main-ai-client-resolution";
 import { BASE_TYPE_FALLBACK } from "@/app/dashboard/documents/document-types";
 import type { DocumentBaseType, DocumentListItem } from "@/types/database";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const MAIN_AI_SESSION_KEY = "main-ai-session";
 const MAX_IMAGES = 4;
@@ -22,8 +32,111 @@ type ChatMessage = {
   content: string;
   images?: string[];
   files?: Array<{ name: string; mimeType: string }>;
-  documentLink?: { documentId: string; title: string };
+  documentLink?: { documentId: string; title: string; phase?: "opening" | "opened" };
+  handoffTrace?: MainAiHandoffStep[];
 };
+
+type HandoffState = "idle" | "creating_document" | "seeding_editor" | "opening_editor";
+
+type HandoffStep = MainAiHandoffStep;
+
+function navigateToDocumentEditor(documentId: string): void {
+  const url = `/d/${documentId}?aiOpen=1&aiAutoSend=1`;
+  if (typeof window !== "undefined") {
+    window.location.assign(url);
+  }
+}
+
+/** Stored sessions may omit `phase`; treat as completed so we never show a stale spinner. */
+function normalizeChatMessagesFromSession(raw: MainAiSessionItem["messages"]): ChatMessage[] {
+  return (raw ?? []).map((m) => {
+    const msg = m as ChatMessage;
+    if (msg.documentLink && !msg.documentLink.phase) {
+      return { ...msg, documentLink: { ...msg.documentLink, phase: "opened" } };
+    }
+    return msg;
+  });
+}
+
+/** Mark the matching assistant bubble as opened and attach a completed handoff trace. */
+function applyOpenedEditorToMessages(
+  prev: ChatMessage[],
+  opts: {
+    documentId: string;
+    title: string;
+    handoffTrace: HandoffStep[];
+    /** Open-document flow: last assistant message has no link yet — add one as opened. */
+    addDocumentLinkToLastAssistant?: boolean;
+  }
+): ChatMessage[] {
+  const next = [...prev];
+  for (let i = next.length - 1; i >= 0; i--) {
+    const m = next[i];
+    if (m?.role !== "assistant") continue;
+    if (m.documentLink?.documentId === opts.documentId) {
+      next[i] = {
+        ...m,
+        documentLink: {
+          documentId: opts.documentId,
+          title: opts.title,
+          phase: "opened",
+        },
+        handoffTrace: opts.handoffTrace,
+      };
+      return next;
+    }
+  }
+  if (opts.addDocumentLinkToLastAssistant) {
+    for (let i = next.length - 1; i >= 0; i--) {
+      const m = next[i];
+      if (m?.role === "assistant") {
+        next[i] = {
+          ...m,
+          documentLink: {
+            documentId: opts.documentId,
+            title: opts.title,
+            phase: "opened",
+          },
+          handoffTrace: opts.handoffTrace,
+        };
+        break;
+      }
+    }
+  }
+  return next;
+}
+
+type MainAiDraftSnapshot = {
+  input: string;
+  attachedImages: Array<{ dataUrl: string; name: string }>;
+  attachedFiles: Array<{ dataUrl: string; name: string; mimeType: string; extractedText?: string }>;
+  selectedDocumentId: string | null;
+  selectedDocTypeId: string | null;
+};
+
+type InlineRetry = {
+  title: string;
+  message: string;
+  retryKind: "create" | "open";
+  payload: {
+    documentId?: string;
+    seedPrompt?: string;
+    createDoc?: {
+      title: string;
+      base_type: DocumentBaseType;
+      client_id: string | null;
+      document_type_id: string | null;
+      template_id?: string | null;
+    };
+    editorPrompt?: string;
+    seedMessage?: string;
+    attachmentDigest?: string;
+    attachmentNames?: string[];
+  };
+};
+
+const MAIN_AI_CONTEXT_RECENT_LIMIT = 10;
+const MAIN_AI_SUMMARY_MAX_CHARS = 4000;
 
 function resizeImageDataUrl(dataUrl: string, maxDim = 1024): Promise<string> {
   return new Promise((resolve) => {
@@ -66,6 +179,37 @@ function formatAiMessage(text: string): React.ReactNode {
   ));
 }
 
+function buildAttachmentDigest(
+  files: Array<{ name: string; mimeType: string; extractedText?: string }>
+): string {
+  if (files.length === 0) return "";
+  const blocks = files.map((f) => {
+    const header = `File: ${f.name} (${f.mimeType})`;
+    const body = (f.extractedText ?? "").trim();
+    return body ? `${header}\n${body.slice(0, 2000)}` : `${header}\n(Binary attachment)`;
+  });
+  return blocks.join("\n\n---\n\n").slice(0, 10000);
+}
+
+function buildRollingSummary(messages: ChatMessage[]): string {
+  if (messages.length <= MAIN_AI_CONTEXT_RECENT_LIMIT) return "";
+  const older = messages.slice(0, messages.length - MAIN_AI_CONTEXT_RECENT_LIMIT);
+  const summaryLines = older.map((m, idx) => {
+    const who = m.role === "user" ? "User" : "Assistant";
+    const text = m.content.replace(/\s+/g, " ").trim().slice(0, 180);
+    return `${idx + 1}. ${who}: ${text}`;
+  });
+  return summaryLines.join("\n").slice(0, MAIN_AI_SUMMARY_MAX_CHARS);
+}
+
+function trackAiEvent(name: string, meta?: Record<string, unknown>) {
+  const payload = { name, at: Date.now(), ...meta };
+  if (typeof window !== "undefined") {
+    // Non-blocking, best-effort telemetry for flow diagnostics.
+    console.info("[main-ai-event]", payload);
+  }
+}
+
 export type MainAiChatViewProps = {
   workspaceId: string | null;
   workspaceName?: string;
@@ -81,6 +225,7 @@ export type MainAiChatViewProps = {
     bg_color?: string;
   }>;
   documents: DocumentListItem[];
+  initialSessions: MainAiSessionItem[];
 };
 
 export function MainAiChatView({
@@ -90,8 +235,11 @@ export function MainAiChatView({
   clients,
   documentTypes,
   documents,
+  initialSessions,
 }: MainAiChatViewProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -102,19 +250,78 @@ export function MainAiChatView({
     Array<{ dataUrl: string; name: string; mimeType: string; extractedText?: string }>
   >([]);
   const [docSearch, setDocSearch] = React.useState("");
+  const [sessionSearch, setSessionSearch] = React.useState("");
+  const [sessionsCollapsed, setSessionsCollapsed] = React.useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = React.useState<string | null>(null);
   const [showAllRecentDocs, setShowAllRecentDocs] = React.useState(false);
   const [selectedDocTypeId, setSelectedDocTypeId] = React.useState<string | null>(null);
+  const [handoffState, setHandoffState] = React.useState<HandoffState>("idle");
+  const [handoffSteps, setHandoffSteps] = React.useState<HandoffStep[]>([]);
+  const [inlineRetry, setInlineRetry] = React.useState<InlineRetry | null>(null);
+  const [sessions, setSessions] = React.useState<MainAiSessionItem[]>(initialSessions ?? []);
+  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(
+    initialSessions?.[0]?.id ?? null
+  );
+  const [clientChoiceModalOpen, setClientChoiceModalOpen] = React.useState(false);
+  const [pendingClientChoices, setPendingClientChoices] = React.useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [templatesIndex, setTemplatesIndex] = React.useState<
+    Array<{ id: string; title: string; base_type: string; is_marketplace: boolean }>
+  >([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const sessionLoadedRef = React.useRef(false);
+  const draftSnapshotRef = React.useRef<MainAiDraftSnapshot | null>(null);
+  /** When user must pick a client before we seed + open editor (ambiguous match). */
+  const pendingOpenEditorRef = React.useRef<{
+    documentId: string;
+    editorPrompt: string;
+    seedMessage?: string;
+    attachmentDigest?: string;
+    attachmentNames?: string[];
+  } | null>(null);
+  const prevActiveSessionIdRef = React.useRef<string | null>(null);
+  const forcedNewSessionRef = React.useRef(false);
 
   const filteredDocuments = React.useMemo(() => {
     const q = docSearch.trim().toLowerCase();
     if (!q) return documents;
     return documents.filter((d) => (d.title ?? "").toLowerCase().includes(q));
   }, [documents, docSearch]);
+
+  const filteredSessions = React.useMemo(() => {
+    const q = sessionSearch.trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter((s) => s.title.toLowerCase().includes(q));
+  }, [sessions, sessionSearch]);
+
+  React.useEffect(() => {
+    if (!workspaceId) {
+      setTemplatesIndex([]);
+      return;
+    }
+    let cancelled = false;
+    listDocumentTemplates(workspaceId, "all")
+      .then(({ templates, error }) => {
+        if (cancelled || error) return;
+        setTemplatesIndex(
+          templates.map((t) => ({
+            id: t.id,
+            title: t.title,
+            base_type: t.base_type,
+            is_marketplace: t.is_marketplace,
+          }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setTemplatesIndex([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   const documentsIndex = React.useMemo(() => {
     // Keep prompt context bounded; model still has "all docs" behavior by selecting relevant subset.
@@ -147,9 +354,169 @@ export function MainAiChatView({
     [documentTypes]
   );
 
+  const resumeOpenDocumentAfterClientPick = React.useCallback(
+    async (clientId: string, clientName: string) => {
+      const pending = pendingOpenEditorRef.current;
+      if (!pending || !workspaceId) return;
+      pendingOpenEditorRef.current = null;
+      setPendingClientChoices([]);
+      setLoading(true);
+
+      try {
+        const { documentId, editorPrompt, seedMessage, attachmentDigest } = pending;
+        const docTitle = documents.find((d) => d.id === documentId)?.title ?? "this document";
+        const seededInput = attachmentDigest
+          ? `${editorPrompt}\n\nUse this uploaded file context from Main AI:\n${attachmentDigest}`
+          : editorPrompt;
+
+        trackAiEvent("handoff_open_editor_resumed", { documentId, clientId });
+        setHandoffSteps([
+          {
+            id: "assign_doc",
+            label: `Assigning "${docTitle}" to ${clientName}`,
+            status: "running",
+          },
+          { id: "seed", label: `Preparing AI context for "${docTitle}"`, status: "pending" },
+          { id: "open", label: "Opening editor", status: "pending" },
+        ]);
+        setHandoffState("seeding_editor");
+
+        const { error: assignErr } = await updateDocumentRecord(documentId, { client_id: clientId });
+        if (assignErr) {
+          setHandoffSteps((prev) =>
+            prev.map((s) => (s.id === "assign_doc" ? { ...s, status: "error", detail: assignErr } : s))
+          );
+          toast.error(assignErr);
+          setHandoffState("idle");
+          return;
+        }
+        setHandoffSteps((prev) =>
+          prev.map((s) =>
+            s.id === "assign_doc"
+              ? { ...s, status: "done" }
+              : s.id === "seed"
+                ? { ...s, status: "running" }
+                : s
+          )
+        );
+
+        try {
+          await upsertDocumentAiChatSession(documentId, {
+            messages: [
+              { role: "assistant", content: seedMessage ?? `Let's start editing "${docTitle}".` },
+            ],
+            input: seededInput,
+          });
+        } catch {
+          toast.error("Couldn't seed editor AI session.");
+          setHandoffSteps((prev) => prev.map((s) => (s.id === "seed" ? { ...s, status: "error" } : s)));
+          setHandoffState("idle");
+          return;
+        }
+
+        setHandoffSteps((prev) =>
+          prev.map((s) =>
+            s.id === "seed"
+              ? { ...s, status: "done" }
+              : s.id === "open"
+                ? { ...s, status: "running" }
+                : s
+          )
+        );
+        setHandoffState("opening_editor");
+        trackAiEvent("handoff_open_editor_success", { documentId });
+
+        const finalTrace: HandoffStep[] = [
+          {
+            id: "assign_doc",
+            label: `Assigned "${docTitle}" to ${clientName}`,
+            status: "done",
+          },
+          {
+            id: "seed",
+            label: `Prepared AI context for "${docTitle}"`,
+            status: "done",
+          },
+          { id: "open", label: "Opened document editor", status: "done" },
+        ];
+        const completion: ChatMessage = {
+          role: "assistant",
+          content: `Ready — opening **${docTitle}** in the editor.`,
+          documentLink: { documentId, title: docTitle, phase: "opened" },
+          handoffTrace: finalTrace,
+        };
+        setMessages((prev) => [...prev, completion]);
+        if (activeSessionId) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === activeSessionId ? { ...s, messages: [...s.messages, completion] } : s
+            )
+          );
+        }
+        setHandoffState("idle");
+        setHandoffSteps([]);
+        navigateToDocumentEditor(documentId);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [workspaceId, documents, activeSessionId]
+  );
+
   // Load session from localStorage
   React.useEffect(() => {
+    if (initialSessions?.length) {
+      setSessions(initialSessions);
+      if (!activeSessionId) setActiveSessionId(initialSessions[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSessions]);
+
+  React.useEffect(() => {
+    if (!activeSessionId) return;
+    const session = sessions.find((s) => s.id === activeSessionId);
+    if (!session) return;
+    setMessages(normalizeChatMessagesFromSession(session.messages ?? []));
+    setInput(session.input ?? "");
+  }, [activeSessionId, sessions]);
+
+  /** Switching sessions clears transient handoff / picker state (fixes stuck "Opening editor"). */
+  React.useEffect(() => {
+    const prev = prevActiveSessionIdRef.current;
+    if (prev !== null && prev !== activeSessionId) {
+      setHandoffState("idle");
+      setHandoffSteps([]);
+      pendingOpenEditorRef.current = null;
+      setPendingClientChoices([]);
+      setInlineRetry(null);
+    }
+    prevActiveSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  /** bfcache restore can revive mid-handoff UI from a full-page navigation — normalize. */
+  React.useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      setHandoffState("idle");
+      setHandoffSteps([]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.documentLink?.phase === "opening"
+            ? { ...m, documentLink: { ...m.documentLink, phase: "opened" } }
+            : m
+        )
+      );
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
+  React.useEffect(() => {
     if (!workspaceId || typeof window === "undefined") {
+      sessionLoadedRef.current = true;
+      return;
+    }
+    if (sessions.length > 0) {
       sessionLoadedRef.current = true;
       return;
     }
@@ -170,7 +537,7 @@ export function MainAiChatView({
       }
     }
     sessionLoadedRef.current = true;
-  }, [workspaceId]);
+  }, [workspaceId, sessions.length]);
 
   // Persist session
   React.useEffect(() => {
@@ -184,7 +551,18 @@ export function MainAiChatView({
     } catch {
       // ignore
     }
-  }, [workspaceId, messages, input]);
+
+    if (activeSessionId) {
+      const t = setTimeout(() => {
+        void updateMainAiSession(activeSessionId, {
+          messages,
+          input,
+          summary: buildRollingSummary(messages),
+        });
+      }, 500);
+      return () => clearTimeout(t);
+    }
+  }, [workspaceId, messages, input, activeSessionId]);
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -265,9 +643,84 @@ export function MainAiChatView({
     [attachedImages.length, attachedFiles.length]
   );
 
+  const createNewSession = React.useCallback(async () => {
+    if (!workspaceId) return;
+    const { sessionId, error } = await createMainAiSession(workspaceId, {
+      title: "New chat",
+      messages: [],
+      input: "",
+    });
+    if (error || !sessionId) {
+      toast.error(error ?? "Could not create chat session");
+      return false;
+    }
+    const fresh: MainAiSessionItem = {
+      id: sessionId,
+      title: "New chat",
+      summary: "",
+      messages: [],
+      input: "",
+      archived: false,
+      updated_at: new Date().toISOString(),
+      last_message_at: new Date().toISOString(),
+    };
+    setSessions((prev) => [fresh, ...prev]);
+    setActiveSessionId(sessionId);
+    setMessages([]);
+    setInput("");
+    return true;
+  }, [workspaceId]);
+
+  React.useEffect(() => {
+    if (!workspaceId) return;
+    if (forcedNewSessionRef.current) return;
+    if (searchParams.get("newSession") !== "1") return;
+
+    forcedNewSessionRef.current = true;
+    void (async () => {
+      const created = await createNewSession();
+      if (!created) {
+        forcedNewSessionRef.current = false;
+        return;
+      }
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("newSession");
+      const nextUrl = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
+      router.replace(nextUrl, { scroll: false });
+    })();
+  }, [workspaceId, searchParams, createNewSession, pathname, router]);
+
+  const archiveSession = React.useCallback(async (sessionId: string) => {
+    const { error } = await updateMainAiSession(sessionId, { archived: true });
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    if (activeSessionId === sessionId) {
+      setActiveSessionId(null);
+      setMessages([]);
+      setInput("");
+    }
+  }, [activeSessionId]);
+
+  const renameSession = React.useCallback(async (sessionId: string) => {
+    const current = sessions.find((s) => s.id === sessionId);
+    if (!current) return;
+    const next = window.prompt("Rename chat", current.title)?.trim();
+    if (!next || next === current.title) return;
+    const { error } = await updateMainAiSession(sessionId, { title: next });
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title: next } : s)));
+  }, [sessions]);
+
   const handleSubmit = React.useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
+      let navigating = false;
       const trimmed = input.trim();
       const seedPrompt = trimmed;
       if (!trimmed && attachedImages.length === 0 && attachedFiles.length === 0) return;
@@ -276,12 +729,51 @@ export function MainAiChatView({
         return;
       }
 
+      let currentSessionId = activeSessionId;
+      if (!currentSessionId) {
+        const { sessionId, error } = await createMainAiSession(workspaceId, {
+          title: "New chat",
+          messages: [],
+          input: "",
+        });
+        if (error || !sessionId) {
+          toast.error(error ?? "Could not start a chat session");
+          return;
+        }
+        currentSessionId = sessionId;
+        setActiveSessionId(sessionId);
+        setSessions((prev) => [
+          {
+            id: sessionId,
+            title: "New chat",
+            summary: "",
+            messages: [],
+            input: "",
+            archived: false,
+            updated_at: new Date().toISOString(),
+            last_message_at: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+      }
+
+      setInlineRetry(null);
+      draftSnapshotRef.current = {
+        input,
+        attachedImages: [...attachedImages],
+        attachedFiles: [...attachedFiles],
+        selectedDocumentId,
+        selectedDocTypeId,
+      };
+
       setInput("");
       const textAttachmentContext =
         attachedFiles
           .filter((f) => f.extractedText && f.extractedText.trim().length > 0)
           .map((f) => `File: ${f.name}\n${f.extractedText}`)
           .join("\n\n---\n\n") || "";
+      const attachmentDigest = buildAttachmentDigest(attachedFiles);
+      const attachmentNames = attachedFiles.map((f) => f.name);
       const userMessage: ChatMessage = {
         role: "user",
         content:
@@ -297,9 +789,19 @@ export function MainAiChatView({
       setAttachedImages([]);
       setAttachedFiles([]);
       setMessages((prev) => [...prev, userMessage]);
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === currentSessionId
+            ? { ...s, messages: [...s.messages, userMessage], input: "" }
+            : s
+        )
+      );
       setLoading(true);
 
-      const chatMessages = [...messages, userMessage].map((m) => ({
+      const historyWithCurrent = [...messages, userMessage];
+      const rollingSummary = buildRollingSummary(historyWithCurrent);
+      const compactMessages = historyWithCurrent.slice(-MAIN_AI_CONTEXT_RECENT_LIMIT);
+      const chatMessages = compactMessages.map((m) => ({
         role: m.role,
         content:
           m === userMessage && textAttachmentContext
@@ -317,6 +819,10 @@ export function MainAiChatView({
       }));
 
       try {
+        trackAiEvent("main_request_started", {
+          hasAttachments: attachedImages.length + attachedFiles.length > 0,
+          selectedDocumentId,
+        });
         const res = await fetch("/api/ai/main", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -329,6 +835,8 @@ export function MainAiChatView({
               documentTypes,
               selectedDocumentId,
               documentsIndex,
+              templatesIndex,
+              sessionSummary: rollingSummary || undefined,
             },
           }),
         });
@@ -341,16 +849,29 @@ export function MainAiChatView({
             ...prev,
             { role: "assistant", content: `Error: ${msg}` },
           ]);
+          trackAiEvent("main_request_failed", { status: res.status, message: msg });
           return;
         }
 
         const data = (await res.json()) as {
           message?: string;
+          sessionTitle?: string;
+          clientResolution?: {
+            mode: "existing" | "create_new" | "ambiguous";
+            clientId?: string;
+            clientName?: string;
+            candidates?: Array<{ id: string; name: string }>;
+          };
+          requireClientChoice?: {
+            prompt: string;
+            options: Array<{ id: string; name: string }>;
+          };
           createDocument?: {
             title: string;
             base_type: DocumentBaseType;
             client_id: string | null;
             document_type_id: string | null;
+            template_id?: string | null;
           };
           openDocumentForEditor?: {
             documentId: string;
@@ -359,89 +880,468 @@ export function MainAiChatView({
           };
         };
 
+        const clientResolution =
+          data.clientResolution ??
+          inferClientResolutionFromUserText(trimmed, clients) ??
+          undefined;
+
         const replyMessage = data.message ?? "Done.";
+        const aiSessionTitle = data.sessionTitle?.trim();
         const createDoc = data.createDocument;
+        if (aiSessionTitle && currentSessionId) {
+          void updateMainAiSession(currentSessionId, { title: aiSessionTitle.slice(0, 80) });
+        }
+        if (data.requireClientChoice?.options?.length) {
+          const options = data.requireClientChoice.options;
+          if (data.openDocumentForEditor?.documentId && data.openDocumentForEditor.editorPrompt) {
+            pendingOpenEditorRef.current = {
+              documentId: data.openDocumentForEditor.documentId,
+              editorPrompt: data.openDocumentForEditor.editorPrompt,
+              seedMessage: data.openDocumentForEditor.seedMessage,
+              attachmentDigest,
+              attachmentNames,
+            };
+          }
+          setPendingClientChoices(options);
+          const choiceContent =
+            `${replyMessage}\n\n${data.requireClientChoice?.prompt ?? "Please choose a client:"}\n` +
+            options.map((o) => `- ${o.name}`).join("\n");
+          setMessages((prev) => [...prev, { role: "assistant", content: choiceContent }]);
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === currentSessionId
+                ? { ...s, messages: [...s.messages, { role: "assistant", content: choiceContent }] }
+                : s
+            )
+          );
+          return;
+        }
 
         if (data.openDocumentForEditor) {
-          const { documentId, editorPrompt, seedMessage } =
-            data.openDocumentForEditor;
+          const { documentId, editorPrompt, seedMessage } = data.openDocumentForEditor;
+          const docTitle = documents.find((d) => d.id === documentId)?.title ?? "this document";
 
-          try {
-            await upsertDocumentAiChatSession(documentId, {
-              messages: [
-                {
-                  role: "assistant",
-                  content:
-                    seedMessage ??
-                    `Let's start editing "${documents.find((d) => d.id === documentId)?.title ?? "this document"}".`,
-                },
-              ],
-              input: editorPrompt,
-            });
-          } catch {
-            // If seeding fails, we still navigate so the user isn't blocked.
-            toast.error("Couldn't seed editor AI session. Try again from the editor.");
+          const resolution = clientResolution;
+
+          if (resolution?.mode === "ambiguous" && resolution.candidates && resolution.candidates.length > 0) {
+            pendingOpenEditorRef.current = {
+              documentId,
+              editorPrompt,
+              seedMessage,
+              attachmentDigest,
+              attachmentNames,
+            };
+            setPendingClientChoices(resolution.candidates);
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: `${replyMessage}\n\nWhich client should this document be assigned to?`,
+              },
+            ]);
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === currentSessionId
+                  ? {
+                      ...s,
+                      messages: [
+                        ...s.messages,
+                        {
+                          role: "assistant",
+                          content: `${replyMessage}\n\nWhich client should this document be assigned to?`,
+                        },
+                      ],
+                    }
+                  : s
+              )
+            );
+            return;
           }
 
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: replyMessage },
-          ]);
-          router.push(`/d/${documentId}?aiOpen=1&aiAutoSend=1`);
+          trackAiEvent("handoff_open_editor_started", { documentId });
+          const steps: HandoffStep[] = [];
+          let resolvedAssignClientId: string | null = null;
+
+          if (resolution?.mode === "existing" && resolution.clientId) {
+            resolvedAssignClientId = resolution.clientId;
+            const cn = clients.find((c) => c.id === resolution.clientId)?.name ?? "client";
+            steps.push({
+              id: "assign_doc",
+              label: `Assign "${docTitle}" to ${cn}`,
+              status: "running",
+            });
+          } else if (resolution?.mode === "create_new" && resolution.clientName?.trim()) {
+            const newName = resolution.clientName.trim();
+            steps.push({
+              id: "create_client",
+              label: `Creating client "${newName}"`,
+              status: "running",
+            });
+            steps.push({
+              id: "assign_doc",
+              label: `Assign "${docTitle}" to the new client`,
+              status: "pending",
+            });
+          }
+
+          steps.push({
+            id: "seed",
+            label: `Preparing AI context for "${docTitle}"`,
+            status: steps.length > 0 ? "pending" : "running",
+          });
+          steps.push({ id: "open", label: "Opening editor", status: "pending" });
+
+          setHandoffSteps(steps);
+          setHandoffState("seeding_editor");
+
+          try {
+            if (resolution?.mode === "create_new" && resolution.clientName?.trim()) {
+              try {
+                const createClient = await createClientRecord(workspaceId!, {
+                  name: resolution.clientName.trim(),
+                });
+                if (!createClient.clientId) {
+                  setHandoffSteps((prev) =>
+                    prev.map((s) =>
+                      s.id === "create_client"
+                        ? { ...s, status: "error", detail: createClient.error }
+                        : s
+                    )
+                  );
+                  toast.error(createClient.error ?? "Failed to create client");
+                  setHandoffState("idle");
+                  return;
+                }
+                resolvedAssignClientId = createClient.clientId;
+                setHandoffSteps((prev) =>
+                  prev.map((s) =>
+                    s.id === "create_client"
+                      ? { ...s, status: "done" }
+                      : s.id === "assign_doc"
+                        ? { ...s, status: "running" }
+                        : s
+                  )
+                );
+              } catch (clientErr) {
+                const msg = clientErr instanceof Error ? clientErr.message : "Failed to create client";
+                setHandoffSteps((prev) =>
+                  prev.map((s) => (s.id === "create_client" ? { ...s, status: "error", detail: msg } : s))
+                );
+                toast.error(msg);
+                setHandoffState("idle");
+                return;
+              }
+            }
+
+            if (resolvedAssignClientId) {
+              const { error: assignErr } = await updateDocumentRecord(documentId, {
+                client_id: resolvedAssignClientId,
+              });
+              if (assignErr) {
+                setHandoffSteps((prev) =>
+                  prev.map((s) =>
+                    s.id === "assign_doc" ? { ...s, status: "error", detail: assignErr } : s
+                  )
+                );
+                toast.error(assignErr);
+                setHandoffState("idle");
+                return;
+              }
+              setHandoffSteps((prev) =>
+                prev.map((s) =>
+                  s.id === "assign_doc"
+                    ? { ...s, status: "done" }
+                    : s.id === "seed"
+                      ? { ...s, status: "running" }
+                      : s
+                )
+              );
+            } else {
+              setHandoffSteps((prev) =>
+                prev.map((s) => (s.id === "seed" ? { ...s, status: "running" } : s))
+              );
+            }
+
+            const seededInput = attachmentDigest
+              ? `${editorPrompt}\n\nUse this uploaded file context from Main AI:\n${attachmentDigest}`
+              : editorPrompt;
+            await upsertDocumentAiChatSession(documentId, {
+              messages: [{ role: "assistant", content: seedMessage ?? `Let's start editing "${docTitle}".` }],
+              input: seededInput,
+            });
+          } catch {
+            setHandoffSteps((prev) => prev.map((s) => (s.id === "seed" ? { ...s, status: "error" } : s)));
+            setInput(draftSnapshotRef.current?.input ?? "");
+            setAttachedImages(draftSnapshotRef.current?.attachedImages ?? []);
+            setAttachedFiles(draftSnapshotRef.current?.attachedFiles ?? []);
+            setSelectedDocumentId(draftSnapshotRef.current?.selectedDocumentId ?? null);
+            setSelectedDocTypeId(draftSnapshotRef.current?.selectedDocTypeId ?? null);
+            setInlineRetry({
+              title: "Could not prepare editor AI",
+              message: "We couldn't seed the editor AI session. Your prompt and files are restored.",
+              retryKind: "open",
+              payload: { documentId, editorPrompt, seedMessage, attachmentDigest, attachmentNames },
+            });
+            toast.error("Couldn't seed editor AI session.");
+            setHandoffState("idle");
+            trackAiEvent("handoff_open_editor_failed", { stage: "seed", documentId });
+            return;
+          }
+
+          const assistantMsg: ChatMessage = { role: "assistant", content: replyMessage };
+          setMessages((prev) => [...prev, assistantMsg]);
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === currentSessionId
+                ? {
+                    ...s,
+                    messages: [...s.messages, assistantMsg],
+                    title: s.title === "New chat" ? (aiSessionTitle || seedPrompt || replyMessage).slice(0, 56) : s.title,
+                  }
+                : s
+            )
+          );
+
+          const openTrace: HandoffStep[] = [];
+          if (resolution?.mode === "create_new" && resolution.clientName?.trim()) {
+            openTrace.push({
+              id: "create_client",
+              label: `Created client "${resolution.clientName.trim()}"`,
+              status: "done",
+            });
+          }
+          if (resolvedAssignClientId) {
+            const cn = clients.find((c) => c.id === resolvedAssignClientId)?.name ?? "client";
+            openTrace.push({
+              id: "assign_doc",
+              label: `Assigned "${docTitle}" to ${cn}`,
+              status: "done",
+            });
+          }
+          openTrace.push(
+            { id: "seed", label: `Prepared AI context for "${docTitle}"`, status: "done" },
+            { id: "open", label: "Opened document editor", status: "done" }
+          );
+
+          setMessages((prev) =>
+            applyOpenedEditorToMessages(prev, {
+              documentId,
+              title: docTitle,
+              handoffTrace: openTrace,
+              addDocumentLinkToLastAssistant: true,
+            })
+          );
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === currentSessionId
+                ? {
+                    ...s,
+                    messages: applyOpenedEditorToMessages(s.messages as ChatMessage[], {
+                      documentId,
+                      title: docTitle,
+                      handoffTrace: openTrace,
+                      addDocumentLinkToLastAssistant: true,
+                    }),
+                  }
+                : s
+            )
+          );
+
+          setHandoffState("idle");
+          setHandoffSteps([]);
+          trackAiEvent("handoff_open_editor_success", { documentId });
+          navigating = true;
+          navigateToDocumentEditor(documentId);
           return;
         }
 
         if (createDoc) {
-          const { documentId, error } = await createDocumentRecord(
-            workspaceId,
-            {
+          let resolvedClientId = createDoc.client_id;
+          const isNewClient =
+            clientResolution?.mode === "create_new" && !!clientResolution.clientName?.trim();
+          const newClientName = isNewClient ? clientResolution!.clientName!.trim() : null;
+
+          // Build the step list upfront so the user sees what's coming
+          const initialSteps: HandoffStep[] = [
+            ...(isNewClient
+              ? [{ id: "create_client" as const, label: `Creating client "${newClientName}"`, status: "running" as const }]
+              : []),
+            { id: "create_doc", label: `Creating document "${createDoc.title}"`, status: isNewClient ? "pending" : "running" },
+            { id: "seed", label: "Preparing AI context", status: "pending" },
+            { id: "open", label: "Opening editor", status: "pending" },
+          ];
+          setHandoffSteps(initialSteps);
+
+          if (clientResolution?.mode === "existing" && clientResolution.clientId) {
+            resolvedClientId = clientResolution.clientId;
+          }
+
+          if (isNewClient && newClientName) {
+            try {
+              const createClient = await createClientRecord(workspaceId!, { name: newClientName });
+              if (!createClient.clientId) {
+                setHandoffSteps((prev) => prev.map((s) => s.id === "create_client" ? { ...s, status: "error", detail: createClient.error } : s));
+                setMessages((prev) => [
+                  ...prev,
+                  { role: "assistant", content: `I couldn't create client "${newClientName}". ${createClient.error ?? "Please try again or create the client manually."}`.trim() },
+                ]);
+                toast.error(createClient.error ?? "Failed to create client");
+                setHandoffState("idle");
+                return;
+              }
+              resolvedClientId = createClient.clientId;
+              setHandoffSteps((prev) => prev.map((s) =>
+                s.id === "create_client" ? { ...s, status: "done" } : s.id === "create_doc" ? { ...s, status: "running" } : s
+              ));
+            } catch (clientErr) {
+              const msg = clientErr instanceof Error ? clientErr.message : "Failed to create client";
+              setHandoffSteps((prev) => prev.map((s) => s.id === "create_client" ? { ...s, status: "error", detail: msg } : s));
+              setMessages((prev) => [...prev, { role: "assistant", content: `I couldn't create client "${newClientName}". ${msg}` }]);
+              toast.error(msg);
+              setHandoffState("idle");
+              return;
+            }
+          }
+
+          trackAiEvent("handoff_create_document_started", {
+            title: createDoc.title,
+            baseType: createDoc.base_type,
+            templateId: createDoc.template_id ?? null,
+          });
+          setHandoffState("creating_document");
+
+          let documentId: string | null = null;
+          let error: string | undefined;
+          if (createDoc.template_id) {
+            const inst = await instantiateDocumentTemplate(workspaceId!, createDoc.template_id, {
+              title: createDoc.title,
+              client_id: resolvedClientId,
+              document_type_id: createDoc.document_type_id,
+            });
+            documentId = inst.documentId;
+            error = inst.error;
+          } else {
+            const created = await createDocumentRecord(workspaceId!, {
               title: createDoc.title,
               base_type: createDoc.base_type,
-              client_id: createDoc.client_id,
+              client_id: resolvedClientId,
               document_type_id: createDoc.document_type_id,
-            }
-          );
+            });
+            documentId = created.documentId;
+            error = created.error;
+          }
+
           if (error || !documentId) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content: `${replyMessage}\n\nCould not create the document: ${
-                  error ?? "Unknown error"
-                }. You can try again or create it from Documents.`,
-              },
-            ]);
+            setHandoffSteps((prev) => prev.map((s) => s.id === "create_doc" ? { ...s, status: "error", detail: error ?? undefined } : s));
+            setInput(draftSnapshotRef.current?.input ?? "");
+            setAttachedImages(draftSnapshotRef.current?.attachedImages ?? []);
+            setAttachedFiles(draftSnapshotRef.current?.attachedFiles ?? []);
+            setSelectedDocumentId(draftSnapshotRef.current?.selectedDocumentId ?? null);
+            setSelectedDocTypeId(draftSnapshotRef.current?.selectedDocTypeId ?? null);
+            setInlineRetry({
+              title: "Could not create document",
+              message: error ?? "Unknown error while creating document.",
+              retryKind: "create",
+              payload: { createDoc, seedPrompt, attachmentDigest, attachmentNames },
+            });
+            const errorContent = `${replyMessage}\n\nCould not create the document: ${error ?? "Unknown error"}. You can try again below.`;
+            setMessages((prev) => [...prev, { role: "assistant", content: errorContent }]);
+            setSessions((prev) => prev.map((s) => s.id === currentSessionId ? { ...s, messages: [...s.messages, { role: "assistant", content: errorContent }] } : s));
             toast.error("Failed to create document");
+            setHandoffState("idle");
+            trackAiEvent("handoff_create_document_failed", { error: error ?? "unknown" });
           } else {
+            setHandoffSteps((prev) => prev.map((s) =>
+              s.id === "create_doc" ? { ...s, status: "done" } : s.id === "seed" ? { ...s, status: "running" } : s
+            ));
+            setHandoffState("seeding_editor");
+
             try {
+              const seededInput = attachmentDigest
+                ? `${seedPrompt}\n\nUse this uploaded file context from Main AI:\n${attachmentDigest}`
+                : seedPrompt;
               await upsertDocumentAiChatSession(documentId, {
-                messages: [
-                  {
-                    role: "assistant",
-                    content: `Let's start creating "${createDoc.title}".`,
-                  },
-                ],
-                input: seedPrompt,
+                messages: [{
+                  role: "assistant",
+                  content: attachmentNames.length > 0
+                    ? `Let's start creating "${createDoc.title}". Using uploaded files: ${attachmentNames.join(", ")}.`
+                    : `Let's start creating "${createDoc.title}".`,
+                }],
+                input: seededInput,
               });
             } catch {
-              toast.error("Couldn't seed editor AI session. The editor will open normally.");
+              setHandoffSteps((prev) => prev.map((s) => s.id === "seed" ? { ...s, status: "error" } : s));
+              setInput(draftSnapshotRef.current?.input ?? "");
+              setAttachedImages(draftSnapshotRef.current?.attachedImages ?? []);
+              setAttachedFiles(draftSnapshotRef.current?.attachedFiles ?? []);
+              setSelectedDocumentId(draftSnapshotRef.current?.selectedDocumentId ?? null);
+              setSelectedDocTypeId(draftSnapshotRef.current?.selectedDocTypeId ?? null);
+              setInlineRetry({
+                title: "Document created, but AI setup failed",
+                message: "The document exists, but we couldn't seed editor AI. Retry will attempt opening with AI again.",
+                retryKind: "open",
+                payload: { documentId, editorPrompt: seedPrompt, seedMessage: `Let's start creating "${createDoc.title}".`, attachmentDigest, attachmentNames },
+              });
+              toast.error("Couldn't seed editor AI session.");
+              setHandoffState("idle");
+              trackAiEvent("handoff_create_document_failed", { stage: "seed", documentId });
+              return;
             }
 
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content: replyMessage,
-                documentLink: { documentId, title: createDoc.title },
-              },
-            ]);
+            const createTrace: HandoffStep[] = [];
+            if (isNewClient && newClientName) {
+              createTrace.push({
+                id: "create_client",
+                label: `Created client "${newClientName}"`,
+                status: "done",
+              });
+            }
+            createTrace.push(
+              { id: "create_doc", label: `Created document "${createDoc.title}"`, status: "done" },
+              { id: "seed", label: "Prepared AI context", status: "done" },
+              { id: "open", label: "Opened document editor", status: "done" }
+            );
+
+            const sessionMsg: ChatMessage = {
+              role: "assistant",
+              content: replyMessage,
+              documentLink: { documentId, title: createDoc.title, phase: "opened" },
+              handoffTrace: createTrace,
+            };
+            setMessages((prev) => [...prev, sessionMsg]);
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === currentSessionId
+                  ? { ...s, messages: [...s.messages, sessionMsg], title: s.title === "New chat" ? (aiSessionTitle || createDoc.title).slice(0, 56) : s.title }
+                  : s
+              )
+            );
+            setHandoffSteps([]);
+            setHandoffState("idle");
             toast.success("Document created");
+            trackAiEvent("handoff_create_document_success", { documentId });
+            navigating = true;
+            navigateToDocumentEditor(documentId);
           }
         } else {
           setMessages((prev) => [
             ...prev,
             { role: "assistant", content: replyMessage },
           ]);
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === currentSessionId
+                ? {
+                    ...s,
+                    messages: [...s.messages, { role: "assistant", content: replyMessage }],
+                    title:
+                      s.title === "New chat"
+                        ? (aiSessionTitle || seedPrompt || "New chat").slice(0, 56)
+                        : s.title,
+                  }
+                : s
+            )
+          );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Request failed";
@@ -450,8 +1350,13 @@ export function MainAiChatView({
           ...prev,
           { role: "assistant", content: `Error: ${msg}` },
         ]);
+        trackAiEvent("main_request_failed", { message: msg });
       } finally {
         setLoading(false);
+        if (!navigating) {
+          setHandoffState("idle");
+          setHandoffSteps([]);
+        }
       }
     },
     [
@@ -466,14 +1371,139 @@ export function MainAiChatView({
       selectedDocumentId,
       documentsIndex,
       documents,
-      router,
+      activeSessionId,
+      templatesIndex,
     ]
   );
 
   const handleResetChat = React.useCallback(() => {
     setMessages([]);
     setInput("");
+    setInlineRetry(null);
+    setHandoffState("idle");
+    setHandoffSteps([]);
+    pendingOpenEditorRef.current = null;
+    setPendingClientChoices([]);
   }, []);
+
+  const retryInlineAction = React.useCallback(async () => {
+    if (!inlineRetry || !workspaceId) return;
+    setInlineRetry(null);
+    setLoading(true);
+    try {
+      if (inlineRetry.retryKind === "create" && inlineRetry.payload.createDoc) {
+        const doc = inlineRetry.payload.createDoc;
+        setHandoffSteps([
+          { id: "create_doc", label: `Creating document "${doc.title}"`, status: "running" },
+          { id: "seed", label: "Preparing AI context", status: "pending" },
+          { id: "open", label: "Opening editor", status: "pending" },
+        ]);
+        setHandoffState("creating_document");
+        let documentId: string | null = null;
+        let error: string | undefined;
+        if (doc.template_id) {
+          const inst = await instantiateDocumentTemplate(workspaceId, doc.template_id, {
+            title: doc.title,
+            client_id: doc.client_id,
+            document_type_id: doc.document_type_id,
+          });
+          documentId = inst.documentId;
+          error = inst.error;
+        } else {
+          const created = await createDocumentRecord(workspaceId, doc);
+          documentId = created.documentId;
+          error = created.error;
+        }
+        if (error || !documentId) {
+          setHandoffSteps((prev) => prev.map((s) => s.id === "create_doc" ? { ...s, status: "error", detail: error ?? undefined } : s));
+          toast.error(error ?? "Failed to create document");
+          setInlineRetry(inlineRetry);
+          setHandoffState("idle");
+          return;
+        }
+        setHandoffSteps((prev) => prev.map((s) =>
+          s.id === "create_doc" ? { ...s, status: "done" } : s.id === "seed" ? { ...s, status: "running" } : s
+        ));
+        setHandoffState("seeding_editor");
+        const seededInput = inlineRetry.payload.attachmentDigest
+          ? `${inlineRetry.payload.seedPrompt ?? ""}\n\nUse this uploaded file context from Main AI:\n${inlineRetry.payload.attachmentDigest}`
+          : inlineRetry.payload.seedPrompt ?? "";
+        await upsertDocumentAiChatSession(documentId, {
+          messages: [{ role: "assistant", content: `Let's start creating "${doc.title}".` }],
+          input: seededInput,
+        });
+        const retryCreateTrace: HandoffStep[] = [
+          { id: "create_doc", label: `Created document "${doc.title}"`, status: "done" },
+          { id: "seed", label: "Prepared AI context", status: "done" },
+          { id: "open", label: "Opened document editor", status: "done" },
+        ];
+        const retryCreateMsg: ChatMessage = {
+          role: "assistant",
+          content: `Opening **${doc.title}** in the editor.`,
+          documentLink: { documentId, title: doc.title, phase: "opened" },
+          handoffTrace: retryCreateTrace,
+        };
+        setMessages((prev) => [...prev, retryCreateMsg]);
+        if (activeSessionId) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === activeSessionId ? { ...s, messages: [...s.messages, retryCreateMsg] } : s
+            )
+          );
+        }
+        setHandoffSteps([]);
+        setHandoffState("idle");
+        navigateToDocumentEditor(documentId);
+        return;
+      }
+
+      if (inlineRetry.retryKind === "open" && inlineRetry.payload.documentId && inlineRetry.payload.editorPrompt) {
+        setHandoffSteps([
+          { id: "seed", label: "Preparing AI context", status: "running" },
+          { id: "open", label: "Opening editor", status: "pending" },
+        ]);
+        setHandoffState("seeding_editor");
+        const seededInput = inlineRetry.payload.attachmentDigest
+          ? `${inlineRetry.payload.editorPrompt}\n\nUse this uploaded file context from Main AI:\n${inlineRetry.payload.attachmentDigest}`
+          : inlineRetry.payload.editorPrompt;
+        await upsertDocumentAiChatSession(inlineRetry.payload.documentId, {
+          messages: [{ role: "assistant", content: inlineRetry.payload.seedMessage ?? "Let's continue in editor AI." }],
+          input: seededInput,
+        });
+        const docId = inlineRetry.payload.documentId;
+        const docTitle = documents.find((d) => d.id === docId)?.title ?? "this document";
+        const retryOpenTrace: HandoffStep[] = [
+          { id: "seed", label: `Prepared AI context for "${docTitle}"`, status: "done" },
+          { id: "open", label: "Opened document editor", status: "done" },
+        ];
+        const retryOpenMsg: ChatMessage = {
+          role: "assistant",
+          content: `Ready — opening **${docTitle}** in the editor.`,
+          documentLink: { documentId: docId, title: docTitle, phase: "opened" },
+          handoffTrace: retryOpenTrace,
+        };
+        setMessages((prev) => [...prev, retryOpenMsg]);
+        if (activeSessionId) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === activeSessionId ? { ...s, messages: [...s.messages, retryOpenMsg] } : s
+            )
+          );
+        }
+        setHandoffSteps([]);
+        setHandoffState("idle");
+        navigateToDocumentEditor(docId);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Retry failed";
+      toast.error(msg);
+      setHandoffSteps((prev) => prev.map((s) => s.status === "running" ? { ...s, status: "error" } : s));
+      setInlineRetry(inlineRetry);
+      setHandoffState("idle");
+    } finally {
+      setLoading(false);
+    }
+  }, [inlineRetry, workspaceId, activeSessionId, documents]);
 
   if (!workspaceId) {
     return (
@@ -488,7 +1518,200 @@ export function MainAiChatView({
   }
 
   return (
-    <div className="mx-auto flex h-full min-h-[70vh] w-full max-w-4xl flex-col [&_button]:cursor-pointer [&_a]:cursor-pointer">
+    <div className="flex h-full w-full overflow-hidden [&_button]:cursor-pointer [&_a]:cursor-pointer">
+      {/* Sessions sidebar — flush left, full height, TBS-style */}
+      <aside
+        className={cn(
+          "hidden h-full shrink-0 flex-col overflow-hidden border-r border-border bg-background transition-all duration-200 lg:flex",
+          sessionsCollapsed ? "w-[52px]" : "w-[240px]"
+        )}
+      >
+        {/* Sidebar header */}
+        <div className={cn(
+          "flex shrink-0 items-center border-b border-border px-3 py-3",
+          sessionsCollapsed ? "justify-center" : "justify-between"
+        )}>
+          {!sessionsCollapsed && (
+            <p className="text-[13px] font-semibold text-foreground">Chat sessions</p>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0"
+            onClick={() => setSessionsCollapsed((v) => !v)}
+            aria-label={sessionsCollapsed ? "Expand chat sessions" : "Collapse chat sessions"}
+          >
+            {sessionsCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </Button>
+        </div>
+
+        {/* New chat button */}
+        {sessionsCollapsed ? (
+          <div className="flex flex-col items-center gap-2 overflow-auto px-1.5 py-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={createNewSession}
+              aria-label="New chat"
+            >
+              <Plus className="size-4" />
+            </Button>
+            {filteredSessions.slice(0, 16).map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setActiveSessionId(s.id)}
+                className={cn(
+                  "grid size-8 shrink-0 place-items-center rounded text-[10px] font-semibold transition-colors",
+                  activeSessionId === s.id
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/60"
+                )}
+                title={s.title}
+              >
+                {(s.title || "C").slice(0, 1).toUpperCase()}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            {/* New chat + search */}
+            <div className="shrink-0 px-3 pt-3">
+              <button
+                type="button"
+                onClick={createNewSession}
+                className="flex w-full items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Plus className="size-3.5 shrink-0" />
+                New chat
+              </button>
+            </div>
+            <div className="shrink-0 px-3 pt-2">
+              <Input
+                value={sessionSearch}
+                onChange={(e) => setSessionSearch(e.target.value)}
+                placeholder="Search..."
+                className="h-7 text-xs"
+              />
+            </div>
+            {/* Session list */}
+            <div className="min-h-0 flex-1 overflow-auto py-2">
+              {filteredSessions.map((s) => (
+                <div
+                  key={s.id}
+                  className={cn(
+                    "group flex w-full flex-col items-stretch px-0 py-0.5 text-left transition-colors"
+                  )}
+                >
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveSessionId(s.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setActiveSessionId(s.id);
+                      }
+                    }}
+                    className={cn(
+                      "flex w-full flex-col items-start rounded-md px-3 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                      activeSessionId === s.id
+                        ? "bg-accent text-foreground"
+                        : "text-foreground hover:bg-accent/50"
+                    )}
+                  >
+                    <p className="w-full truncate text-[13px] font-medium leading-tight">{s.title}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {s.updated_at
+                        ? new Date(s.updated_at).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                        : ""}
+                    </p>
+                  </div>
+                  {/* Rename / Archive — outside row button to avoid invalid nested <button> */}
+                  <div className="mt-1 hidden gap-2 px-3 group-hover:flex">
+                    <button
+                      type="button"
+                      className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                      onClick={() => {
+                        void renameSession(s.id);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                      onClick={() => {
+                        void archiveSession(s.id);
+                      }}
+                    >
+                      Archive
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {filteredSessions.length === 0 && (
+                <p className="px-3 py-4 text-[12px] text-muted-foreground">No chats yet.</p>
+              )}
+            </div>
+          </>
+        )}
+      </aside>
+
+      {/* Main chat content */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 md:px-6 md:py-6 mx-auto max-w-4xl">
+      {inlineRetry && (
+        <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <p className="text-xs font-medium text-foreground">{inlineRetry.title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{inlineRetry.message}</p>
+          <div className="mt-2 flex gap-2">
+            <Button type="button" size="sm" className="h-7 text-xs" onClick={retryInlineAction}>
+              Retry
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setInlineRetry(null)}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+      {pendingClientChoices.length > 0 && (
+        <div className="mb-3 rounded-lg border border-border bg-muted/30 p-2">
+          <p className="text-xs font-medium text-foreground">Select a client</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {pendingClientChoices.slice(0, 6).map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="rounded-full border border-border px-2.5 py-1 text-[11px] text-foreground hover:bg-muted"
+                onClick={() => {
+                  if (pendingOpenEditorRef.current) {
+                    void resumeOpenDocumentAfterClientPick(c.id, c.name);
+                    return;
+                  }
+                  setInput(`Use client ${c.name} and continue.`);
+                  setPendingClientChoices([]);
+                }}
+              >
+                {c.name}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-muted"
+              onClick={() => setClientChoiceModalOpen(true)}
+            >
+              View all
+            </button>
+          </div>
+        </div>
+      )}
       {hasChatStarted ? (
         <>
           <div className="flex shrink-0 items-center justify-between border-b border-border pb-4">
@@ -528,16 +1751,46 @@ export function MainAiChatView({
                     {m.role === "assistant" ? (
                       <>
                         <div className="whitespace-pre-wrap">{formatAiMessage(m.content)}</div>
-                        {m.documentLink && (
-                          <div className="mt-3 rounded-md border border-border bg-muted/50 p-2">
-                            <p className="text-xs font-medium text-foreground">
-                              Created: {m.documentLink.title}
-                            </p>
-                            <Button variant="outline" size="sm" className="mt-2" asChild>
-                              <Link href={`/d/${m.documentLink!.documentId}?aiOpen=1&aiAutoSend=1`}>
-                                Open in editor
+                        {m.documentLink?.phase === "opening" && (
+                          <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="size-3 animate-spin" />
+                            Opening editor for &ldquo;{m.documentLink.title}&rdquo;...
+                          </div>
+                        )}
+                        {m.documentLink?.phase === "opened" && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <Check className="size-3.5 shrink-0 text-green-600" />
+                            <span>
+                              Opened{" "}
+                              <Link
+                                href={`/d/${m.documentLink.documentId}?aiOpen=1`}
+                                className="font-medium text-foreground underline-offset-2 hover:underline"
+                              >
+                                {m.documentLink.title}
                               </Link>
-                            </Button>
+                              {" "}in the editor.
+                            </span>
+                          </div>
+                        )}
+                        {m.handoffTrace && m.handoffTrace.length > 0 && (
+                          <div className="mt-3 rounded-lg border border-border bg-muted/20 px-3 py-2">
+                            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              Steps completed
+                            </p>
+                            <ul className="space-y-1.5">
+                              {m.handoffTrace.map((step) => (
+                                <li key={`${step.id}-${step.label}`} className="flex items-start gap-2 text-[11px]">
+                                  {step.status === "error" ? (
+                                    <X className="mt-0.5 size-3 shrink-0 text-destructive" />
+                                  ) : (
+                                    <Check className="mt-0.5 size-3 shrink-0 text-green-600" />
+                                  )}
+                                  <span className={step.status === "error" ? "text-destructive" : "text-muted-foreground"}>
+                                    {step.label}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         )}
                       </>
@@ -573,7 +1826,39 @@ export function MainAiChatView({
                     )}
                   </div>
                 ))}
-                {loading && (
+                {/* In-chat handoff step indicators */}
+                {handoffSteps.length > 0 && (
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Working on it</p>
+                    <div className="space-y-2.5">
+                      {handoffSteps.map((step) => (
+                        <div key={step.id} className="flex items-start gap-2.5">
+                          <div className="mt-0.5 shrink-0">
+                            {step.status === "running" && <Loader2 className="size-3.5 animate-spin text-foreground" />}
+                            {step.status === "done" && <Check className="size-3.5 text-green-500" />}
+                            {step.status === "error" && <X className="size-3.5 text-destructive" />}
+                            {step.status === "pending" && <div className="size-3.5 rounded-full border border-border" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className={cn(
+                              "text-[13px] leading-tight",
+                              step.status === "done" ? "text-muted-foreground line-through" :
+                              step.status === "error" ? "text-destructive" :
+                              step.status === "running" ? "font-medium text-foreground" :
+                              "text-muted-foreground"
+                            )}>
+                              {step.label}
+                            </p>
+                            {step.detail && (
+                              <p className="mt-0.5 text-[11px] text-destructive">{step.detail}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {loading && handoffSteps.length === 0 && (
                   <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-3 text-muted-foreground">
                     <Loader2 className="size-4 shrink-0 animate-spin" />
                     <span className="text-xs">Thinking...</span>
@@ -583,7 +1868,7 @@ export function MainAiChatView({
               </div>
             </div>
 
-            <div className="shrink-0 border-t border-border pt-3">
+            <div className="shrink-0 border-t border-border bg-background pt-3 md:sticky md:bottom-0">
               {attachedImages.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   {attachedImages.map((img, i) => (
@@ -647,6 +1932,16 @@ export function MainAiChatView({
                     aria-label="Attach image"
                   >
                     <Paperclip className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowAllRecentDocs(true)}
+                    aria-label="Search recent documents"
+                  >
+                    <Search className="size-3.5" />
                   </Button>
                   {selectedDocument && (
                     <div className="mb-0.5 inline-flex max-w-[45%] items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] text-foreground">
@@ -865,7 +2160,7 @@ export function MainAiChatView({
         </div>
       )}
 
-      {documents.length > 0 && (
+      {!hasChatStarted && documents.length > 0 && (
         <div className="mt-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-xs font-medium text-foreground">Recent documents</p>
@@ -981,6 +2276,86 @@ export function MainAiChatView({
           )}
         </div>
       )}
+      {hasChatStarted && (
+        <Dialog open={showAllRecentDocs} onOpenChange={setShowAllRecentDocs}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Select a document</DialogTitle>
+            </DialogHeader>
+            <div className="mb-2">
+              <Input
+                value={docSearch}
+                onChange={(e) => setDocSearch(e.target.value)}
+                placeholder="Search documents..."
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredDocuments.slice(0, 24).map((doc) => {
+                const typeConfig = doc.document_type
+                  ? getDisplayForDocumentType(doc.document_type)
+                  : BASE_TYPE_FALLBACK[doc.base_type];
+                const Icon = typeConfig.icon;
+                const isSelected = selectedDocumentId === doc.id;
+                return (
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedDocumentId(doc.id);
+                      setShowAllRecentDocs(false);
+                    }}
+                    className={cn(
+                      "group rounded border p-2 text-left transition-colors hover:bg-muted/40",
+                      isSelected ? "border-primary ring-1 ring-primary/25" : "border-border bg-muted/20"
+                    )}
+                  >
+                    <div className="relative aspect-[4/3] overflow-hidden rounded bg-muted/40">
+                      {doc.thumbnail_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={doc.thumbnail_url} alt="" className="absolute inset-0 h-full w-full object-cover object-left-top" />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Icon weight="fill" className="size-7" style={{ color: typeConfig.color }} />
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-1 truncate text-xs font-medium text-foreground">{doc.title}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+      <Dialog open={clientChoiceModalOpen} onOpenChange={setClientChoiceModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Select client</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[420px] overflow-auto space-y-1">
+            {clients.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="w-full rounded border border-border bg-muted/20 px-3 py-2 text-left text-sm hover:bg-muted/40"
+                onClick={() => {
+                  if (pendingOpenEditorRef.current) {
+                    void resumeOpenDocumentAfterClientPick(c.id, c.name);
+                  } else {
+                    setInput(`Use client ${c.name} and continue.`);
+                    setPendingClientChoices([]);
+                  }
+                  setClientChoiceModalOpen(false);
+                }}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+      </div>
     </div>
   );
 }

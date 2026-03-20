@@ -26,6 +26,7 @@ import { APP_CONFIG } from '@/config/app-config';
 import { getCurrentWorkspaceContext } from '@/lib/workspace-context/server';
 import { getWorkspaceBrandingForRequest } from '@/lib/workspace-context/branding';
 import { headers } from 'next/headers';
+import { isPlatformAdminUser } from '@/lib/auth/platform-admin';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -130,10 +131,11 @@ export default async function DocumentEditorPage({
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  const platformAdmin = isPlatformAdminUser(user);
 
   // ── Shared link flow (/d/{id}?share={token}) ──
   if (shareToken) {
-    return handleSharedAccess(id, shareToken, user);
+    return handleSharedAccess(id, shareToken, user, platformAdmin);
   }
 
   // ── Authenticated flow (no share token) ──
@@ -164,7 +166,7 @@ export default async function DocumentEditorPage({
   }
 
   // Try authenticated access; if it fails, check for a public link fallback
-  const editorView = await handleAuthenticatedAccess(id, user, { fallbackToNull: true });
+  const editorView = await handleAuthenticatedAccess(id, user, platformAdmin, { fallbackToNull: true });
   if (editorView) return editorView;
 
   // Fallback: check if doc has an active public link
@@ -173,7 +175,7 @@ export default async function DocumentEditorPage({
     // Claim access via the discovered link
     await claimDocumentAccessViaLink(activeLink.token);
     // Try again after claiming
-    const retryView = await handleAuthenticatedAccess(id, user, { fallbackToNull: true });
+    const retryView = await handleAuthenticatedAccess(id, user, platformAdmin, { fallbackToNull: true });
     if (retryView) return retryView;
 
     // Still no access — show shared view with request edit option
@@ -208,7 +210,8 @@ export default async function DocumentEditorPage({
 async function handleSharedAccess(
   documentId: string,
   token: string,
-  user: { id: string; email?: string } | null
+  user: { id: string; email?: string } | null,
+  platformAdmin: boolean
 ) {
   const linkInfo = await resolveDocumentLink(token);
   if (!linkInfo?.document_id || linkInfo.document_id !== documentId) notFound();
@@ -227,7 +230,7 @@ async function handleSharedAccess(
     recordDocumentView(token).catch(() => {});
     // Try to render the full editor; fall back to shared view if access check fails
     // (e.g. new user without workspace, claim RPC failed, etc.)
-    const editorView = await handleAuthenticatedAccess(documentId, user, { fallbackToNull: true });
+    const editorView = await handleAuthenticatedAccess(documentId, user, platformAdmin, { fallbackToNull: true });
     if (editorView) return editorView;
 
     // Fallback: show shared view with link role (user can still request edit access)
@@ -295,6 +298,7 @@ async function handleSharedAccess(
 async function handleAuthenticatedAccess(
   id: string,
   user: { id: string; email?: string },
+  platformAdmin: boolean,
   options?: { fallbackToNull?: boolean }
 ): Promise<React.ReactElement | null> {
   const context = await getCurrentWorkspaceContext();
@@ -335,6 +339,7 @@ async function handleAuthenticatedAccess(
             workspaceHandle={workspace?.handle ?? undefined}
             currentUserId={currentUserId}
             currentUserDisplay={currentUserDisplay}
+            platformAdmin={platformAdmin}
             role="edit"
           />
         </DocumentRoomProvider>
@@ -423,6 +428,7 @@ async function handleAuthenticatedAccess(
         workspaceHandle={workspaceHandle}
         currentUserId={currentUserId}
         currentUserDisplay={currentUserDisplay}
+        platformAdmin={platformAdmin}
         readOnly={readOnly}
         role={role}
       />

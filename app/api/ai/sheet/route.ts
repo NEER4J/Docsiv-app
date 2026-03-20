@@ -5,12 +5,16 @@ import { NextResponse } from 'next/server';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { isUniverSheetContent, type UniverStoredContent } from '@/lib/univer-sheet-content';
 import { getSheetAiSystemPrompt } from './prompt';
+import { logAiUsage } from '@/lib/ai-usage';
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   let body: {
     messages?: Array<{ role: string; content: string; images?: string[] }>;
     content?: unknown;
     documentTitle?: string;
+    workspaceId?: string;
+    documentId?: string;
     model?: string;
     apiKey?: string;
   };
@@ -21,7 +25,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { messages = [], content, documentTitle, apiKey: key } = body;
+  const { messages = [], content, documentTitle, workspaceId, documentId, apiKey: key } = body;
 
   if (!content || typeof content !== 'object') {
     return NextResponse.json({ error: 'Missing or invalid content' }, { status: 400 });
@@ -126,6 +130,15 @@ export async function POST(req: NextRequest) {
         },
       } as Parameters<typeof generateText>[0]['providerOptions'],
     });
+    await logAiUsage({
+      route: '/api/ai/sheet',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      usage: result,
+    });
 
     const text = (result.text ?? '').trim();
     let stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
@@ -192,6 +205,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(null, { status: 408 });
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
+    await logAiUsage({
+      route: '/api/ai/sheet',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
+      errorMessage: message,
+    });
     console.error('[api/ai/sheet]', message, err);
     return NextResponse.json(
       {

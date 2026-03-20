@@ -8,6 +8,7 @@ import {
   Share2,
   Bell,
   Sparkles,
+  Shield,
   type LucideIcon,
 } from "lucide-react";
 
@@ -53,3 +54,25 @@ export const sidebarItems: NavGroup[] = [
     ],
   },
 ];
+
+/** Sidebar groups; includes Platform section for staff (`user_metadata.platform_admin`). */
+export function getDashboardSidebarItems(platformAdmin: boolean): NavGroup[] {
+  const base: NavGroup[] = sidebarItems.map((g) => ({
+    ...g,
+    items: [...g.items],
+  }));
+  if (platformAdmin) {
+    base.push({
+      id: 100,
+      label: "Platform",
+      items: [
+        {
+          title: "Marketplace templates",
+          url: "/dashboard/platform/templates",
+          icon: Shield,
+        },
+      ],
+    });
+  }
+  return base;
+}

@@ -64,6 +64,8 @@ export interface PlateDocumentEditorHandle {
    * Replaces the blocks with the given IDs with newContent (used when editing selection from sidebar).
    */
   applySelectionEdit: (newContent: Value, blockIdsToReplace: string[]) => void;
+  /** Undo last editor operation (used by AI sidebar quick revert). */
+  undo: () => void;
 }
 
 export const PlateDocumentEditor = React.forwardRef<
@@ -206,6 +208,7 @@ export const PlateDocumentEditor = React.forwardRef<
           });
         }
       },
+      undo: () => editor.undo(),
     }),
     [editor, addCommentFromSelection]
   );

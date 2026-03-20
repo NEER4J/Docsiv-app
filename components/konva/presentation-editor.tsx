@@ -20,6 +20,7 @@ export type KonvaPresentationEditorHandle = {
   getCurrentPageImage: () => Promise<string | null>;
   toggleCommentsPanel: () => void;
   addCommentFromInput: (text: string) => Promise<void>;
+  undo: () => void;
 };
 
 type KonvaPresentationEditorProps = {
@@ -64,6 +65,7 @@ const PresentationEditorInner = (
     getCurrentPageImage: () => coreRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
     toggleCommentsPanel: () => coreRef.current?.toggleCommentsPanel(),
     addCommentFromInput: (text: string) => coreRef.current?.addCommentFromInput(text) ?? Promise.resolve(),
+    undo: () => coreRef.current?.undo(),
   }));
 
   return (

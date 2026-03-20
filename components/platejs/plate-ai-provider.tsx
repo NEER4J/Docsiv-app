@@ -48,11 +48,13 @@ export type PlateSelectionContextResult = {
 export type PlateAiContextValue = {
   getContent: (() => PlateDocumentContext | null) | null;
   applyContent: ((op: PlateEditOperation) => void) | null;
+  triggerUndo: (() => void) | null;
   getSelectionContext: (() => PlateSelectionContextResult | null) | null;
   applySelectionEdit: ((newContent: Value, blockIdsToReplace: string[]) => void) | null;
   register: (options: {
     getContent: () => PlateDocumentContext | null;
     applyContent: (op: PlateEditOperation) => void;
+    triggerUndo?: () => void;
     getSelectionContext?: () => PlateSelectionContextResult | null;
     applySelectionEdit?: (newContent: Value, blockIdsToReplace: string[]) => void;
   }) => void;
@@ -74,6 +76,7 @@ export function useOptionalPlateAi(): PlateAiContextValue | null {
 export function PlateAiProvider({ children }: { children: React.ReactNode }) {
   const [getContent, setGetContent] = useState<(() => PlateDocumentContext | null) | null>(null);
   const [applyContent, setApplyContent] = useState<((op: PlateEditOperation) => void) | null>(null);
+  const [triggerUndo, setTriggerUndo] = useState<(() => void) | null>(null);
   const [getSelectionContext, setGetSelectionContext] = useState<
     (() => PlateSelectionContextResult | null) | null
   >(null);
@@ -85,11 +88,13 @@ export function PlateAiProvider({ children }: { children: React.ReactNode }) {
     (options: {
       getContent: () => PlateDocumentContext | null;
       applyContent: (op: PlateEditOperation) => void;
+      triggerUndo?: () => void;
       getSelectionContext?: () => PlateSelectionContextResult | null;
       applySelectionEdit?: (newContent: Value, blockIdsToReplace: string[]) => void;
     }) => {
       setGetContent(() => options.getContent);
       setApplyContent(() => options.applyContent);
+      setTriggerUndo(() => options.triggerUndo ?? null);
       setGetSelectionContext(() => options.getSelectionContext ?? null);
       setApplySelectionEdit(() => options.applySelectionEdit ?? null);
     },
@@ -99,6 +104,7 @@ export function PlateAiProvider({ children }: { children: React.ReactNode }) {
   const unregister = useCallback(() => {
     setGetContent(() => null);
     setApplyContent(() => null);
+    setTriggerUndo(() => null);
     setGetSelectionContext(() => null);
     setApplySelectionEdit(() => null);
   }, []);
@@ -107,12 +113,13 @@ export function PlateAiProvider({ children }: { children: React.ReactNode }) {
     () => ({
       getContent,
       applyContent,
+      triggerUndo,
       getSelectionContext,
       applySelectionEdit,
       register,
       unregister,
     }),
-    [getContent, applyContent, getSelectionContext, applySelectionEdit, register, unregister]
+    [getContent, applyContent, triggerUndo, getSelectionContext, applySelectionEdit, register, unregister]
   );
 
   return <PlateAiContext.Provider value={value}>{children}</PlateAiContext.Provider>;

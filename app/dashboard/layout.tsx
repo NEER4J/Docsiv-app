@@ -19,6 +19,7 @@ import { SearchDialog } from "@/components/sidebar/search-dialog";
 import { getMyWorkspaces, getCurrentUserProfile, setWorkspaceCookie } from "@/lib/actions/onboarding";
 import { getMyPendingDocumentAccessRequests, getPendingWorkspaceInvitesForMe } from "@/lib/actions/notifications";
 import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
+import { isPlatformAdminUser } from "@/lib/auth/platform-admin";
 
 export const metadata: Metadata = {
   title: `Dashboard – ${APP_CONFIG.name}`,
@@ -64,6 +65,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
     getPendingWorkspaceInvitesForMe(),
   ]);
   const notificationCount = (accessRes.requests?.length ?? 0) + (invitesRes.invites?.length ?? 0);
+  const platformAdmin = isPlatformAdminUser(user);
 
   const userData = {
     id: user.id,
@@ -87,6 +89,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
         notificationCount={notificationCount}
+        platformAdmin={platformAdmin}
       />
       <SidebarInset className={cn("min-w-0 max-w-full flex flex-col overflow-hidden")}>
         <KonvaAiProvider>

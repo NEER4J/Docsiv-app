@@ -18,6 +18,7 @@ export type UniverSelectionContextResult = {
 export type UniverAiContextValue = {
   getContent: (() => UniverStoredContent | null) | null;
   applyContent: ((content: UniverStoredContent) => void) | null;
+  triggerUndo: (() => void) | null;
   getSelectionContext: (() => UniverSelectionContextResult | null) | null;
   applySelectionEdit: ((
     content: Record<string, Record<string, unknown>>,
@@ -26,6 +27,7 @@ export type UniverAiContextValue = {
   register: (options: {
     getContent: () => UniverStoredContent | null;
     applyContent: (content: UniverStoredContent) => void;
+    triggerUndo?: () => void;
     getSelectionContext?: () => UniverSelectionContextResult | null;
     applySelectionEdit?: (
       content: Record<string, Record<string, unknown>>,
@@ -50,6 +52,7 @@ export function useOptionalUniverAi(): UniverAiContextValue | null {
 export function UniverAiProvider({ children }: { children: React.ReactNode }) {
   const [getContent, setGetContent] = useState<(() => UniverStoredContent | null) | null>(null);
   const [applyContent, setApplyContent] = useState<((content: UniverStoredContent) => void) | null>(null);
+  const [triggerUndo, setTriggerUndo] = useState<(() => void) | null>(null);
   const [getSelectionContext, setGetSelectionContext] = useState<
     (() => UniverSelectionContextResult | null) | null
   >(null);
@@ -61,6 +64,7 @@ export function UniverAiProvider({ children }: { children: React.ReactNode }) {
     (options: {
       getContent: () => UniverStoredContent | null;
       applyContent: (content: UniverStoredContent) => void;
+      triggerUndo?: () => void;
       getSelectionContext?: () => UniverSelectionContextResult | null;
       applySelectionEdit?: (
         content: Record<string, Record<string, unknown>>,
@@ -69,6 +73,7 @@ export function UniverAiProvider({ children }: { children: React.ReactNode }) {
     }) => {
       setGetContent(() => options.getContent);
       setApplyContent(() => options.applyContent);
+      setTriggerUndo(() => options.triggerUndo ?? null);
       setGetSelectionContext(() => options.getSelectionContext ?? null);
       setApplySelectionEdit(() => options.applySelectionEdit ?? null);
     },
@@ -78,6 +83,7 @@ export function UniverAiProvider({ children }: { children: React.ReactNode }) {
   const unregister = useCallback(() => {
     setGetContent(() => null);
     setApplyContent(() => null);
+    setTriggerUndo(() => null);
     setGetSelectionContext(() => null);
     setApplySelectionEdit(() => null);
   }, []);
@@ -86,12 +92,13 @@ export function UniverAiProvider({ children }: { children: React.ReactNode }) {
     () => ({
       getContent,
       applyContent,
+      triggerUndo,
       getSelectionContext,
       applySelectionEdit,
       register,
       unregister,
     }),
-    [getContent, applyContent, getSelectionContext, applySelectionEdit, register, unregister]
+    [getContent, applyContent, triggerUndo, getSelectionContext, applySelectionEdit, register, unregister]
   );
 
   return <UniverAiContext.Provider value={value}>{children}</UniverAiContext.Provider>;

@@ -8,6 +8,7 @@ export type KonvaAiMode = 'report' | 'presentation';
 export type KonvaAiContextValue = {
   getContent: (() => KonvaStoredContent | null) | null;
   applyContent: ((content: KonvaStoredContent) => void) | null;
+  triggerUndo: (() => void) | null;
   getCurrentPageImage: (() => Promise<string | null>) | null;
   mode: KonvaAiMode | null;
   pageWidthPx: number | null;
@@ -15,6 +16,7 @@ export type KonvaAiContextValue = {
   register: (options: {
     getContent: () => KonvaStoredContent | null;
     applyContent: (content: KonvaStoredContent) => void;
+    triggerUndo?: () => void;
     getCurrentPageImage?: () => Promise<string | null>;
     mode: KonvaAiMode;
     pageWidthPx?: number;
@@ -38,6 +40,7 @@ export function useOptionalKonvaAi(): KonvaAiContextValue | null {
 export function KonvaAiProvider({ children }: { children: React.ReactNode }) {
   const [getContent, setGetContent] = useState<(() => KonvaStoredContent | null) | null>(null);
   const [applyContent, setApplyContent] = useState<((content: KonvaStoredContent) => void) | null>(null);
+  const [triggerUndo, setTriggerUndo] = useState<(() => void) | null>(null);
   const [getCurrentPageImage, setGetCurrentPageImage] = useState<(() => Promise<string | null>) | null>(null);
   const [mode, setMode] = useState<KonvaAiMode | null>(null);
   const [pageWidthPx, setPageWidthPx] = useState<number | null>(null);
@@ -47,6 +50,7 @@ export function KonvaAiProvider({ children }: { children: React.ReactNode }) {
     (options: {
       getContent: () => KonvaStoredContent | null;
       applyContent: (content: KonvaStoredContent) => void;
+      triggerUndo?: () => void;
       getCurrentPageImage?: () => Promise<string | null>;
       mode: KonvaAiMode;
       pageWidthPx?: number;
@@ -54,6 +58,7 @@ export function KonvaAiProvider({ children }: { children: React.ReactNode }) {
     }) => {
       setGetContent(() => options.getContent);
       setApplyContent(() => options.applyContent);
+      setTriggerUndo(() => options.triggerUndo ?? null);
       setGetCurrentPageImage(() => options.getCurrentPageImage ?? (() => Promise.resolve(null)));
       setMode(options.mode);
       setPageWidthPx(options.pageWidthPx ?? null);
@@ -65,6 +70,7 @@ export function KonvaAiProvider({ children }: { children: React.ReactNode }) {
   const unregister = useCallback(() => {
     setGetContent(() => null);
     setApplyContent(() => null);
+    setTriggerUndo(() => null);
     setGetCurrentPageImage(() => null);
     setMode(null);
     setPageWidthPx(null);
@@ -75,6 +81,7 @@ export function KonvaAiProvider({ children }: { children: React.ReactNode }) {
     () => ({
       getContent,
       applyContent,
+      triggerUndo,
       getCurrentPageImage,
       mode,
       pageWidthPx,
@@ -82,7 +89,7 @@ export function KonvaAiProvider({ children }: { children: React.ReactNode }) {
       register,
       unregister,
     }),
-    [getContent, applyContent, getCurrentPageImage, mode, pageWidthPx, pageHeightPx, register, unregister]
+    [getContent, applyContent, triggerUndo, getCurrentPageImage, mode, pageWidthPx, pageHeightPx, register, unregister]
   );
 
   return <KonvaAiContext.Provider value={value}>{children}</KonvaAiContext.Provider>;

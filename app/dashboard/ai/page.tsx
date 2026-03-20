@@ -4,6 +4,7 @@ import { getCurrentUserProfile, getMyWorkspaces, setWorkspaceCookie } from "@/li
 import { getDocumentTypes, getDocuments } from "@/lib/actions/documents";
 import { getClients } from "@/lib/actions/clients";
 import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
+import { listMainAiSessions } from "@/lib/actions/ai-sessions";
 import { MainAiChatView } from "./main-ai-chat-view";
 
 export const metadata: Metadata = {
@@ -21,13 +22,14 @@ export default async function AiPage() {
     await setWorkspaceCookie(workspaceId).catch(() => {});
   }
 
-  const [profileResult, clientsResult, typesResult, documentsResult] = await Promise.all([
+  const [profileResult, clientsResult, typesResult, documentsResult, sessionsResult] = await Promise.all([
     getCurrentUserProfile(),
     workspaceId ? getClients(workspaceId) : Promise.resolve({ clients: [] }),
     getDocumentTypes(),
     workspaceId
       ? getDocuments(workspaceId, { include_trash: false, limit: 100 })
       : Promise.resolve({ documents: [] }),
+    workspaceId ? listMainAiSessions(workspaceId) : Promise.resolve({ sessions: [] }),
   ]);
 
   const clients = clientsResult.clients ?? [];
@@ -37,6 +39,8 @@ export default async function AiPage() {
     workspaces.find((w) => w.id === workspaceId)?.name ?? undefined;
 
   return (
+    // Break out of the dashboard layout's p-4/p-6 padding for a full-height edge-to-edge AI workspace
+    <div className="-m-4 flex h-[calc(100%+2rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
     <MainAiChatView
       workspaceId={workspaceId}
       workspaceName={workspaceName}
@@ -51,6 +55,8 @@ export default async function AiPage() {
         bg_color: dt.bg_color ?? undefined,
       }))}
       documents={documents}
+      initialSessions={sessionsResult.sessions ?? []}
     />
+    </div>
   );
 }

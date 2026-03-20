@@ -207,6 +207,31 @@ export function EditorSidebar({
                 </SidebarMenuItem>
               )}
               <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Create with AI">
+                  <Link
+                    href="/dashboard/ai"
+                    className={cn(
+                      "h-9 gap-3 text-[0.8125rem] font-medium",
+                      "flex items-center"
+                    )}
+                    onClick={() => setNavigatingTo("/dashboard/ai")}
+                  >
+                    {navigatingTo === "/dashboard/ai" ? (
+                      <LoaderIcon
+                        role="status"
+                        aria-label="Loading"
+                        className="size-[1.0625rem] shrink-0 animate-spin text-muted-foreground"
+                      />
+                    ) : (
+                      <Sparkles className="size-[1.0625rem] shrink-0 opacity-80" />
+                    )}
+                    <span className={isCollapsed ? "hidden" : ""}>
+                      Create with AI
+                    </span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
                 <SidebarMenuButton
                   tooltip="Search (⌘J)"
                   className="h-9 gap-3 text-[0.8125rem] text-muted-foreground"

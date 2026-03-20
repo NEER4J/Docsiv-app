@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { getPlateAiSystemPrompt } from './prompt';
 import type { Value } from 'platejs';
+import { logAiUsage } from '@/lib/ai-usage';
 
 function isPlateValue(content: unknown): content is Value {
   if (!Array.isArray(content) || content.length === 0) return false;
@@ -18,6 +19,7 @@ function isPlateValue(content: unknown): content is Value {
 }
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   let body: {
     messages?: Array<{ role: string; content: string; images?: string[] }>;
     /** The content window sent from the client (full doc or partial). */
@@ -30,6 +32,10 @@ export async function POST(req: NextRequest) {
     windowOffset?: number;
     /** Document title for AI context. */
     documentTitle?: string;
+    /** Optional workspace id for usage metering. */
+    workspaceId?: string;
+    /** Optional document id for usage metering fallback. */
+    documentId?: string;
     model?: string;
     apiKey?: string;
   };
@@ -47,6 +53,8 @@ export async function POST(req: NextRequest) {
     totalNodeCount,
     windowOffset = 0,
     documentTitle,
+    workspaceId,
+    documentId,
     apiKey: key,
   } = body;
 
@@ -174,6 +182,18 @@ export async function POST(req: NextRequest) {
         },
       } as Parameters<typeof generateText>[0]['providerOptions'],
     });
+    await logAiUsage({
+      route: '/api/ai/plate',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      usage: result,
+      metadata: {
+        isFullDocument,
+      },
+    });
 
     const text = (result.text ?? '').trim();
     let stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
@@ -253,6 +273,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(null, { status: 408 });
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
+    await logAiUsage({
+      route: '/api/ai/plate',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
+      errorMessage: message,
+      metadata: {
+        isFullDocument,
+      },
+    });
     console.error('[api/ai/plate]', message, err);
     return NextResponse.json(
       {

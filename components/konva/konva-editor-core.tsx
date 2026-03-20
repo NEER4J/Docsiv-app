@@ -329,6 +329,7 @@ export type KonvaEditorCoreHandle = {
   getCurrentPageImage: () => Promise<string | null>;
   toggleCommentsPanel: () => void;
   addCommentFromInput: (text: string) => Promise<void>;
+  undo: () => void;
 };
 
 export type KonvaEditorCoreProps = {
@@ -835,8 +836,9 @@ const KonvaEditorCoreInner = (
         setPendingCommentPopoverPos(null);
         setCommentPlacementMode(true);
       },
+      undo,
     }),
-    [persistContent, getContent, setContent, getCurrentPageImage, canComment, readOnly, unifiedCommentsEnabled]
+    [persistContent, getContent, setContent, getCurrentPageImage, canComment, readOnly, unifiedCommentsEnabled, undo]
   );
 
   // Generate thumbnail data URLs for the Pages tab only when that tab is active (lazy), in batches to avoid blocking.

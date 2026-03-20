@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag, Pencil, Plus, Loader2 } from 'lucide-react';
+import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag, Pencil, Plus, Loader2, LayoutTemplate } from 'lucide-react';
 import { DocumentUploadProvider } from '@/components/platejs/editors/document-upload-context';
 import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/components/platejs/editors/document-room-provider';
 import { ShareDialog, type ShareDialogData } from '@/components/documents/share-dialog';
 import { DocumentMenu } from '@/components/documents/document-menu';
+import { TemplateImportDialog } from '@/components/documents/template-import-dialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import {
@@ -122,6 +123,7 @@ export function DocumentEditorView({
   workspaceHandle,
   currentUserId = '',
   currentUserDisplay,
+  platformAdmin = false,
   readOnly = false,
   role = 'edit',
 }: {
@@ -131,6 +133,7 @@ export function DocumentEditorView({
   workspaceHandle?: string;
   currentUserId?: string;
   currentUserDisplay?: { name: string; email?: string; avatarUrl?: string | null };
+  platformAdmin?: boolean;
   readOnly?: boolean;
   role?: string;
 }) {
@@ -183,14 +186,22 @@ export function DocumentEditorView({
   const [newCommentText, setNewCommentText] = useState('');
   const [commentAddOpen, setCommentAddOpen] = useState(false);
   const [addingComment, setAddingComment] = useState(false);
+  const [templateImportOpen, setTemplateImportOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
 
-  // Prefetch share dialog data when editor loads so the dialog opens instantly
+  // Open AI panel when arriving from Main AI (`?aiOpen=1`). Do not depend on the full
+  // `aiAssistant` object — it changes every time `open` toggles and would re-run this
+  // effect and immediately re-open after the user closes the panel.
+  const setAiPanelOpenRef = useRef(aiAssistant?.setOpen);
+  setAiPanelOpenRef.current = aiAssistant?.setOpen;
+  const aiOpenFlag = searchParams.get('aiOpen');
   useEffect(() => {
-    if (searchParams.get('aiOpen') !== '1') return;
-    aiAssistant?.setOpen(true);
-  }, [searchParams, aiAssistant]);
+    if (aiOpenFlag !== '1') return;
+    setAiPanelOpenRef.current?.(true);
+  }, [aiOpenFlag]);
+
+  // Prefetch share dialog data when editor loads so the dialog opens instantly
 
   useEffect(() => {
     if (!canShare || !document.id) return;
@@ -260,6 +271,7 @@ export function DocumentEditorView({
       api.register({
         getContent: () => konvaReportRef.current?.getContent() ?? null,
         applyContent: (content) => konvaReportRef.current?.applyContent(content),
+        triggerUndo: () => konvaReportRef.current?.undo(),
         getCurrentPageImage: () => konvaReportRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
         mode: 'report',
         pageWidthPx: size.widthPx,
@@ -269,6 +281,7 @@ export function DocumentEditorView({
         konvaAiRef.current?.register({
           getContent: () => konvaReportRef.current?.getContent() ?? null,
           applyContent: (content) => konvaReportRef.current?.applyContent(content),
+          triggerUndo: () => konvaReportRef.current?.undo(),
           getCurrentPageImage: () => konvaReportRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
           mode: 'report',
           pageWidthPx: size.widthPx,
@@ -284,6 +297,7 @@ export function DocumentEditorView({
       api.register({
         getContent: () => konvaPresentationRef.current?.getContent() ?? null,
         applyContent: (content) => konvaPresentationRef.current?.applyContent(content),
+        triggerUndo: () => konvaPresentationRef.current?.undo(),
         getCurrentPageImage: () => konvaPresentationRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
         mode: 'presentation',
       });
@@ -291,6 +305,7 @@ export function DocumentEditorView({
         konvaAiRef.current?.register({
           getContent: () => konvaPresentationRef.current?.getContent() ?? null,
           applyContent: (content) => konvaPresentationRef.current?.applyContent(content),
+          triggerUndo: () => konvaPresentationRef.current?.undo(),
           getCurrentPageImage: () => konvaPresentationRef.current?.getCurrentPageImage() ?? Promise.resolve(null),
           mode: 'presentation',
         });
@@ -313,6 +328,11 @@ export function DocumentEditorView({
       api.register({
         getContent: () => univerSheetRef.current?.getContent() ?? null,
         applyContent: (c) => univerSheetRef.current?.applyContent(c),
+        triggerUndo: () => {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true }));
+          }
+        },
         getSelectionContext: () => univerSheetRef.current?.getSelectionContext() ?? null,
         applySelectionEdit: (content, rangeInfo) =>
           univerSheetRef.current?.applySelectionEdit(content, rangeInfo),
@@ -321,6 +341,11 @@ export function DocumentEditorView({
         univerAiRef.current?.register({
           getContent: () => univerSheetRef.current?.getContent() ?? null,
           applyContent: (c) => univerSheetRef.current?.applyContent(c),
+          triggerUndo: () => {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true }));
+            }
+          },
           getSelectionContext: () => univerSheetRef.current?.getSelectionContext() ?? null,
           applySelectionEdit: (content, rangeInfo) =>
             univerSheetRef.current?.applySelectionEdit(content, rangeInfo),
@@ -568,9 +593,21 @@ export function DocumentEditorView({
       };
 
       // Register immediately (like Konva does), then again after delay
-      api.register({ getContent, applyContent, getSelectionContext, applySelectionEdit });
+      api.register({
+        getContent,
+        applyContent,
+        triggerUndo: () => plateThumbnailRef.current?.undo(),
+        getSelectionContext,
+        applySelectionEdit,
+      });
       const t = setTimeout(() => {
-        plateAiRef.current?.register({ getContent, applyContent, getSelectionContext, applySelectionEdit });
+        plateAiRef.current?.register({
+          getContent,
+          applyContent,
+          triggerUndo: () => plateThumbnailRef.current?.undo(),
+          getSelectionContext,
+          applySelectionEdit,
+        });
       }, 300);
       return () => {
         clearTimeout(t);
@@ -579,6 +616,12 @@ export function DocumentEditorView({
     }
     api.unregister();
   }, [isDocOrContract, effectiveReadOnly, document.title]);
+
+  const templateImportKind =
+    isDocOrContract ? ('plate' as const)
+    : isSheet ? ('univer' as const)
+    : isReportGrapes ? ('grapes' as const)
+    : null;
 
   const topBar = (
     <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-2 shrink-0">
@@ -712,6 +755,17 @@ export function DocumentEditorView({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+          {canShare && templateImportKind && !effectiveReadOnly && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-sm"
+              onClick={() => setTemplateImportOpen(true)}
+            >
+              <LayoutTemplate className="size-3.5" />
+              Template
+            </Button>
+          )}
           {canShare && (
             <Button
               variant="outline"
@@ -803,6 +857,10 @@ export function DocumentEditorView({
             getWordCount={isPresentation || isReport ? undefined : getWordCount}
             baseType={baseType}
             onOpenShare={() => setShareOpen(true)}
+            allowSaveAsTemplate={canShare && !effectiveReadOnly}
+            allowSaveAsMarketplaceTemplate={platformAdmin && canShare && !effectiveReadOnly}
+            templateContent={document.content}
+            templateThumbnailUrl={document.thumbnail_url}
           />
         </div>
       </div>
@@ -970,6 +1028,16 @@ export function DocumentEditorView({
         initialData={prefetchedShareData}
         onDataLoaded={setPrefetchedShareData}
       />
+
+      {templateImportKind ? (
+        <TemplateImportDialog
+          open={templateImportOpen}
+          onOpenChange={setTemplateImportOpen}
+          workspaceId={workspaceId}
+          documentId={document.id}
+          editorKind={templateImportKind}
+        />
+      ) : null}
 
       {/* Save with label (GrapesJS / Report & Proposal) */}
       <Dialog open={saveWithLabelOpen} onOpenChange={setSaveWithLabelOpen}>

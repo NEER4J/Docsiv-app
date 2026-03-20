@@ -8,14 +8,10 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-  SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { APP_CONFIG } from "@/config/app-config";
-import { sidebarItems } from "@/navigation/sidebar-items";
+import { getDashboardSidebarItems } from "@/navigation/sidebar-items";
 import { cn } from "@/lib/utils";
 
 import { NavMain } from "./nav-main";
@@ -31,6 +27,7 @@ export function AppSidebar({
   currentWorkspaceId = null,
   showUpgrade = true,
   notificationCount = 0,
+  platformAdmin = false,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   readonly user: {
@@ -42,6 +39,7 @@ export function AppSidebar({
   readonly currentWorkspaceId?: string | null;
   readonly showUpgrade?: boolean;
   readonly notificationCount?: number;
+  readonly platformAdmin?: boolean;
 }) {
   const { state, hoverOpen } = useSidebar();
   const isCollapsed = state === "collapsed" && !hoverOpen;
@@ -84,7 +82,7 @@ export function AppSidebar({
         )}
       </SidebarHeader>
       <SidebarContent className={cn(sidebarPaddingX)}>
-        <NavMain items={sidebarItems} notificationCount={notificationCount} />
+        <NavMain items={getDashboardSidebarItems(platformAdmin)} notificationCount={notificationCount} />
       </SidebarContent>
       <SidebarFooter className={cn(sidebarPaddingX, "pb-3")}>
         {showUpgrade && (

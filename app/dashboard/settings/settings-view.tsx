@@ -10,6 +10,10 @@ import { BillingSettingsView } from "./billing/billing-settings-view";
 import { IntegrationsSettingsView } from "./integrations/integrations-settings-view";
 import { NotificationsSettingsForm } from "./notifications/notifications-settings-form";
 import type { Workspace } from "@/types/database";
+import type {
+  WorkspaceAiUsageLogItem,
+  WorkspaceAiUsageSummary,
+} from "@/lib/actions/ai-usage";
 
 const TABS = [
   { id: "profile" as const, label: "Profile" },
@@ -33,6 +37,8 @@ export type SettingsViewProps = {
     subscribed_to_updates: boolean;
   } | null;
   workspace: Workspace | null;
+  aiUsageSummary: WorkspaceAiUsageSummary | null;
+  aiUsageLogs: WorkspaceAiUsageLogItem[];
 };
 
 export function SettingsView({
@@ -40,6 +46,8 @@ export function SettingsView({
   user,
   profile,
   workspace,
+  aiUsageSummary,
+  aiUsageLogs,
 }: SettingsViewProps) {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<SettingsTabId>(initialTab);
@@ -189,6 +197,8 @@ export function SettingsView({
             <BillingSettingsView
               plan={workspace?.plan ?? "free"}
               billingCountry={workspace?.billing_country ?? undefined}
+              aiUsageSummary={aiUsageSummary}
+              aiUsageLogs={aiUsageLogs}
             />
           </div>
         )}

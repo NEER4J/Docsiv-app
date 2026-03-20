@@ -59,7 +59,7 @@ export function LoginForm({ redirectNext, errorFromUrl }: { redirectNext?: strin
       toast.success("Login successful", {
         description: redirectNext ? "Redirecting..." : "Redirecting to AI...",
       });
-      router.push(redirectNext ?? "/dashboard/ai");
+      router.push(redirectNext ?? "/dashboard/ai?newSession=1");
     }
     
     setIsLoading(false);

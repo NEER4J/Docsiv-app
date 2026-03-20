@@ -4,6 +4,17 @@ import { generateText, type CoreMessage } from 'ai';
 import { NextResponse } from 'next/server';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { getMainAiSystemPrompt } from './prompt';
+import { logAiUsage } from '@/lib/ai-usage';
+import {
+  getLastUserMessageText,
+  inferClientResolutionFromUserText,
+} from '@/lib/main-ai-client-resolution';
+
+function isUuidString(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    s.trim()
+  );
+}
 
 function tryRecoverTruncatedJson(text: string): string | null {
   if (!text.startsWith('{') && !text.startsWith('[')) return null;
@@ -45,6 +56,7 @@ function tryRecoverTruncatedJson(text: string): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   let body: {
     messages?: Array<{
       role: string;
@@ -64,6 +76,13 @@ export async function POST(req: NextRequest) {
         client_name: string | null;
         base_type: string;
       }>;
+      templatesIndex?: Array<{
+        id: string;
+        title: string;
+        base_type: string;
+        is_marketplace?: boolean;
+      }>;
+      sessionSummary?: string;
     };
     model?: string;
     apiKey?: string;
@@ -140,6 +159,11 @@ export async function POST(req: NextRequest) {
     documentTypes: workspaceContext.documentTypes ?? [],
     selectedDocumentId: workspaceContext.selectedDocumentId ?? null,
     documentsIndex: workspaceContext.documentsIndex ?? [],
+    templatesIndex: workspaceContext.templatesIndex ?? [],
+    sessionSummary:
+      typeof workspaceContext.sessionSummary === 'string' && workspaceContext.sessionSummary.trim()
+        ? workspaceContext.sessionSummary.trim()
+        : undefined,
   });
 
   const google = createGoogleGenerativeAI({ apiKey });
@@ -156,6 +180,14 @@ export async function POST(req: NextRequest) {
       messages: conversationMessages,
       system: systemPrompt,
       temperature: 0.3,
+    });
+    await logAiUsage({
+      route: '/api/ai/main',
+      model: modelId,
+      workspaceId: workspaceContext.workspaceId,
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      usage: result,
     });
 
     const text = (result.text ?? '').trim();
@@ -195,6 +227,7 @@ export async function POST(req: NextRequest) {
           base_type?: string;
           client_id?: string | null;
           document_type_id?: string | null;
+          template_id?: string | null;
         }
       | undefined;
 
@@ -208,11 +241,23 @@ export async function POST(req: NextRequest) {
 
     const response: {
       message: string;
+      sessionTitle?: string;
+      clientResolution?: {
+        mode: 'existing' | 'create_new' | 'ambiguous';
+        clientId?: string;
+        clientName?: string;
+        candidates?: Array<{ id: string; name: string }>;
+      };
+      requireClientChoice?: {
+        prompt: string;
+        options: Array<{ id: string; name: string }>;
+      };
       createDocument?: {
         title: string;
         base_type: 'doc' | 'sheet' | 'presentation' | 'contract';
         client_id: string | null;
         document_type_id: string | null;
+        template_id?: string | null;
       };
       openDocumentForEditor?: {
         documentId: string;
@@ -220,6 +265,60 @@ export async function POST(req: NextRequest) {
         seedMessage?: string;
       };
     } = { message };
+
+    if (typeof obj.sessionTitle === 'string' && obj.sessionTitle.trim()) {
+      response.sessionTitle = obj.sessionTitle.trim().slice(0, 80);
+    }
+
+    const clientResolution = obj.clientResolution as
+      | {
+          mode?: string;
+          clientId?: string;
+          clientName?: string;
+          candidates?: Array<{ id?: string; name?: string }>;
+        }
+      | undefined;
+    if (clientResolution && typeof clientResolution === 'object') {
+      const mode = String(clientResolution.mode ?? '').trim();
+      if (mode === 'existing' || mode === 'create_new' || mode === 'ambiguous') {
+        response.clientResolution = {
+          mode,
+          ...(typeof clientResolution.clientId === 'string' && clientResolution.clientId.trim()
+            ? { clientId: clientResolution.clientId.trim() }
+            : {}),
+          ...(typeof clientResolution.clientName === 'string' && clientResolution.clientName.trim()
+            ? { clientName: clientResolution.clientName.trim() }
+            : {}),
+          ...(Array.isArray(clientResolution.candidates)
+            ? {
+                candidates: clientResolution.candidates
+                  .filter((c) => typeof c?.id === 'string' && typeof c?.name === 'string')
+                  .map((c) => ({ id: (c.id as string).trim(), name: (c.name as string).trim() }))
+                  .slice(0, 8),
+              }
+            : {}),
+        };
+      }
+    }
+
+    const requireClientChoice = obj.requireClientChoice as
+      | { prompt?: string; options?: Array<{ id?: string; name?: string }> }
+      | undefined;
+    if (requireClientChoice && typeof requireClientChoice === 'object' && Array.isArray(requireClientChoice.options)) {
+      const options = requireClientChoice.options
+        .filter((o) => typeof o?.id === 'string' && typeof o?.name === 'string')
+        .map((o) => ({ id: (o.id as string).trim(), name: (o.name as string).trim() }))
+        .slice(0, 12);
+      if (options.length > 0) {
+        response.requireClientChoice = {
+          prompt:
+            typeof requireClientChoice.prompt === 'string' && requireClientChoice.prompt.trim()
+              ? requireClientChoice.prompt.trim()
+              : 'Choose a client',
+          options,
+        };
+      }
+    }
 
     if (
       createDocument &&
@@ -230,6 +329,11 @@ export async function POST(req: NextRequest) {
         String(createDocument.base_type ?? '')
       )
     ) {
+      const tplRaw =
+        typeof createDocument.template_id === 'string' && createDocument.template_id.trim()
+          ? createDocument.template_id.trim()
+          : null;
+      const template_id = tplRaw && isUuidString(tplRaw) ? tplRaw : null;
       response.createDocument = {
         title: createDocument.title.trim(),
         base_type: createDocument.base_type as
@@ -246,6 +350,7 @@ export async function POST(req: NextRequest) {
           createDocument.document_type_id
             ? createDocument.document_type_id
             : null,
+        ...(template_id ? { template_id } : {}),
       };
     }
 
@@ -267,12 +372,33 @@ export async function POST(req: NextRequest) {
       };
     }
 
+    // If the model omitted clientResolution but the user clearly named a client, merge server-side.
+    const lastUserPlain = getLastUserMessageText(messages);
+    if (
+      lastUserPlain &&
+      !response.clientResolution &&
+      (response.openDocumentForEditor || response.createDocument)
+    ) {
+      const inferred = inferClientResolutionFromUserText(lastUserPlain, workspaceContext.clients ?? []);
+      if (inferred) {
+        response.clientResolution = inferred;
+      }
+    }
+
     return NextResponse.json(response);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       return NextResponse.json(null, { status: 408 });
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
+    await logAiUsage({
+      route: '/api/ai/main',
+      model: modelId,
+      workspaceId: workspaceContext.workspaceId,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
+      errorMessage: message,
+    });
     console.error('[api/ai/main]', message, err);
     return NextResponse.json(
       {

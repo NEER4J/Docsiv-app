@@ -15,6 +15,7 @@ import {
   PenTool,
   Send,
   Building2,
+  LayoutTemplate,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -65,8 +66,11 @@ import {
 } from '@/lib/actions/documents';
 import { getClients } from '@/lib/actions/clients';
 import { getMyWorkspaces, type WorkspaceOption } from '@/lib/actions/onboarding';
-import type { DocumentBaseType, DocumentStatus, ClientWithDocCount } from '@/types/database';
+import type { DocumentBaseType, DocumentStatus, ClientWithDocCount, DocumentType } from '@/types/database';
 import { toast } from 'sonner';
+import { getDocumentTypes } from '@/lib/actions/documents';
+import { createMarketplaceDocumentTemplate, saveDocumentAsWorkspaceTemplate } from '@/lib/actions/templates';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface DocumentMenuProps {
   documentId: string;
@@ -79,6 +83,11 @@ interface DocumentMenuProps {
   getWordCount?: () => number;
   baseType?: DocumentBaseType;
   onOpenShare?: () => void;
+  /** Workspace template save (marketplace only via platform admin). */
+  allowSaveAsTemplate?: boolean;
+  allowSaveAsMarketplaceTemplate?: boolean;
+  templateContent?: Record<string, unknown> | null;
+  templateThumbnailUrl?: string | null;
 }
 
 type ClientCache = Record<string, ClientWithDocCount[]>;
@@ -93,6 +102,10 @@ export function DocumentMenu({
   getWordCount,
   baseType,
   onOpenShare,
+  allowSaveAsTemplate = false,
+  allowSaveAsMarketplaceTemplate = false,
+  templateContent,
+  templateThumbnailUrl,
 }: DocumentMenuProps) {
   const router = useRouter();
 
@@ -134,6 +147,13 @@ export function DocumentMenu({
   const [moveWorkspaceId, setMoveWorkspaceId] = useState<string>(workspaceId);
   const [moveClientId, setMoveClientId] = useState<string>(clientId ?? 'none');
   const [moving, setMoving] = useState(false);
+
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [saveTemplateTitle, setSaveTemplateTitle] = useState('');
+  const [saveTemplateTypeIds, setSaveTemplateTypeIds] = useState<string[]>([]);
+  const [catalogTypes, setCatalogTypes] = useState<DocumentType[]>([]);
+  const [savingWorkspaceTemplate, setSavingWorkspaceTemplate] = useState(false);
+  const [savingMarketplaceTemplate, setSavingMarketplaceTemplate] = useState(false);
 
   const loadWorkspaces = useCallback(async () => {
     if (workspaces.length > 0) return;
@@ -189,6 +209,19 @@ export function DocumentMenu({
       setMoveClientId(clientId ?? 'none');
     }
   }, [moveOpen, workspaceId, clientId]);
+
+  useEffect(() => {
+    if (!saveTemplateOpen) return;
+    setSaveTemplateTitle(documentTitle);
+    setSaveTemplateTypeIds([]);
+    let cancelled = false;
+    getDocumentTypes().then(({ types }) => {
+      if (!cancelled) setCatalogTypes(types);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [saveTemplateOpen, documentTitle]);
 
   const handleShowHistory = useCallback(async () => {
     setHistoryOpen(true);
@@ -254,6 +287,68 @@ export function DocumentMenu({
     setDuplicateOpen(false);
     toast.success('Document copied');
     router.push(`/d/${newDocumentId}`);
+  };
+
+  const handleSaveAsTemplate = async () => {
+    const title = saveTemplateTitle.trim();
+    if (!title) {
+      toast.error('Title is required');
+      return;
+    }
+    setSavingWorkspaceTemplate(true);
+    try {
+      const { templateId, error } = await saveDocumentAsWorkspaceTemplate(
+        documentId,
+        title,
+        saveTemplateTypeIds.length > 0 ? saveTemplateTypeIds : null
+      );
+      if (error || !templateId) {
+        toast.error(error ?? 'Could not save template');
+        return;
+      }
+      toast.success('Saved as workspace template');
+      setSaveTemplateOpen(false);
+      router.push('/dashboard/templates');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save template');
+    } finally {
+      setSavingWorkspaceTemplate(false);
+    }
+  };
+
+  const handleSaveAsMarketplaceTemplate = async () => {
+    const title = saveTemplateTitle.trim();
+    if (!title) {
+      toast.error('Title is required');
+      return;
+    }
+    if (!baseType || !templateContent) {
+      toast.error('Document content unavailable');
+      return;
+    }
+    setSavingMarketplaceTemplate(true);
+    try {
+      const { templateId, error } = await createMarketplaceDocumentTemplate({
+        title,
+        description: null,
+        base_type: baseType,
+        content: templateContent,
+        document_type_ids: saveTemplateTypeIds,
+        thumbnail_url: templateThumbnailUrl ?? null,
+        sort_order: 0,
+      });
+      if (error || !templateId) {
+        toast.error(error ?? 'Could not save marketplace template');
+        return;
+      }
+      toast.success('Saved to marketplace');
+      setSaveTemplateOpen(false);
+      router.push('/dashboard/platform/templates');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save marketplace template');
+    } finally {
+      setSavingMarketplaceTemplate(false);
+    }
   };
 
   const handleMove = async () => {
@@ -332,6 +427,12 @@ export function DocumentMenu({
             <Copy className="size-4 mr-2 text-muted-foreground" />
             Copy doc
           </DropdownMenuItem>
+          {allowSaveAsTemplate && (
+            <DropdownMenuItem onClick={() => setSaveTemplateOpen(true)} className="cursor-pointer">
+              <LayoutTemplate className="size-4 mr-2 text-muted-foreground" />
+              Save as template
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => setMoveOpen(true)} className="cursor-pointer">
             <FolderInput className="size-4 mr-2 text-muted-foreground" />
             Move doc
@@ -355,6 +456,88 @@ export function DocumentMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Dialog open={saveTemplateOpen} onOpenChange={setSaveTemplateOpen}>
+        <DialogContent className="w-full max-w-lg border-border">
+          <DialogHeader>
+            <DialogTitle className="font-ui text-base font-semibold">Save as template</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {allowSaveAsMarketplaceTemplate
+                ? 'Save to your workspace (private), or publish to the platform marketplace (visible to all workspaces).'
+                : 'Copies current document content into a reusable template for your workspace.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Field label="Template title">
+              <Input
+                value={saveTemplateTitle}
+                onChange={(e) => setSaveTemplateTitle(e.target.value)}
+                className="h-9 text-sm"
+                placeholder="e.g. Q1 report starter"
+              />
+            </Field>
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Document types (optional)</p>
+              <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border border-border p-3">
+                {catalogTypes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Loading types…</p>
+                ) : (
+                  catalogTypes.map((dt) => (
+                    <label key={dt.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={saveTemplateTypeIds.includes(dt.id)}
+                        onCheckedChange={(c) => {
+                          setSaveTemplateTypeIds((prev) =>
+                            c ? [...prev, dt.id] : prev.filter((id) => id !== dt.id)
+                          );
+                        }}
+                      />
+                      <span>{dt.name}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => void handleSaveAsTemplate()}
+              disabled={savingWorkspaceTemplate || savingMarketplaceTemplate}
+            >
+              {savingWorkspaceTemplate ? 'Saving…' : 'Save to workspace'}
+            </Button>
+            {allowSaveAsMarketplaceTemplate && (
+              <>
+                <div className="relative flex items-center gap-2">
+                  <div className="flex-1 border-t border-border" />
+                  <span className="shrink-0 text-[11px] text-muted-foreground">Platform admin</span>
+                  <div className="flex-1 border-t border-border" />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => void handleSaveAsMarketplaceTemplate()}
+                  disabled={savingWorkspaceTemplate || savingMarketplaceTemplate}
+                >
+                  {savingMarketplaceTemplate ? 'Saving…' : 'Save to marketplace'}
+                </Button>
+              </>
+            )}
+            <Button
+              variant="ghost"
+              type="button"
+              className="w-full text-muted-foreground"
+              onClick={() => setSaveTemplateOpen(false)}
+              disabled={savingWorkspaceTemplate || savingMarketplaceTemplate}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Doc Settings ─────────────────────────────────────────────── */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>

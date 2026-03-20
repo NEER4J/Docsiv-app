@@ -25,7 +25,9 @@ export async function createClientRecord(
     p_notes: input.notes ?? null,
   });
   if (error) return { clientId: null, error: error.message };
-  return { clientId: data as string };
+  const id = typeof data === "string" ? data.trim() : "";
+  if (!id) return { clientId: null, error: "create_client returned no client id" };
+  return { clientId: id };
 }
 
 export async function getClients(

@@ -4,6 +4,7 @@ import { generateText, type CoreMessage } from 'ai';
 import { NextResponse } from 'next/server';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { getSheetSelectionAiSystemPrompt } from './prompt';
+import { logAiUsage } from '@/lib/ai-usage';
 
 function isCellDataObject(content: unknown): content is Record<string, Record<string, unknown>> {
   if (!content || typeof content !== 'object' || Array.isArray(content)) return false;
@@ -56,12 +57,15 @@ function tryRecoverTruncatedJson(text: string): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   let body: {
     selectedContent?: unknown;
     sheetId?: string;
     range?: { startRow: number; endRow: number; startCol: number; endCol: number };
     prompt?: string;
     documentTitle?: string;
+    workspaceId?: string;
+    documentId?: string;
     model?: string;
     apiKey?: string;
   };
@@ -72,7 +76,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { selectedContent, sheetId, range, prompt: userPrompt, documentTitle, apiKey: key } = body;
+  const { selectedContent, sheetId, range, prompt: userPrompt, documentTitle, workspaceId, documentId, apiKey: key } = body;
 
   if (!selectedContent || typeof selectedContent !== 'object' || Array.isArray(selectedContent)) {
     return NextResponse.json(
@@ -137,6 +141,15 @@ export async function POST(req: NextRequest) {
         google: { thinkingConfig: { thinkingBudget: 8192 } },
       } as Parameters<typeof generateText>[0]['providerOptions'],
     });
+    await logAiUsage({
+      route: '/api/ai/sheet/selection',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      usage: result,
+    });
 
     const text = (result.text ?? '').trim();
     let stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
@@ -195,6 +208,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(null, { status: 408 });
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
+    await logAiUsage({
+      route: '/api/ai/sheet/selection',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
+      errorMessage: message,
+    });
     console.error('[api/ai/sheet/selection]', message, err);
     return NextResponse.json(
       {

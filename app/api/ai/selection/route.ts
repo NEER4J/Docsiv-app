@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { getSelectionAiSystemPrompt } from './prompt';
 import type { Value } from 'platejs';
+import { logAiUsage } from '@/lib/ai-usage';
 
 function isPlateValue(content: unknown): content is Value {
   if (!Array.isArray(content) || content.length === 0) return false;
@@ -18,6 +19,7 @@ function isPlateValue(content: unknown): content is Value {
 }
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   let body: {
     /** The selected Plate nodes. */
     selectedContent?: unknown;
@@ -25,6 +27,8 @@ export async function POST(req: NextRequest) {
     prompt?: string;
     /** Optional: document title for context. */
     documentTitle?: string;
+    workspaceId?: string;
+    documentId?: string;
     model?: string;
     apiKey?: string;
   };
@@ -35,7 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { selectedContent, prompt, documentTitle, apiKey: key } = body;
+  const { selectedContent, prompt, documentTitle, workspaceId, documentId, apiKey: key } = body;
 
   if (!selectedContent || !Array.isArray(selectedContent) || selectedContent.length === 0) {
     return NextResponse.json({ error: 'Missing or empty selectedContent' }, { status: 400 });
@@ -87,6 +91,15 @@ export async function POST(req: NextRequest) {
         google: { thinkingConfig: { thinkingBudget: 4096 } },
       } as Parameters<typeof generateText>[0]['providerOptions'],
     });
+    await logAiUsage({
+      route: '/api/ai/selection',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      usage: result,
+    });
 
     const text = (result.text ?? '').trim();
     let stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
@@ -136,6 +149,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(null, { status: 408 });
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
+    await logAiUsage({
+      route: '/api/ai/selection',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
+      errorMessage: message,
+    });
     console.error('[api/ai/selection]', message, err);
     return NextResponse.json(
       {

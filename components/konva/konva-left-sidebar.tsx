@@ -61,7 +61,8 @@ import { BACKGROUND_PATTERNS } from '@/lib/konva-background-patterns';
 import { KONVA_FONT_FAMILIES, loadFontFamily } from '@/lib/konva-fonts';
 import { getTemplatesByMode } from '@/lib/konva-templates';
 import { getDocuments, getDocumentById } from '@/lib/actions/documents';
-import type { DocumentListItem } from '@/types/database';
+import { getDocumentTemplate, listDocumentTemplates } from '@/lib/actions/templates';
+import type { DocumentListItem, DocumentTemplateListItem } from '@/types/database';
 import { isKonvaContent } from '@/lib/konva-content';
 
 export type KonvaShapeType =
@@ -269,6 +270,31 @@ export function KonvaLeftSidebar({
         setMyDesigns(konvaTypes);
       })
       .catch(() => setMyDesigns([]));
+  }, [workspaceId, editorMode]);
+
+  const [dbTemplates, setDbTemplates] = useState<DocumentTemplateListItem[]>([]);
+  useEffect(() => {
+    if (!workspaceId) {
+      setDbTemplates([]);
+      return;
+    }
+    let cancelled = false;
+    listDocumentTemplates(workspaceId, 'all')
+      .then(({ templates, error }) => {
+        if (cancelled || error) return;
+        const filtered = templates.filter((t) =>
+          editorMode === 'presentation'
+            ? t.base_type === 'presentation'
+            : t.base_type === 'doc'
+        );
+        setDbTemplates(filtered);
+      })
+      .catch(() => {
+        if (!cancelled) setDbTemplates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId, editorMode]);
   const [pageSizeOpen, setPageSizeOpen] = useState(false);
   const [customW, setCustomW] = useState(() => String(pageWidthPx ?? 794));
@@ -870,24 +896,70 @@ export function KonvaLeftSidebar({
         {activeLeftTab === 'templates' && (
           <div className="flex flex-1 flex-col overflow-y-auto p-2">
             <h3 className="mb-2 text-xs font-medium text-zinc-400">Templates</h3>
-            {getTemplatesByMode(editorMode).length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {getTemplatesByMode(editorMode).map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => onApplyTemplate?.(t.content)}
-                    disabled={!onApplyTemplate}
-                    className="flex flex-col gap-1 rounded border border-zinc-700 bg-zinc-800 p-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-700"
-                  >
-                    <span className="text-xs font-medium text-zinc-200">{t.name}</span>
-                    <span className="text-[10px] text-zinc-500">{t.category}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <PlaceholderPanel title="Templates" />
-            )}
+            <div className="flex flex-col gap-3">
+              {getTemplatesByMode(editorMode).length > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Starters</p>
+                  <div className="flex flex-col gap-2">
+                    {getTemplatesByMode(editorMode).map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => onApplyTemplate?.(t.content)}
+                        disabled={!onApplyTemplate}
+                        className="flex flex-col gap-1 rounded border border-zinc-700 bg-zinc-800 p-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-700"
+                      >
+                        <span className="text-xs font-medium text-zinc-200">{t.name}</span>
+                        <span className="text-[10px] text-zinc-500">{t.category}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {workspaceId && dbTemplates.length > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Library</p>
+                  <div className="flex flex-col gap-2">
+                    {dbTemplates.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        disabled={!onApplyTemplate}
+                        onClick={async () => {
+                          const { template, error } = await getDocumentTemplate(t.id);
+                          if (error || !template?.content || !isKonvaContent(template.content)) {
+                            toast.error(error ?? 'Template is not compatible with this editor');
+                            return;
+                          }
+                          const content = template.content as KonvaStoredContent;
+                          const pages =
+                            content.report?.pages ?? content.presentation?.slides ?? [];
+                          if (pages.length > 1) {
+                            setTemplateDocContent(content);
+                            setTemplateDocTitle(template.title || 'Untitled');
+                            setTemplateSelectedPages(pages.length ? [0] : []);
+                            setTemplateSelectOpen(true);
+                          } else {
+                            onApplyTemplate?.(content);
+                          }
+                        }}
+                        className="flex flex-col gap-1 rounded border border-zinc-700 bg-zinc-800 p-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-700 disabled:opacity-50"
+                      >
+                        <span className="text-xs font-medium text-zinc-200">{t.title}</span>
+                        <span className="text-[10px] text-zinc-500">
+                          {t.is_marketplace ? 'Marketplace' : 'Workspace'}
+                          {t.document_types[0]?.name ? ` · ${t.document_types[0].name}` : ''}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {getTemplatesByMode(editorMode).length === 0 &&
+              (!workspaceId || dbTemplates.length === 0) ? (
+                <PlaceholderPanel title="Templates" />
+              ) : null}
+            </div>
           </div>
         )}
         {activeLeftTab === 'my-designs' && (

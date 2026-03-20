@@ -6,6 +6,11 @@ import {
   getMyWorkspaces,
   getWorkspaceDetails,
 } from "@/lib/actions/onboarding";
+import {
+  getWorkspaceAiUsageSummary,
+  listWorkspaceAiUsageLogs,
+} from "@/lib/actions/ai-usage";
+import type { WorkspaceAiUsageSummary } from "@/lib/actions/ai-usage";
 import type { Workspace } from "@/types/database";
 import { SettingsView, type SettingsTabId } from "./settings-view";
 import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
@@ -47,9 +52,21 @@ export default async function SettingsPage({
       : workspaces[0]?.id ?? null;
 
   let workspace: Workspace | null = null;
+  let aiUsageSummary: WorkspaceAiUsageSummary | null = null;
+  let aiUsageLogs: Awaited<
+    ReturnType<typeof listWorkspaceAiUsageLogs>
+  >["logs"] = [];
   if (currentWorkspaceId) {
-    const result = await getWorkspaceDetails(currentWorkspaceId);
-    if (!result.error && result.workspace) workspace = result.workspace;
+    const [workspaceResult, summaryResult, logsResult] = await Promise.all([
+      getWorkspaceDetails(currentWorkspaceId),
+      getWorkspaceAiUsageSummary(currentWorkspaceId),
+      listWorkspaceAiUsageLogs(currentWorkspaceId, 80),
+    ]);
+    if (!workspaceResult.error && workspaceResult.workspace) {
+      workspace = workspaceResult.workspace;
+    }
+    if (!summaryResult.error) aiUsageSummary = summaryResult.summary;
+    if (!logsResult.error) aiUsageLogs = logsResult.logs;
   }
 
   return (
@@ -68,6 +85,8 @@ export default async function SettingsPage({
           : null
       }
       workspace={workspace}
+      aiUsageSummary={aiUsageSummary}
+      aiUsageLogs={aiUsageLogs}
     />
   );
 }

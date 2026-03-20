@@ -5,14 +5,18 @@ import { NextResponse } from 'next/server';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { getKonvaAiSystemPrompt } from './prompt';
+import { logAiUsage } from '@/lib/ai-usage';
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   let body: {
     messages?: Array<{ role: string; content: string; images?: string[] }>;
     content?: unknown;
     mode?: string;
     pageWidthPx?: number;
     pageHeightPx?: number;
+    workspaceId?: string;
+    documentId?: string;
     model?: string;
     apiKey?: string;
   };
@@ -23,7 +27,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { messages = [], content, mode, pageWidthPx, pageHeightPx, apiKey: key } = body;
+  const { messages = [], content, mode, pageWidthPx, pageHeightPx, workspaceId, documentId, apiKey: key } = body;
 
   if (!content || typeof content !== 'object') {
     return NextResponse.json({ error: 'Missing or invalid content' }, { status: 400 });
@@ -135,6 +139,16 @@ export async function POST(req: NextRequest) {
         },
       } as Parameters<typeof generateText>[0]['providerOptions'],
     });
+    await logAiUsage({
+      route: '/api/ai/konva',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      usage: result,
+      metadata: { mode: modeVal },
+    });
 
     const text = (result.text ?? '').trim();
 
@@ -208,6 +222,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(null, { status: 408 });
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
+    await logAiUsage({
+      route: '/api/ai/konva',
+      model: modelId,
+      workspaceId,
+      documentId,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
+      errorMessage: message,
+      metadata: { mode: modeVal },
+    });
     console.error('[api/ai/konva]', message, err);
     return NextResponse.json(
       { error: 'Failed to process AI request', ...(process.env.NODE_ENV === 'development' && { detail: message }) },
