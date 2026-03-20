@@ -666,6 +666,45 @@ export function MainAiChatView({
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title: next } : s)));
   }, [sessions]);
 
+  const copySessionLink = React.useCallback(async (sessionId: string) => {
+    if (typeof window === "undefined") return;
+    const url = new URL(`${window.location.origin}${pathname}`);
+    url.searchParams.set("session", sessionId);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      toast.success("Session link copied");
+    } catch {
+      toast.error("Could not copy session link");
+    }
+  }, [pathname]);
+
+  React.useEffect(() => {
+    const sessionIdFromUrl = searchParams.get("session");
+    if (!sessionIdFromUrl) return;
+    if (activeSessionId === sessionIdFromUrl) return;
+    if (sessions.some((s) => s.id === sessionIdFromUrl)) {
+      setActiveSessionId(sessionIdFromUrl);
+    }
+  }, [searchParams, sessions, activeSessionId]);
+
+  React.useEffect(() => {
+    const currentInUrl = searchParams.get("session");
+    if (!activeSessionId) {
+      if (!currentInUrl) return;
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("session");
+      const nextUrl = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
+      router.replace(nextUrl, { scroll: false });
+      return;
+    }
+    if (currentInUrl === activeSessionId) return;
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("session", activeSessionId);
+    nextParams.delete("newSession");
+    const nextUrl = `${pathname}?${nextParams.toString()}`;
+    router.replace(nextUrl, { scroll: false });
+  }, [activeSessionId, searchParams, pathname, router]);
+
   const handleSubmit = React.useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -1234,8 +1273,17 @@ export function MainAiChatView({
                         : ""}
                     </p>
                   </div>
-                  {/* Rename / Archive — outside row button to avoid invalid nested <button> */}
+                  {/* Session actions — outside row button to avoid invalid nested <button> */}
                   <div className="mt-1 hidden gap-2 px-3 group-hover:flex">
+                    <button
+                      type="button"
+                      className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                      onClick={() => {
+                        void copySessionLink(s.id);
+                      }}
+                    >
+                      Copy link
+                    </button>
                     <button
                       type="button"
                       className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
