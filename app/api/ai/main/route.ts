@@ -5,6 +5,12 @@ import { NextResponse } from 'next/server';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { getMainAiSystemPrompt } from './prompt';
 import { logAiUsage } from '@/lib/ai-usage';
+import { getMainAiTools } from '@/lib/ai/main/tools';
+import { buildWorkspaceMemoryHints } from '@/lib/ai/workspace-memory';
+import { upsertDocumentAiChatSession } from '@/lib/actions/documents';
+import { createClientRecord } from '@/lib/actions/clients';
+import { createDocumentRecord, updateDocumentRecord } from '@/lib/actions/documents';
+import { instantiateDocumentTemplate } from '@/lib/actions/templates';
 import {
   getLastUserMessageText,
   inferClientResolutionFromUserText,
@@ -86,6 +92,7 @@ export async function POST(req: NextRequest) {
     };
     model?: string;
     apiKey?: string;
+    idempotencyKey?: string;
   };
 
   try {
@@ -95,6 +102,10 @@ export async function POST(req: NextRequest) {
   }
 
   const { messages = [], workspaceContext, apiKey: key } = body;
+  const idempotencyKey =
+    (typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()) ||
+    req.headers.get('x-idempotency-key') ||
+    `main-ai-${Date.now()}`;
 
   if (!workspaceContext?.workspaceId) {
     return NextResponse.json(
@@ -126,8 +137,8 @@ export async function POST(req: NextRequest) {
     } else {
       const parts: Array<
         | { type: 'text'; text: string }
-        | { type: 'image'; image: string; mimeType?: string }
-        | { type: 'file'; data: string; mimeType?: string }
+        | { type: 'image'; image: string; mediaType?: string }
+        | { type: 'file'; data: string; mediaType?: string }
       > = [{ type: 'text', text: m.content }];
       for (const dataUrl of images) {
         const commaIdx = dataUrl.indexOf(',');
@@ -135,8 +146,8 @@ export async function POST(req: NextRequest) {
         const header = dataUrl.slice(0, commaIdx);
         const base64 = dataUrl.slice(commaIdx + 1);
         const mimeMatch = header.match(/data:(.*?);/);
-        const mimeType = mimeMatch?.[1] ?? 'image/png';
-        parts.push({ type: 'image', image: base64, mimeType });
+        const mediaType = mimeMatch?.[1] ?? 'image/png';
+        parts.push({ type: 'image', image: base64, mediaType });
       }
       for (const file of files) {
         const dataUrl = file.dataUrl as string;
@@ -145,12 +156,19 @@ export async function POST(req: NextRequest) {
         const header = dataUrl.slice(0, commaIdx);
         const base64 = dataUrl.slice(commaIdx + 1);
         const mimeMatch = header.match(/data:(.*?);/);
-        const mimeType = file.mimeType ?? mimeMatch?.[1] ?? 'application/octet-stream';
-        parts.push({ type: 'file', data: base64, mimeType });
+        const mediaType = file.mimeType ?? mimeMatch?.[1] ?? 'application/octet-stream';
+        parts.push({ type: 'file', data: base64, mediaType });
       }
       conversationMessages.push({ role: 'user', content: parts as never });
     }
   }
+
+  const lastUserPlain = getLastUserMessageText(messages) ?? '';
+  const memoryHints = buildWorkspaceMemoryHints({
+    query: lastUserPlain,
+    documents: workspaceContext.documentsIndex ?? [],
+    templates: workspaceContext.templatesIndex ?? [],
+  });
 
   const systemPrompt = getMainAiSystemPrompt({
     workspaceId: workspaceContext.workspaceId,
@@ -164,6 +182,7 @@ export async function POST(req: NextRequest) {
       typeof workspaceContext.sessionSummary === 'string' && workspaceContext.sessionSummary.trim()
         ? workspaceContext.sessionSummary.trim()
         : undefined,
+    memoryHints,
   });
 
   const google = createGoogleGenerativeAI({ apiKey });
@@ -173,6 +192,8 @@ export async function POST(req: NextRequest) {
       : DEFAULT_AI_MODEL;
 
   try {
+    const toolTrace: Array<{ name: string; args?: unknown; output?: unknown }> = [];
+    const tools = getMainAiTools(workspaceContext.workspaceId);
     const result = await generateText({
       abortSignal: req.signal,
       maxOutputTokens: 8192,
@@ -180,7 +201,32 @@ export async function POST(req: NextRequest) {
       messages: conversationMessages,
       system: systemPrompt,
       temperature: 0.3,
+      tools,
     });
+    const resultAny = result as unknown as {
+      toolCalls?: Array<{ toolName?: string; input?: unknown }>;
+      toolResults?: Array<{ toolName?: string; output?: unknown }>;
+      steps?: Array<{
+        toolCalls?: Array<{ toolName?: string; input?: unknown }>;
+        toolResults?: Array<{ toolName?: string; output?: unknown }>;
+      }>;
+    };
+    if (Array.isArray(resultAny.toolCalls)) {
+      for (const c of resultAny.toolCalls) toolTrace.push({ name: c.toolName ?? 'unknown', args: c.input });
+    }
+    if (Array.isArray(resultAny.toolResults)) {
+      for (const r of resultAny.toolResults) toolTrace.push({ name: r.toolName ?? 'unknown', output: r.output });
+    }
+    if (Array.isArray(resultAny.steps)) {
+      for (const step of resultAny.steps) {
+        if (Array.isArray(step.toolCalls)) {
+          for (const c of step.toolCalls) toolTrace.push({ name: c.toolName ?? 'unknown', args: c.input });
+        }
+        if (Array.isArray(step.toolResults)) {
+          for (const r of step.toolResults) toolTrace.push({ name: r.toolName ?? 'unknown', output: r.output });
+        }
+      }
+    }
     await logAiUsage({
       route: '/api/ai/main',
       model: modelId,
@@ -188,6 +234,7 @@ export async function POST(req: NextRequest) {
       status: 'success',
       latencyMs: Date.now() - startedAt,
       usage: result,
+      metadata: { idempotencyKey, toolTraceCount: toolTrace.length, toolTrace: toolTrace.slice(0, 30) },
     });
 
     const text = (result.text ?? '').trim();
@@ -263,6 +310,11 @@ export async function POST(req: NextRequest) {
         documentId: string;
         editorPrompt: string;
         seedMessage?: string;
+      };
+      _meta?: {
+        idempotencyKey: string;
+        toolTraceCount: number;
+        serverAuthoritativeHandoff?: boolean;
       };
     } = { message };
 
@@ -373,7 +425,6 @@ export async function POST(req: NextRequest) {
     }
 
     // If the model omitted clientResolution but the user clearly named a client, merge server-side.
-    const lastUserPlain = getLastUserMessageText(messages);
     if (
       lastUserPlain &&
       !response.clientResolution &&
@@ -385,6 +436,168 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const getSuccessfulToolOutput = (toolName: string): Record<string, unknown> | null => {
+      const hit = [...toolTrace].reverse().find(
+        (t) =>
+          t.name === toolName &&
+          t.output &&
+          typeof t.output === 'object' &&
+          (t.output as Record<string, unknown>).success === true
+      );
+      return hit && hit.output && typeof hit.output === 'object'
+        ? (hit.output as Record<string, unknown>)
+        : null;
+    };
+
+    // If server-side tool execution already created a document, prefer opening it
+    // and avoid duplicate document creation in frontend orchestration.
+    const createdTool = [...toolTrace].reverse().find(
+      (t) =>
+        (t.name === 'create_document' || t.name === 'create_document_from_template') &&
+        t.output &&
+        typeof t.output === 'object' &&
+        (t.output as Record<string, unknown>).success === true &&
+        typeof (t.output as Record<string, unknown>).documentId === 'string'
+    );
+    if (createdTool) {
+      const out = createdTool.output as Record<string, unknown>;
+      const createdDocumentId = String(out.documentId);
+      const promptFromModel =
+        response.openDocumentForEditor?.editorPrompt ||
+        (typeof obj.editorPrompt === 'string' ? obj.editorPrompt : null) ||
+        lastUserPlain ||
+        'Continue editing based on the request.';
+      response.openDocumentForEditor = {
+        documentId: createdDocumentId,
+        editorPrompt: promptFromModel,
+        ...(typeof obj.seedMessage === 'string' && obj.seedMessage.trim()
+          ? { seedMessage: obj.seedMessage.trim() }
+          : {}),
+      };
+      delete response.createDocument;
+
+      const seedOutput = getSuccessfulToolOutput('seed_editor_ai');
+      const seededDocumentId =
+        seedOutput && typeof seedOutput.document_id === 'string' ? String(seedOutput.document_id) : null;
+      if (!seededDocumentId || seededDocumentId !== createdDocumentId) {
+        const fallbackSeedMessage =
+          response.openDocumentForEditor.seedMessage ??
+          `Let's start creating "${String(out.title ?? 'your document')}".`;
+        try {
+          await upsertDocumentAiChatSession(createdDocumentId, {
+            messages: [{ role: 'assistant', content: fallbackSeedMessage }],
+            input: response.openDocumentForEditor.editorPrompt,
+          });
+        } catch {
+          // best-effort seed; frontend still has fallback seeding path
+        }
+      }
+    }
+
+    let resolvedClientIdFromFallback: string | null = null;
+
+    // Server-authoritative fallback when model emitted create/open intents but tools did not execute them.
+    if (!createdTool && response.createDocument && !response.requireClientChoice) {
+      let resolvedClientId: string | null = response.createDocument.client_id;
+      if (response.clientResolution?.mode === 'existing' && response.clientResolution.clientId) {
+        resolvedClientId = response.clientResolution.clientId;
+      } else if (response.clientResolution?.mode === 'create_new' && response.clientResolution.clientName?.trim()) {
+        const createdClientFromTool = getSuccessfulToolOutput('create_client');
+        if (createdClientFromTool && typeof createdClientFromTool.clientId === 'string') {
+          resolvedClientId = createdClientFromTool.clientId;
+        } else {
+          const createdClient = await createClientRecord(
+            workspaceContext.workspaceId,
+            { name: response.clientResolution.clientName.trim() }
+          );
+          if (createdClient.clientId) resolvedClientId = createdClient.clientId;
+        }
+      }
+      resolvedClientIdFromFallback = resolvedClientId;
+
+      let createdDocumentId: string | null = null;
+      if (response.createDocument.template_id) {
+        const inst = await instantiateDocumentTemplate(
+          workspaceContext.workspaceId,
+          response.createDocument.template_id,
+          {
+            title: response.createDocument.title,
+            client_id: resolvedClientId,
+            document_type_id: response.createDocument.document_type_id,
+          }
+        );
+        createdDocumentId = inst.documentId;
+      } else {
+        const created = await createDocumentRecord(workspaceContext.workspaceId, {
+          title: response.createDocument.title,
+          base_type: response.createDocument.base_type,
+          client_id: resolvedClientId,
+          document_type_id: response.createDocument.document_type_id,
+        });
+        createdDocumentId = created.documentId;
+      }
+
+      if (createdDocumentId) {
+        const fallbackPrompt = lastUserPlain || `Create ${response.createDocument.title}`;
+        response.openDocumentForEditor = {
+          documentId: createdDocumentId,
+          editorPrompt: fallbackPrompt,
+          seedMessage: `Let's start creating "${response.createDocument.title}".`,
+        };
+        delete response.createDocument;
+        try {
+          await upsertDocumentAiChatSession(createdDocumentId, {
+            messages: [{ role: 'assistant', content: response.openDocumentForEditor.seedMessage }],
+            input: response.openDocumentForEditor.editorPrompt,
+          });
+        } catch {
+          // best effort
+        }
+      }
+    }
+
+    if (!createdTool && response.openDocumentForEditor && !response.requireClientChoice) {
+      let resolvedClientId: string | null = resolvedClientIdFromFallback;
+      if (response.clientResolution?.mode === 'existing' && response.clientResolution.clientId) {
+        resolvedClientId = response.clientResolution.clientId;
+      } else if (response.clientResolution?.mode === 'create_new' && response.clientResolution.clientName?.trim()) {
+        const createdClientFromTool = getSuccessfulToolOutput('create_client');
+        if (createdClientFromTool && typeof createdClientFromTool.clientId === 'string') {
+          resolvedClientId = createdClientFromTool.clientId;
+        } else if (!resolvedClientId) {
+          const createdClient = await createClientRecord(
+            workspaceContext.workspaceId,
+            { name: response.clientResolution.clientName.trim() }
+          );
+          if (createdClient.clientId) resolvedClientId = createdClient.clientId;
+        }
+      }
+
+      if (resolvedClientId) {
+        await updateDocumentRecord(response.openDocumentForEditor.documentId, { client_id: resolvedClientId });
+      }
+      try {
+        await upsertDocumentAiChatSession(response.openDocumentForEditor.documentId, {
+          messages: [
+            {
+              role: 'assistant',
+              content:
+                response.openDocumentForEditor.seedMessage ??
+                `Let's start editing this document.`,
+            },
+          ],
+          input: response.openDocumentForEditor.editorPrompt,
+        });
+      } catch {
+        // best effort
+      }
+    }
+
+    response._meta = {
+      idempotencyKey,
+      toolTraceCount: toolTrace.length,
+      serverAuthoritativeHandoff: Boolean(createdTool || response.openDocumentForEditor),
+    };
     return NextResponse.json(response);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -398,6 +611,7 @@ export async function POST(req: NextRequest) {
       status: 'error',
       latencyMs: Date.now() - startedAt,
       errorMessage: message,
+      metadata: { idempotencyKey },
     });
     console.error('[api/ai/main]', message, err);
     return NextResponse.json(

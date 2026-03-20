@@ -33,7 +33,6 @@ export function BrandSettingsForm({ workspace }: { workspace: Workspace }) {
 
   const [form, setForm] = useState({
     logo_url: workspace.logo_url ?? "",
-    brand_color: workspace.brand_color ?? "#000000",
     brand_font: workspace.brand_font ?? "DM Sans",
     hide_docsiv_branding: workspace.hide_docsiv_branding ?? false,
     custom_email_from: workspace.custom_email_from ?? "",
@@ -46,7 +45,6 @@ export function BrandSettingsForm({ workspace }: { workspace: Workspace }) {
   const handleSave = async () => {
     setSaving(true);
     const { error } = await updateWorkspace(workspace.id, {
-      brand_color: form.brand_color,
       brand_font: form.brand_font,
       hide_docsiv_branding: form.hide_docsiv_branding,
       custom_email_from: form.custom_email_from.trim() || undefined,
@@ -102,13 +100,8 @@ export function BrandSettingsForm({ workspace }: { workspace: Workspace }) {
             )}
           </div>
           <div className="min-w-0">
-            <div
-              className="h-2 w-24 rounded-sm"
-              style={{ backgroundColor: form.brand_color }}
-              aria-hidden
-            />
             <p
-              className="mt-2 font-body text-sm text-foreground"
+              className="font-body text-sm text-foreground"
               style={{ fontFamily: `"${form.brand_font}", sans-serif` }}
             >
               {workspace.name || "Your company"}
@@ -154,24 +147,6 @@ export function BrandSettingsForm({ workspace }: { workspace: Workspace }) {
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="brand_color">Brand color</Label>
-            <div className="flex gap-2">
-              <input
-                id="brand_color"
-                type="color"
-                value={form.brand_color}
-                onChange={(e) => update("brand_color", e.target.value)}
-                className="h-10 w-14 cursor-pointer rounded border border-border bg-background"
-              />
-              <Input
-                value={form.brand_color}
-                onChange={(e) => update("brand_color", e.target.value)}
-                placeholder="#000000"
-                className="flex-1 font-mono text-sm border-border"
-              />
-            </div>
-          </div>
           <div className="space-y-2">
             <Label htmlFor="brand_font">Brand font</Label>
             <Select

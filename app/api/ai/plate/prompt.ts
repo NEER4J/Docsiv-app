@@ -43,7 +43,7 @@ Choose the operation that best fits the user's request:
 
 DO NOT return the full document. Return ONLY the new nodes for the chosen operation.`;
 
-  return `You are an expert document AI assistant for the Habiv platform, built on Plate.js / Slate.js.
+  return `You are an expert document AI assistant for the Docsiv platform, built on Plate.js / Slate.js.
 
 ${editingSection}
 

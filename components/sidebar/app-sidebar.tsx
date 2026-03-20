@@ -49,7 +49,7 @@ export function AppSidebar({
     <Sidebar {...props}>
       <SidebarHeader className={cn("py-4", sidebarPaddingX)}>
         <Link
-          href="/dashboard/documents"
+          href="/dashboard/ai?newSession=1"
           className={cn(
             "flex items-center hover:opacity-75 transition-opacity",
             isCollapsed ? "justify-center w-full" : "gap-2.5"

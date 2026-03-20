@@ -42,7 +42,7 @@ export const sidebarItems: NavGroup[] = [
   {
     id: 1,
     items: [
-      { title: "AI", url: "/dashboard/ai", icon: Sparkles },
+      { title: "AI", url: "/dashboard/ai?newSession=1", icon: Sparkles },
       { title: "Documents", url: "/dashboard/documents", icon: FileText },
       { title: "Shared with me", url: "/dashboard/shared", icon: Share2 },
       { title: "Notifications", url: "/dashboard/notifications", icon: Bell },

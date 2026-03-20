@@ -6,8 +6,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowUp, Check, Loader2, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createDocumentRecord, updateDocumentRecord, upsertDocumentAiChatSession } from "@/lib/actions/documents";
-import { instantiateDocumentTemplate, listDocumentTemplates } from "@/lib/actions/templates";
+import { updateDocumentRecord, upsertDocumentAiChatSession } from "@/lib/actions/documents";
+import { listDocumentTemplates } from "@/lib/actions/templates";
 import { createClientRecord } from "@/lib/actions/clients";
 import {
   createMainAiSession,
@@ -23,7 +23,6 @@ import { BASE_TYPE_FALLBACK } from "@/app/dashboard/documents/document-types";
 import type { DocumentBaseType, DocumentListItem } from "@/types/database";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-const MAIN_AI_SESSION_KEY = "main-ai-session";
 const MAX_IMAGES = 4;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
@@ -117,17 +116,10 @@ type MainAiDraftSnapshot = {
 type InlineRetry = {
   title: string;
   message: string;
-  retryKind: "create" | "open";
+  retryKind: "open";
   payload: {
     documentId?: string;
     seedPrompt?: string;
-    createDoc?: {
-      title: string;
-      base_type: DocumentBaseType;
-      client_id: string | null;
-      document_type_id: string | null;
-      template_id?: string | null;
-    };
     editorPrompt?: string;
     seedMessage?: string;
     attachmentDigest?: string;
@@ -259,9 +251,7 @@ export function MainAiChatView({
   const [handoffSteps, setHandoffSteps] = React.useState<HandoffStep[]>([]);
   const [inlineRetry, setInlineRetry] = React.useState<InlineRetry | null>(null);
   const [sessions, setSessions] = React.useState<MainAiSessionItem[]>(initialSessions ?? []);
-  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(
-    initialSessions?.[0]?.id ?? null
-  );
+  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null);
   const [clientChoiceModalOpen, setClientChoiceModalOpen] = React.useState(false);
   const [pendingClientChoices, setPendingClientChoices] = React.useState<
     Array<{ id: string; name: string }>
@@ -272,7 +262,6 @@ export function MainAiChatView({
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const sessionLoadedRef = React.useRef(false);
   const draftSnapshotRef = React.useRef<MainAiDraftSnapshot | null>(null);
   /** When user must pick a client before we seed + open editor (ambiguous match). */
   const pendingOpenEditorRef = React.useRef<{
@@ -512,46 +501,6 @@ export function MainAiChatView({
   }, []);
 
   React.useEffect(() => {
-    if (!workspaceId || typeof window === "undefined") {
-      sessionLoadedRef.current = true;
-      return;
-    }
-    if (sessions.length > 0) {
-      sessionLoadedRef.current = true;
-      return;
-    }
-    sessionLoadedRef.current = false;
-    const raw = localStorage.getItem(`${MAIN_AI_SESSION_KEY}-${workspaceId}`);
-    if (raw) {
-      try {
-        const { messages: saved, input: savedInput } = JSON.parse(raw) as {
-          messages?: ChatMessage[];
-          input?: string;
-        };
-        if (Array.isArray(saved) && saved.length > 0) {
-          setMessages(saved);
-        }
-        if (typeof savedInput === "string") setInput(savedInput);
-      } catch {
-        // ignore
-      }
-    }
-    sessionLoadedRef.current = true;
-  }, [workspaceId, sessions.length]);
-
-  // Persist session
-  React.useEffect(() => {
-    if (!workspaceId || typeof window === "undefined" || !sessionLoadedRef.current) return;
-    const payload = { messages, input };
-    try {
-      localStorage.setItem(
-        `${MAIN_AI_SESSION_KEY}-${workspaceId}`,
-        JSON.stringify(payload)
-      );
-    } catch {
-      // ignore
-    }
-
     if (activeSessionId) {
       const t = setTimeout(() => {
         void updateMainAiSession(activeSessionId, {
@@ -562,7 +511,7 @@ export function MainAiChatView({
       }, 500);
       return () => clearTimeout(t);
     }
-  }, [workspaceId, messages, input, activeSessionId]);
+  }, [messages, input, activeSessionId]);
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -797,6 +746,34 @@ export function MainAiChatView({
         )
       );
       setLoading(true);
+      setHandoffState("creating_document");
+      setHandoffSteps([
+        { id: "create_doc", label: "Understanding your request", status: "running" },
+        { id: "seed", label: "Executing AI tools", status: "pending" },
+        { id: "open", label: "Preparing editor handoff", status: "pending" },
+      ]);
+      const stepTimer1 = setTimeout(() => {
+        setHandoffSteps((prev) =>
+          prev.map((s) =>
+            s.id === "create_doc"
+              ? { ...s, status: "done" }
+              : s.id === "seed"
+                ? { ...s, status: "running" }
+                : s
+          )
+        );
+      }, 500);
+      const stepTimer2 = setTimeout(() => {
+        setHandoffSteps((prev) =>
+          prev.map((s) =>
+            s.id === "seed"
+              ? { ...s, status: "done" }
+              : s.id === "open"
+                ? { ...s, status: "running" }
+                : s
+          )
+        );
+      }, 1300);
 
       const historyWithCurrent = [...messages, userMessage];
       const rollingSummary = buildRollingSummary(historyWithCurrent);
@@ -827,6 +804,7 @@ export function MainAiChatView({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            idempotencyKey: `${activeSessionId ?? "new"}:${Date.now()}:${messages.length}`,
             messages: chatMessages,
             workspaceContext: {
               workspaceId,
@@ -856,6 +834,11 @@ export function MainAiChatView({
         const data = (await res.json()) as {
           message?: string;
           sessionTitle?: string;
+          _meta?: {
+            idempotencyKey?: string;
+            toolTraceCount?: number;
+            serverAuthoritativeHandoff?: boolean;
+          };
           clientResolution?: {
             mode: "existing" | "create_new" | "ambiguous";
             clientId?: string;
@@ -891,6 +874,47 @@ export function MainAiChatView({
         if (aiSessionTitle && currentSessionId) {
           void updateMainAiSession(currentSessionId, { title: aiSessionTitle.slice(0, 80) });
         }
+
+        // Server-authoritative handoff: server has already created/seeded the document.
+        // Frontend should only reflect state and navigate, avoiding duplicate mutations.
+        if (data._meta?.serverAuthoritativeHandoff && data.openDocumentForEditor?.documentId) {
+          const { documentId, editorPrompt } = data.openDocumentForEditor;
+          const docTitle = documents.find((d) => d.id === documentId)?.title ?? "this document";
+          const assistantMsg: ChatMessage = {
+            role: "assistant",
+            content: replyMessage,
+            documentLink: { documentId, title: docTitle, phase: "opened" },
+            handoffTrace: [
+              { id: "seed", label: "Prepared AI context", status: "done" },
+              { id: "open", label: "Opened document editor", status: "done" },
+            ],
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === currentSessionId
+                ? {
+                    ...s,
+                    messages: [...s.messages, assistantMsg],
+                    title:
+                      s.title === "New chat"
+                        ? (aiSessionTitle || seedPrompt || replyMessage).slice(0, 56)
+                        : s.title,
+                  }
+                : s
+            )
+          );
+          setHandoffState("idle");
+          setHandoffSteps([]);
+          trackAiEvent("handoff_server_authoritative", {
+            documentId,
+            toolTraceCount: data._meta?.toolTraceCount ?? 0,
+            hasEditorPrompt: Boolean(editorPrompt),
+          });
+          navigating = true;
+          navigateToDocumentEditor(documentId);
+          return;
+        }
         if (data.requireClientChoice?.options?.length) {
           const options = data.requireClientChoice.options;
           if (data.openDocumentForEditor?.documentId && data.openDocumentForEditor.editorPrompt) {
@@ -918,177 +942,17 @@ export function MainAiChatView({
         }
 
         if (data.openDocumentForEditor) {
-          const { documentId, editorPrompt, seedMessage } = data.openDocumentForEditor;
+          const { documentId } = data.openDocumentForEditor;
           const docTitle = documents.find((d) => d.id === documentId)?.title ?? "this document";
-
-          const resolution = clientResolution;
-
-          if (resolution?.mode === "ambiguous" && resolution.candidates && resolution.candidates.length > 0) {
-            pendingOpenEditorRef.current = {
-              documentId,
-              editorPrompt,
-              seedMessage,
-              attachmentDigest,
-              attachmentNames,
-            };
-            setPendingClientChoices(resolution.candidates);
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content: `${replyMessage}\n\nWhich client should this document be assigned to?`,
-              },
-            ]);
-            setSessions((prev) =>
-              prev.map((s) =>
-                s.id === currentSessionId
-                  ? {
-                      ...s,
-                      messages: [
-                        ...s.messages,
-                        {
-                          role: "assistant",
-                          content: `${replyMessage}\n\nWhich client should this document be assigned to?`,
-                        },
-                      ],
-                    }
-                  : s
-              )
-            );
-            return;
-          }
-
-          trackAiEvent("handoff_open_editor_started", { documentId });
-          const steps: HandoffStep[] = [];
-          let resolvedAssignClientId: string | null = null;
-
-          if (resolution?.mode === "existing" && resolution.clientId) {
-            resolvedAssignClientId = resolution.clientId;
-            const cn = clients.find((c) => c.id === resolution.clientId)?.name ?? "client";
-            steps.push({
-              id: "assign_doc",
-              label: `Assign "${docTitle}" to ${cn}`,
-              status: "running",
-            });
-          } else if (resolution?.mode === "create_new" && resolution.clientName?.trim()) {
-            const newName = resolution.clientName.trim();
-            steps.push({
-              id: "create_client",
-              label: `Creating client "${newName}"`,
-              status: "running",
-            });
-            steps.push({
-              id: "assign_doc",
-              label: `Assign "${docTitle}" to the new client`,
-              status: "pending",
-            });
-          }
-
-          steps.push({
-            id: "seed",
-            label: `Preparing AI context for "${docTitle}"`,
-            status: steps.length > 0 ? "pending" : "running",
-          });
-          steps.push({ id: "open", label: "Opening editor", status: "pending" });
-
-          setHandoffSteps(steps);
-          setHandoffState("seeding_editor");
-
-          try {
-            if (resolution?.mode === "create_new" && resolution.clientName?.trim()) {
-              try {
-                const createClient = await createClientRecord(workspaceId!, {
-                  name: resolution.clientName.trim(),
-                });
-                if (!createClient.clientId) {
-                  setHandoffSteps((prev) =>
-                    prev.map((s) =>
-                      s.id === "create_client"
-                        ? { ...s, status: "error", detail: createClient.error }
-                        : s
-                    )
-                  );
-                  toast.error(createClient.error ?? "Failed to create client");
-                  setHandoffState("idle");
-                  return;
-                }
-                resolvedAssignClientId = createClient.clientId;
-                setHandoffSteps((prev) =>
-                  prev.map((s) =>
-                    s.id === "create_client"
-                      ? { ...s, status: "done" }
-                      : s.id === "assign_doc"
-                        ? { ...s, status: "running" }
-                        : s
-                  )
-                );
-              } catch (clientErr) {
-                const msg = clientErr instanceof Error ? clientErr.message : "Failed to create client";
-                setHandoffSteps((prev) =>
-                  prev.map((s) => (s.id === "create_client" ? { ...s, status: "error", detail: msg } : s))
-                );
-                toast.error(msg);
-                setHandoffState("idle");
-                return;
-              }
-            }
-
-            if (resolvedAssignClientId) {
-              const { error: assignErr } = await updateDocumentRecord(documentId, {
-                client_id: resolvedAssignClientId,
-              });
-              if (assignErr) {
-                setHandoffSteps((prev) =>
-                  prev.map((s) =>
-                    s.id === "assign_doc" ? { ...s, status: "error", detail: assignErr } : s
-                  )
-                );
-                toast.error(assignErr);
-                setHandoffState("idle");
-                return;
-              }
-              setHandoffSteps((prev) =>
-                prev.map((s) =>
-                  s.id === "assign_doc"
-                    ? { ...s, status: "done" }
-                    : s.id === "seed"
-                      ? { ...s, status: "running" }
-                      : s
-                )
-              );
-            } else {
-              setHandoffSteps((prev) =>
-                prev.map((s) => (s.id === "seed" ? { ...s, status: "running" } : s))
-              );
-            }
-
-            const seededInput = attachmentDigest
-              ? `${editorPrompt}\n\nUse this uploaded file context from Main AI:\n${attachmentDigest}`
-              : editorPrompt;
-            await upsertDocumentAiChatSession(documentId, {
-              messages: [{ role: "assistant", content: seedMessage ?? `Let's start editing "${docTitle}".` }],
-              input: seededInput,
-            });
-          } catch {
-            setHandoffSteps((prev) => prev.map((s) => (s.id === "seed" ? { ...s, status: "error" } : s)));
-            setInput(draftSnapshotRef.current?.input ?? "");
-            setAttachedImages(draftSnapshotRef.current?.attachedImages ?? []);
-            setAttachedFiles(draftSnapshotRef.current?.attachedFiles ?? []);
-            setSelectedDocumentId(draftSnapshotRef.current?.selectedDocumentId ?? null);
-            setSelectedDocTypeId(draftSnapshotRef.current?.selectedDocTypeId ?? null);
-            setInlineRetry({
-              title: "Could not prepare editor AI",
-              message: "We couldn't seed the editor AI session. Your prompt and files are restored.",
-              retryKind: "open",
-              payload: { documentId, editorPrompt, seedMessage, attachmentDigest, attachmentNames },
-            });
-            toast.error("Couldn't seed editor AI session.");
-            setHandoffState("idle");
-            trackAiEvent("handoff_open_editor_failed", { stage: "seed", documentId });
-            return;
-          }
-
-          const assistantMsg: ChatMessage = { role: "assistant", content: replyMessage };
+          const assistantMsg: ChatMessage = {
+            role: "assistant",
+            content: replyMessage,
+            documentLink: { documentId, title: docTitle, phase: "opened" },
+            handoffTrace: [
+              { id: "seed", label: "Prepared AI context", status: "done" },
+              { id: "open", label: "Opened document editor", status: "done" },
+            ],
+          };
           setMessages((prev) => [...prev, assistantMsg]);
           setSessions((prev) =>
             prev.map((s) =>
@@ -1096,233 +960,33 @@ export function MainAiChatView({
                 ? {
                     ...s,
                     messages: [...s.messages, assistantMsg],
-                    title: s.title === "New chat" ? (aiSessionTitle || seedPrompt || replyMessage).slice(0, 56) : s.title,
+                    title:
+                      s.title === "New chat"
+                        ? (aiSessionTitle || seedPrompt || replyMessage).slice(0, 56)
+                        : s.title,
                   }
                 : s
             )
           );
-
-          const openTrace: HandoffStep[] = [];
-          if (resolution?.mode === "create_new" && resolution.clientName?.trim()) {
-            openTrace.push({
-              id: "create_client",
-              label: `Created client "${resolution.clientName.trim()}"`,
-              status: "done",
-            });
-          }
-          if (resolvedAssignClientId) {
-            const cn = clients.find((c) => c.id === resolvedAssignClientId)?.name ?? "client";
-            openTrace.push({
-              id: "assign_doc",
-              label: `Assigned "${docTitle}" to ${cn}`,
-              status: "done",
-            });
-          }
-          openTrace.push(
-            { id: "seed", label: `Prepared AI context for "${docTitle}"`, status: "done" },
-            { id: "open", label: "Opened document editor", status: "done" }
-          );
-
-          setMessages((prev) =>
-            applyOpenedEditorToMessages(prev, {
-              documentId,
-              title: docTitle,
-              handoffTrace: openTrace,
-              addDocumentLinkToLastAssistant: true,
-            })
-          );
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === currentSessionId
-                ? {
-                    ...s,
-                    messages: applyOpenedEditorToMessages(s.messages as ChatMessage[], {
-                      documentId,
-                      title: docTitle,
-                      handoffTrace: openTrace,
-                      addDocumentLinkToLastAssistant: true,
-                    }),
-                  }
-                : s
-            )
-          );
-
           setHandoffState("idle");
           setHandoffSteps([]);
-          trackAiEvent("handoff_open_editor_success", { documentId });
+          trackAiEvent("handoff_open_editor_server", { documentId });
           navigating = true;
           navigateToDocumentEditor(documentId);
           return;
-        }
-
-        if (createDoc) {
-          let resolvedClientId = createDoc.client_id;
-          const isNewClient =
-            clientResolution?.mode === "create_new" && !!clientResolution.clientName?.trim();
-          const newClientName = isNewClient ? clientResolution!.clientName!.trim() : null;
-
-          // Build the step list upfront so the user sees what's coming
-          const initialSteps: HandoffStep[] = [
-            ...(isNewClient
-              ? [{ id: "create_client" as const, label: `Creating client "${newClientName}"`, status: "running" as const }]
-              : []),
-            { id: "create_doc", label: `Creating document "${createDoc.title}"`, status: isNewClient ? "pending" : "running" },
-            { id: "seed", label: "Preparing AI context", status: "pending" },
-            { id: "open", label: "Opening editor", status: "pending" },
-          ];
-          setHandoffSteps(initialSteps);
-
-          if (clientResolution?.mode === "existing" && clientResolution.clientId) {
-            resolvedClientId = clientResolution.clientId;
-          }
-
-          if (isNewClient && newClientName) {
-            try {
-              const createClient = await createClientRecord(workspaceId!, { name: newClientName });
-              if (!createClient.clientId) {
-                setHandoffSteps((prev) => prev.map((s) => s.id === "create_client" ? { ...s, status: "error", detail: createClient.error } : s));
-                setMessages((prev) => [
-                  ...prev,
-                  { role: "assistant", content: `I couldn't create client "${newClientName}". ${createClient.error ?? "Please try again or create the client manually."}`.trim() },
-                ]);
-                toast.error(createClient.error ?? "Failed to create client");
-                setHandoffState("idle");
-                return;
-              }
-              resolvedClientId = createClient.clientId;
-              setHandoffSteps((prev) => prev.map((s) =>
-                s.id === "create_client" ? { ...s, status: "done" } : s.id === "create_doc" ? { ...s, status: "running" } : s
-              ));
-            } catch (clientErr) {
-              const msg = clientErr instanceof Error ? clientErr.message : "Failed to create client";
-              setHandoffSteps((prev) => prev.map((s) => s.id === "create_client" ? { ...s, status: "error", detail: msg } : s));
-              setMessages((prev) => [...prev, { role: "assistant", content: `I couldn't create client "${newClientName}". ${msg}` }]);
-              toast.error(msg);
-              setHandoffState("idle");
-              return;
-            }
-          }
-
-          trackAiEvent("handoff_create_document_started", {
-            title: createDoc.title,
-            baseType: createDoc.base_type,
-            templateId: createDoc.template_id ?? null,
-          });
-          setHandoffState("creating_document");
-
-          let documentId: string | null = null;
-          let error: string | undefined;
-          if (createDoc.template_id) {
-            const inst = await instantiateDocumentTemplate(workspaceId!, createDoc.template_id, {
-              title: createDoc.title,
-              client_id: resolvedClientId,
-              document_type_id: createDoc.document_type_id,
-            });
-            documentId = inst.documentId;
-            error = inst.error;
-          } else {
-            const created = await createDocumentRecord(workspaceId!, {
-              title: createDoc.title,
-              base_type: createDoc.base_type,
-              client_id: resolvedClientId,
-              document_type_id: createDoc.document_type_id,
-            });
-            documentId = created.documentId;
-            error = created.error;
-          }
-
-          if (error || !documentId) {
-            setHandoffSteps((prev) => prev.map((s) => s.id === "create_doc" ? { ...s, status: "error", detail: error ?? undefined } : s));
-            setInput(draftSnapshotRef.current?.input ?? "");
-            setAttachedImages(draftSnapshotRef.current?.attachedImages ?? []);
-            setAttachedFiles(draftSnapshotRef.current?.attachedFiles ?? []);
-            setSelectedDocumentId(draftSnapshotRef.current?.selectedDocumentId ?? null);
-            setSelectedDocTypeId(draftSnapshotRef.current?.selectedDocTypeId ?? null);
-            setInlineRetry({
-              title: "Could not create document",
-              message: error ?? "Unknown error while creating document.",
-              retryKind: "create",
-              payload: { createDoc, seedPrompt, attachmentDigest, attachmentNames },
-            });
-            const errorContent = `${replyMessage}\n\nCould not create the document: ${error ?? "Unknown error"}. You can try again below.`;
-            setMessages((prev) => [...prev, { role: "assistant", content: errorContent }]);
-            setSessions((prev) => prev.map((s) => s.id === currentSessionId ? { ...s, messages: [...s.messages, { role: "assistant", content: errorContent }] } : s));
-            toast.error("Failed to create document");
-            setHandoffState("idle");
-            trackAiEvent("handoff_create_document_failed", { error: error ?? "unknown" });
-          } else {
-            setHandoffSteps((prev) => prev.map((s) =>
-              s.id === "create_doc" ? { ...s, status: "done" } : s.id === "seed" ? { ...s, status: "running" } : s
-            ));
-            setHandoffState("seeding_editor");
-
-            try {
-              const seededInput = attachmentDigest
-                ? `${seedPrompt}\n\nUse this uploaded file context from Main AI:\n${attachmentDigest}`
-                : seedPrompt;
-              await upsertDocumentAiChatSession(documentId, {
-                messages: [{
-                  role: "assistant",
-                  content: attachmentNames.length > 0
-                    ? `Let's start creating "${createDoc.title}". Using uploaded files: ${attachmentNames.join(", ")}.`
-                    : `Let's start creating "${createDoc.title}".`,
-                }],
-                input: seededInput,
-              });
-            } catch {
-              setHandoffSteps((prev) => prev.map((s) => s.id === "seed" ? { ...s, status: "error" } : s));
-              setInput(draftSnapshotRef.current?.input ?? "");
-              setAttachedImages(draftSnapshotRef.current?.attachedImages ?? []);
-              setAttachedFiles(draftSnapshotRef.current?.attachedFiles ?? []);
-              setSelectedDocumentId(draftSnapshotRef.current?.selectedDocumentId ?? null);
-              setSelectedDocTypeId(draftSnapshotRef.current?.selectedDocTypeId ?? null);
-              setInlineRetry({
-                title: "Document created, but AI setup failed",
-                message: "The document exists, but we couldn't seed editor AI. Retry will attempt opening with AI again.",
-                retryKind: "open",
-                payload: { documentId, editorPrompt: seedPrompt, seedMessage: `Let's start creating "${createDoc.title}".`, attachmentDigest, attachmentNames },
-              });
-              toast.error("Couldn't seed editor AI session.");
-              setHandoffState("idle");
-              trackAiEvent("handoff_create_document_failed", { stage: "seed", documentId });
-              return;
-            }
-
-            const createTrace: HandoffStep[] = [];
-            if (isNewClient && newClientName) {
-              createTrace.push({
-                id: "create_client",
-                label: `Created client "${newClientName}"`,
-                status: "done",
-              });
-            }
-            createTrace.push(
-              { id: "create_doc", label: `Created document "${createDoc.title}"`, status: "done" },
-              { id: "seed", label: "Prepared AI context", status: "done" },
-              { id: "open", label: "Opened document editor", status: "done" }
-            );
-
-            const sessionMsg: ChatMessage = {
-              role: "assistant",
-              content: replyMessage,
-              documentLink: { documentId, title: createDoc.title, phase: "opened" },
-              handoffTrace: createTrace,
-            };
-            setMessages((prev) => [...prev, sessionMsg]);
-            setSessions((prev) =>
-              prev.map((s) =>
-                s.id === currentSessionId
-                  ? { ...s, messages: [...s.messages, sessionMsg], title: s.title === "New chat" ? (aiSessionTitle || createDoc.title).slice(0, 56) : s.title }
-                  : s
-              )
-            );
-            setHandoffSteps([]);
-            setHandoffState("idle");
-            toast.success("Document created");
-            trackAiEvent("handoff_create_document_success", { documentId });
-            navigating = true;
-            navigateToDocumentEditor(documentId);
-          }
+        } else if (createDoc) {
+          // Legacy fallback guard: server should already convert create -> open.
+          const warn = `${replyMessage}\n\nI prepared the plan but could not open the editor automatically. Please retry once.`;
+          setMessages((prev) => [...prev, { role: "assistant", content: warn }]);
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === currentSessionId
+                ? { ...s, messages: [...s.messages, { role: "assistant", content: warn }] }
+                : s
+            )
+          );
+          trackAiEvent("handoff_create_legacy_fallback", { hasCreateDoc: true });
+          return;
         } else {
           setMessages((prev) => [
             ...prev,
@@ -1352,6 +1016,8 @@ export function MainAiChatView({
         ]);
         trackAiEvent("main_request_failed", { message: msg });
       } finally {
+        clearTimeout(stepTimer1);
+        clearTimeout(stepTimer2);
         setLoading(false);
         if (!navigating) {
           setHandoffState("idle");
@@ -1391,72 +1057,6 @@ export function MainAiChatView({
     setInlineRetry(null);
     setLoading(true);
     try {
-      if (inlineRetry.retryKind === "create" && inlineRetry.payload.createDoc) {
-        const doc = inlineRetry.payload.createDoc;
-        setHandoffSteps([
-          { id: "create_doc", label: `Creating document "${doc.title}"`, status: "running" },
-          { id: "seed", label: "Preparing AI context", status: "pending" },
-          { id: "open", label: "Opening editor", status: "pending" },
-        ]);
-        setHandoffState("creating_document");
-        let documentId: string | null = null;
-        let error: string | undefined;
-        if (doc.template_id) {
-          const inst = await instantiateDocumentTemplate(workspaceId, doc.template_id, {
-            title: doc.title,
-            client_id: doc.client_id,
-            document_type_id: doc.document_type_id,
-          });
-          documentId = inst.documentId;
-          error = inst.error;
-        } else {
-          const created = await createDocumentRecord(workspaceId, doc);
-          documentId = created.documentId;
-          error = created.error;
-        }
-        if (error || !documentId) {
-          setHandoffSteps((prev) => prev.map((s) => s.id === "create_doc" ? { ...s, status: "error", detail: error ?? undefined } : s));
-          toast.error(error ?? "Failed to create document");
-          setInlineRetry(inlineRetry);
-          setHandoffState("idle");
-          return;
-        }
-        setHandoffSteps((prev) => prev.map((s) =>
-          s.id === "create_doc" ? { ...s, status: "done" } : s.id === "seed" ? { ...s, status: "running" } : s
-        ));
-        setHandoffState("seeding_editor");
-        const seededInput = inlineRetry.payload.attachmentDigest
-          ? `${inlineRetry.payload.seedPrompt ?? ""}\n\nUse this uploaded file context from Main AI:\n${inlineRetry.payload.attachmentDigest}`
-          : inlineRetry.payload.seedPrompt ?? "";
-        await upsertDocumentAiChatSession(documentId, {
-          messages: [{ role: "assistant", content: `Let's start creating "${doc.title}".` }],
-          input: seededInput,
-        });
-        const retryCreateTrace: HandoffStep[] = [
-          { id: "create_doc", label: `Created document "${doc.title}"`, status: "done" },
-          { id: "seed", label: "Prepared AI context", status: "done" },
-          { id: "open", label: "Opened document editor", status: "done" },
-        ];
-        const retryCreateMsg: ChatMessage = {
-          role: "assistant",
-          content: `Opening **${doc.title}** in the editor.`,
-          documentLink: { documentId, title: doc.title, phase: "opened" },
-          handoffTrace: retryCreateTrace,
-        };
-        setMessages((prev) => [...prev, retryCreateMsg]);
-        if (activeSessionId) {
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === activeSessionId ? { ...s, messages: [...s.messages, retryCreateMsg] } : s
-            )
-          );
-        }
-        setHandoffSteps([]);
-        setHandoffState("idle");
-        navigateToDocumentEditor(documentId);
-        return;
-      }
-
       if (inlineRetry.retryKind === "open" && inlineRetry.payload.documentId && inlineRetry.payload.editorPrompt) {
         setHandoffSteps([
           { id: "seed", label: "Preparing AI context", status: "running" },
@@ -1522,7 +1122,7 @@ export function MainAiChatView({
       {/* Sessions sidebar — flush left, full height, TBS-style */}
       <aside
         className={cn(
-          "hidden h-full shrink-0 flex-col overflow-hidden border-r border-border bg-background transition-all duration-200 lg:flex",
+          "hidden h-full shrink-0 flex-col overflow-hidden border-r border-border bg-background transition-all duration-200 lg:sticky lg:top-0 lg:flex",
           sessionsCollapsed ? "w-[52px]" : "w-[240px]"
         )}
       >
@@ -1666,7 +1266,8 @@ export function MainAiChatView({
       </aside>
 
       {/* Main chat content */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 md:px-6 md:py-6 mx-auto max-w-4xl">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-4 py-4 md:px-6 md:py-6">
       {inlineRetry && (
         <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
           <p className="text-xs font-medium text-foreground">{inlineRetry.title}</p>
@@ -1868,7 +1469,7 @@ export function MainAiChatView({
               </div>
             </div>
 
-            <div className="shrink-0 border-t border-border bg-background pt-3 md:sticky md:bottom-0">
+            <div className="sticky bottom-0 z-20 shrink-0 border-t border-border bg-background pt-3">
               {attachedImages.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   {attachedImages.map((img, i) => (
@@ -2355,6 +1956,7 @@ export function MainAiChatView({
           </div>
         </DialogContent>
       </Dialog>
+      </div>
       </div>
     </div>
   );

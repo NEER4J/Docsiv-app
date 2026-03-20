@@ -53,7 +53,7 @@ export function getDashboardBreadcrumbs(
   params: Record<string, string | string[] | undefined> = {}
 ): BreadcrumbItem[] {
   // Document editor routes: /d or /d/[id]
-  if (pathname.startsWith("/d")) {
+  if (/^\/d(\/|$)/.test(pathname)) {
     const rest = pathname.slice(2).replace(/^\/+/, "");
     const segments = rest ? rest.split("/") : [];
     const items: BreadcrumbItem[] = [

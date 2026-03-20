@@ -50,7 +50,6 @@ export function NewWorkspaceForm() {
   const [contactPhone, setContactPhone] = useState("");
   const [termsUrl, setTermsUrl] = useState("");
   const [privacyUrl, setPrivacyUrl] = useState("");
-  const [brandColor, setBrandColor] = useState("#000000");
   const [socialLinkedin, setSocialLinkedin] = useState("");
   const [socialTwitter, setSocialTwitter] = useState("");
   const [socialInstagram, setSocialInstagram] = useState("");
@@ -129,7 +128,6 @@ export function NewWorkspaceForm() {
         contact_phone: contactPhone.trim() || undefined,
         terms_url: termsUrl.trim() || undefined,
         privacy_url: privacyUrl.trim() || undefined,
-        brand_color: brandColor.trim() || undefined,
         social_linkedin: socialLinkedin.trim() || undefined,
         social_twitter: socialTwitter.trim() || undefined,
         social_instagram: socialInstagram.trim() || undefined,
@@ -370,28 +368,6 @@ export function NewWorkspaceForm() {
                   placeholder="https://..."
                   value={privacyUrl}
                   onChange={(e) => setPrivacyUrl(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-border pt-4 space-y-4">
-            <h3 className="font-ui text-sm font-semibold text-foreground">Brand <span className="text-muted-foreground font-normal">(optional)</span></h3>
-            <div className="space-y-2">
-              <Label htmlFor="brandColor">Brand color</Label>
-              <div className="flex gap-2">
-                <input
-                  id="brandColor"
-                  type="color"
-                  value={brandColor}
-                  onChange={(e) => setBrandColor(e.target.value)}
-                  className="h-10 w-14 cursor-pointer rounded border border-border bg-background"
-                />
-                <Input
-                  value={brandColor}
-                  onChange={(e) => setBrandColor(e.target.value)}
-                  placeholder="#000000"
-                  className="flex-1 font-mono text-sm"
                 />
               </div>
             </div>

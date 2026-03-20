@@ -75,7 +75,6 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
     contact_phone: workspace.contact_phone ?? "",
     terms_url: workspace.terms_url ?? "",
     privacy_url: workspace.privacy_url ?? "",
-    brand_color: workspace.brand_color ?? "#000000",
     social_linkedin: workspace.social_linkedin ?? "",
     social_twitter: workspace.social_twitter ?? "",
     social_instagram: workspace.social_instagram ?? "",
@@ -355,39 +354,6 @@ export function WorkspaceSettingsForm({ workspace }: { workspace: Workspace }) {
             disabled={savingSection === "legal"}
           >
             {savingSection === "legal" ? "Saving..." : "Save legal"}
-          </Button>
-        </div>
-      </section>
-
-      {/* Brand */}
-      <section className="space-y-4">
-        <h2 className="font-ui text-sm font-semibold text-foreground">Brand</h2>
-        <div className="space-y-2">
-          <Label htmlFor="brand_color">Brand color</Label>
-          <div className="flex gap-2">
-            <input
-              id="brand_color"
-              type="color"
-              value={form.brand_color}
-              onChange={(e) => update("brand_color", e.target.value)}
-              className="h-10 w-14 cursor-pointer rounded border border-border bg-background"
-            />
-            <Input value={form.brand_color} onChange={(e) => update("brand_color", e.target.value)} placeholder="#000000" className="flex-1 font-mono text-sm border-border" />
-          </div>
-        </div>
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            onClick={() =>
-              saveSection(
-                "brand",
-                { brand_color: form.brand_color || null },
-                "Brand color updated"
-              )
-            }
-            disabled={savingSection === "brand"}
-          >
-            {savingSection === "brand" ? "Saving..." : "Save brand"}
           </Button>
         </div>
       </section>

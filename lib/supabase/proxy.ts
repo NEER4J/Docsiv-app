@@ -5,6 +5,7 @@ import { hasEnvVars } from "../utils";
 const WORKSPACE_ID_COOKIE = "workspace_id";
 const PLATFORM_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "docsiv.com";
 const PLATFORM_APP_HOST = process.env.NEXT_PUBLIC_APP_HOST ?? `app.${PLATFORM_DOMAIN}`;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5,7-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function getNormalizedHost(request: NextRequest): string {
   const forwarded = request.headers.get("x-forwarded-host");
@@ -169,10 +170,14 @@ export async function updateSession(request: NextRequest) {
   const userId = user?.sub as string | undefined;
   const isDocsivAppPath = pathname.startsWith("/dashboard") || pathname.startsWith("/workspaces");
   if (userId && isDocsivAppPath) {
-    const workspaceIdForRole =
+    const rawWorkspaceIdForRole =
       requestHeaders.get("x-workspace-id") ??
       request.cookies.get(WORKSPACE_ID_COOKIE)?.value ??
       null;
+    const workspaceIdForRole =
+      rawWorkspaceIdForRole && UUID_REGEX.test(rawWorkspaceIdForRole)
+        ? rawWorkspaceIdForRole
+        : null;
     if (workspaceIdForRole) {
       const { data: roleRow } = await supabase
         .from("workspace_members")

@@ -214,6 +214,8 @@ function resizeImageDataUrl(dataUrl: string, maxDim = 1024): Promise<string> {
 
 function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   const { selectionContext, setSelectionContext } = useAiAssistant();
+  const router = useRouter();
+  const pathname = usePathname();
   const konvaAi = useOptionalKonvaAi();
   const plateAi = useOptionalPlateAi();
   const univerAi = useOptionalUniverAi();
@@ -224,6 +226,9 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   const [attachedImages, setAttachedImages] = React.useState<Array<{ dataUrl: string; name: string }>>([]);
   const [lastAiEditAt, setLastAiEditAt] = React.useState<number | null>(null);
   const [autoSendStatus, setAutoSendStatus] = React.useState<"idle" | "preparing" | "running">("idle");
+  const [sessionLoading, setSessionLoading] = React.useState(false);
+  const [autoSendStartedAt, setAutoSendStartedAt] = React.useState<number | null>(null);
+  const [autoSendElapsedSec, setAutoSendElapsedSec] = React.useState(0);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -257,6 +262,36 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   const sessionLoadedRef = React.useRef(false);
   const autoSendTriggeredRef = React.useRef(false);
 
+  React.useEffect(() => {
+    if (autoSendStatus === "idle") {
+      setAutoSendStartedAt(null);
+      setAutoSendElapsedSec(0);
+      return;
+    }
+    const start = autoSendStartedAt ?? Date.now();
+    if (autoSendStartedAt == null) setAutoSendStartedAt(start);
+    setAutoSendElapsedSec(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+    const timer = window.setInterval(() => {
+      setAutoSendElapsedSec(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [autoSendStatus, autoSendStartedAt]);
+
+  const autoSendStatusLabel = React.useMemo(() => {
+    if (autoSendStatus === "preparing") {
+      if (autoSendElapsedSec >= 8) {
+        return "Preparing AI context... this is taking longer than usual.";
+      }
+      return "Preparing AI context...";
+    }
+    if (autoSendStatus === "running") {
+      return autoSendElapsedSec > 0
+        ? `Running your prompt... (${autoSendElapsedSec}s)`
+        : "Running your prompt...";
+    }
+    return "";
+  }, [autoSendElapsedSec, autoSendStatus]);
+
   // New document → allow auto-send again for that doc
   React.useEffect(() => {
     autoSendTriggeredRef.current = false;
@@ -266,43 +301,55 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   React.useEffect(() => {
     if (!documentId || typeof window === "undefined") {
       sessionLoadedRef.current = false;
+      setSessionLoading(false);
       return;
     }
     sessionLoadedRef.current = false;
+    setSessionLoading(true);
     let cancelled = false;
-    getDocumentAiChatSession(documentId).then(({ session, error }) => {
-      if (cancelled) return;
-      sessionLoadedRef.current = true;
-      if (!error && session && (session.messages.length > 0 || session.input)) {
-        const msgs = session.messages as Array<{ role?: string; content?: string; action?: string }>;
-        setMessages(
-          msgs.map((m) => ({
-            role: (m.role ?? "user") as "user" | "assistant",
-            content: typeof m.content === "string" ? m.content : "",
-            ...(m.action && { action: m.action as "edit" | "chat" }),
-          }))
-        );
-        if (typeof session.input === "string") setInput(session.input);
-        return;
-      }
-      try {
-        const raw = localStorage.getItem(`${DOCUMENT_AI_CHAT_STORAGE_KEY}-${documentId}`);
-        if (!raw) return;
-        const data = JSON.parse(raw) as { messages?: Array<{ role: string; content: string; action?: string }>; input?: string };
-        if (data?.messages && Array.isArray(data.messages)) {
+    void getDocumentAiChatSession(documentId)
+      .then(({ session, error }) => {
+        if (cancelled) return;
+        if (!error && session && (session.messages.length > 0 || session.input)) {
+          const msgs = session.messages as Array<{ role?: string; content?: string; action?: string }>;
           setMessages(
-            data.messages.map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
+            msgs.map((m) => ({
+              role: (m.role ?? "user") as "user" | "assistant",
+              content: typeof m.content === "string" ? m.content : "",
               ...(m.action && { action: m.action as "edit" | "chat" }),
             }))
           );
+          if (typeof session.input === "string") setInput(session.input);
+          return;
         }
-        if (typeof data?.input === "string") setInput(data.input);
-      } catch {
-        // ignore parse errors
-      }
-    });
+        try {
+          const raw = localStorage.getItem(`${DOCUMENT_AI_CHAT_STORAGE_KEY}-${documentId}`);
+          if (!raw) return;
+          const data = JSON.parse(raw) as { messages?: Array<{ role: string; content: string; action?: string }>; input?: string };
+          if (data?.messages && Array.isArray(data.messages)) {
+            setMessages(
+              data.messages.map((m) => ({
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                ...(m.action && { action: m.action as "edit" | "chat" }),
+              }))
+            );
+          }
+          if (typeof data?.input === "string") setInput(data.input);
+        } catch {
+          // ignore parse errors
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[AI Assistant] Failed to load persisted session", { documentId, err });
+      })
+      .finally(() => {
+        if (!cancelled) {
+          sessionLoadedRef.current = true;
+          setSessionLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -700,20 +747,30 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
     }
     if (autoSendTriggeredRef.current) return;
     if (!sessionLoadedRef.current) {
-      setAutoSendStatus("preparing");
+      if (sessionLoading) setAutoSendStatus("preparing");
       return; // wait for DB/localStorage seed to load into `input`
     }
     if (!input.trim()) {
       setAutoSendStatus("idle");
+      const p = new URLSearchParams(searchParams.toString());
+      if (p.get("aiAutoSend") === "1") {
+        p.delete("aiAutoSend");
+        const q = p.toString();
+        router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+      }
       return;
     }
 
     const signature = `${documentId}:${input.trim()}`;
-    const storageKey = "habiv-ai-autosend-last-signature";
+    const storageKey = "docsiv-ai-autosend-last-signature";
     try {
       if (typeof window !== "undefined" && localStorage.getItem(storageKey) === signature) {
         setAutoSendStatus("idle");
         autoSendTriggeredRef.current = true;
+        const p = new URLSearchParams(searchParams.toString());
+        p.delete("aiAutoSend");
+        const q = p.toString();
+        router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
         return;
       }
     } catch {
@@ -721,7 +778,31 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
     }
 
     if (!isAnyEditorActive) {
-      setAutoSendStatus("preparing");
+      const reason = isOtherEditor
+        ? "AI auto-run is not available for this editor type yet."
+        : "AI auto-run is unavailable in the current editor state.";
+      console.warn("[AI Assistant] Auto-send unavailable", {
+        documentId,
+        documentEditorSubType: globalAi?.documentEditorSubType ?? null,
+        isKonvaActive,
+        isPlateActive,
+        isUniverActive,
+      });
+      setAutoSendStatus("idle");
+      autoSendTriggeredRef.current = true;
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `${reason} You can still use manual chat once the editor is ready.`,
+          action: "chat",
+        },
+      ]);
+      toast.info(reason);
+      const p = new URLSearchParams(searchParams.toString());
+      p.delete("aiAutoSend");
+      const q = p.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
       return;
     }
 
@@ -734,8 +815,28 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
 
     const fakeEvent = { preventDefault: () => {} } as unknown as React.FormEvent;
     setAutoSendStatus("running");
+    {
+      const p = new URLSearchParams(searchParams.toString());
+      p.delete("aiAutoSend");
+      const q = p.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+    }
     void handleSubmitRef.current(fakeEvent);
-  }, [aiAutoSend, documentId, input, isAnyEditorActive]);
+  }, [
+    aiAutoSend,
+    documentId,
+    globalAi?.documentEditorSubType,
+    input,
+    isAnyEditorActive,
+    isKonvaActive,
+    isOtherEditor,
+    isPlateActive,
+    sessionLoading,
+    isUniverActive,
+    pathname,
+    router,
+    searchParams,
+  ]);
 
   React.useEffect(() => {
     if (!loading && autoSendStatus === "running") {
@@ -795,9 +896,14 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
             {autoSendStatus !== "idle" ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="size-3 animate-spin" />
-                <span>
-                  {autoSendStatus === "preparing" ? "Preparing AI context..." : "Running your prompt..."}
-                </span>
+                <div className="min-w-0">
+                  <p className="truncate">{autoSendStatusLabel}</p>
+                  {autoSendStatus === "preparing" && autoSendElapsedSec >= 8 && (
+                    <p className="mt-0.5 text-[10px]">
+                      If this keeps taking time, you can still type manually in this panel.
+                    </p>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="flex items-center justify-between gap-2">
@@ -855,6 +961,12 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             <>
+              {sessionLoading && messages.length === 0 && (
+                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Loading previous AI chat...
+                </div>
+              )}
               {(messages.length > 0 || input.trim()) && documentId && (
                 <div className="flex shrink-0 items-center justify-end border-b border-border py-1.5">
                   <Button

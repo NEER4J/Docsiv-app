@@ -55,7 +55,7 @@ export function getPageTypeFromPathname(pathname: string): Omit<GlobalAiPageCont
   }
 
   // Document editor: /d or /d/[id]
-  if (pathname.startsWith('/d')) {
+  if (/^\/d(\/|$)/.test(pathname)) {
     const rest = pathname.slice(2).replace(/^\/+/, '');
     const segments = rest ? rest.split('/') : [];
     const documentId = segments[0] ?? null;

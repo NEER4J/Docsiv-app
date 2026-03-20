@@ -13,19 +13,6 @@ export type WorkspaceBranding = {
 
 const DEFAULT_BRAND_COLOR = "#0a0a0a";
 
-function normalizeHexColor(input: string | null | undefined): string {
-  if (!input) return DEFAULT_BRAND_COLOR;
-  const value = input.trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase();
-  if (/^#[0-9a-fA-F]{3}$/.test(value)) {
-    const r = value[1];
-    const g = value[2];
-    const b = value[3];
-    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-  }
-  return DEFAULT_BRAND_COLOR;
-}
-
 export const getWorkspaceBrandingForRequest = cache(async (): Promise<WorkspaceBranding | null> => {
   const workspace = await resolveWorkspaceByHost();
   if (!workspace) return null;
@@ -35,7 +22,8 @@ export const getWorkspaceBrandingForRequest = cache(async (): Promise<WorkspaceB
     name: workspace.name,
     logoUrl: workspace.logo_url,
     faviconUrl: isPaidWhitelabel ? workspace.favicon_url : null,
-    brandColor: normalizeHexColor(workspace.brand_color),
+    // Keep platform accents consistent across all workspaces.
+    brandColor: DEFAULT_BRAND_COLOR,
     hideDocsivBranding: workspace.hide_docsiv_branding,
   };
 });

@@ -280,3 +280,39 @@ export async function deleteMarketplaceDocumentTemplate(templateId: string): Pro
   if (error) return { error: error.message };
   return {};
 }
+
+/**
+ * Phase-3 helper: derive a reusable template draft from an existing document.
+ * Keeps this as a suggestion payload (does not auto-create templates).
+ */
+export async function extractSmartTemplateDraftFromDocument(
+  documentId: string
+): Promise<{
+  draft: {
+    title: string;
+    description: string;
+    base_type: DocumentBaseType;
+    content: unknown;
+  } | null;
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, title, base_type, content")
+    .eq("id", documentId)
+    .maybeSingle();
+  if (error) return { draft: null, error: error.message };
+  if (!data) return { draft: null, error: "Document not found" };
+
+  const title = String(data.title ?? "Untitled").trim();
+  const baseType = (String(data.base_type ?? "doc") as DocumentBaseType);
+  return {
+    draft: {
+      title: `${title} Template`,
+      description: "Auto-extracted starter template from a high-performing document.",
+      base_type: baseType,
+      content: data.content ?? {},
+    },
+  };
+}

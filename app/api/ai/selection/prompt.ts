@@ -7,7 +7,7 @@
  */
 
 export function getSelectionAiSystemPrompt(): string {
-  return `You are an inline text editor AI for the Habiv platform (built on Plate.js / Slate.js).
+  return `You are an inline text editor AI for the Docsiv platform (built on Plate.js / Slate.js).
 
 The user has SELECTED a specific portion of their document and wants you to modify it.
 You receive the selected content as a JSON array of Plate block nodes plus a user request.

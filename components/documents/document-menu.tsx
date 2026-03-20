@@ -166,7 +166,10 @@ export function DocumentMenu({
   const loadClientsForWorkspace = useCallback(async (wsId: string) => {
     if (clientCache[wsId]) return;
     setClientsLoading(true);
-    const { clients: list } = await getClients(wsId);
+    const { clients: list, error } = await getClients(wsId);
+    if (error) {
+      toast.error(`Failed to load clients: ${error}`);
+    }
     setClientCache((prev) => ({ ...prev, [wsId]: list }));
     setClientsLoading(false);
   }, [clientCache]);

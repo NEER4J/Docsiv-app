@@ -228,8 +228,8 @@ const UniverSheetEditorInner = (
       else if (action === 'exportExcel') exportExcelRef.current?.();
       else if (action === 'exportCsv') exportCsvRef.current?.();
     };
-    window.addEventListener('habiv-univer-file-action', handler);
-    return () => window.removeEventListener('habiv-univer-file-action', handler);
+    window.addEventListener('docsiv-univer-file-action', handler);
+    return () => window.removeEventListener('docsiv-univer-file-action', handler);
   }, []);
 
   // Handle Insert tab actions (row/column/sheet) via facade API
@@ -262,8 +262,8 @@ const UniverSheetEditorInner = (
         toast.error('Could not insert');
       }
     };
-    window.addEventListener('habiv-univer-insert-action', handler);
-    return () => window.removeEventListener('habiv-univer-insert-action', handler);
+    window.addEventListener('docsiv-univer-insert-action', handler);
+    return () => window.removeEventListener('docsiv-univer-insert-action', handler);
   }, []);
 
   const getContent = useCallback((): UniverStoredContent | null => {
@@ -549,31 +549,31 @@ const UniverSheetEditorInner = (
     if (!readOnly) {
       try {
         const dispatchFileAction = (action: 'import' | 'exportExcel' | 'exportCsv') => {
-          window.dispatchEvent(new CustomEvent('habiv-univer-file-action', { detail: { action } }));
+          window.dispatchEvent(new CustomEvent('docsiv-univer-file-action', { detail: { action } }));
         };
         const importMenu = univerAPI.createMenu({
-          id: 'habiv-sheet-file-import',
+          id: 'docsiv-sheet-file-import',
           title: 'Import…',
           action: () => dispatchFileAction('import'),
         });
         const exportExcelMenu = univerAPI.createMenu({
-          id: 'habiv-sheet-file-export-excel',
+          id: 'docsiv-sheet-file-export-excel',
           title: 'Export as Excel',
           action: () => dispatchFileAction('exportExcel'),
         });
         const exportCsvMenu = univerAPI.createMenu({
-          id: 'habiv-sheet-file-export-csv',
+          id: 'docsiv-sheet-file-export-csv',
           title: 'Export as CSV',
           action: () => dispatchFileAction('exportCsv'),
         });
         const exportSubmenu = univerAPI
-          .createSubmenu({ id: 'habiv-sheet-file-export', title: 'Export' })
+          .createSubmenu({ id: 'docsiv-sheet-file-export', title: 'Export' })
           .addSubmenu(exportExcelMenu)
           .addSubmenu(exportCsvMenu);
         // Univer preset only has Start, Insert, Formulas, Data, View tabs — no "File" tab.
         // Place File dropdown in the Start tab so it is visible.
         univerAPI
-          .createSubmenu({ id: 'habiv-sheet-file', title: 'File' })
+          .createSubmenu({ id: 'docsiv-sheet-file', title: 'File' })
           .addSubmenu(importMenu)
           .addSeparator()
           .addSubmenu(exportSubmenu)
@@ -581,39 +581,39 @@ const UniverSheetEditorInner = (
 
         // Insert tab: add row/column/sheet options (Image & Link come from presets).
         const dispatchInsertAction = (action: 'insertRowAbove' | 'insertRowBelow' | 'insertColumnLeft' | 'insertColumnRight' | 'insertSheet') => {
-          window.dispatchEvent(new CustomEvent('habiv-univer-insert-action', { detail: { action } }));
+          window.dispatchEvent(new CustomEvent('docsiv-univer-insert-action', { detail: { action } }));
         };
         univerAPI
           .createMenu({
-            id: 'habiv-sheet-insert-row-above',
+            id: 'docsiv-sheet-insert-row-above',
             title: 'Insert row above',
             action: () => dispatchInsertAction('insertRowAbove'),
           })
           .appendTo('ribbon.insert.others');
         univerAPI
           .createMenu({
-            id: 'habiv-sheet-insert-row-below',
+            id: 'docsiv-sheet-insert-row-below',
             title: 'Insert row below',
             action: () => dispatchInsertAction('insertRowBelow'),
           })
           .appendTo('ribbon.insert.others');
         univerAPI
           .createMenu({
-            id: 'habiv-sheet-insert-column-left',
+            id: 'docsiv-sheet-insert-column-left',
             title: 'Insert column left',
             action: () => dispatchInsertAction('insertColumnLeft'),
           })
           .appendTo('ribbon.insert.others');
         univerAPI
           .createMenu({
-            id: 'habiv-sheet-insert-column-right',
+            id: 'docsiv-sheet-insert-column-right',
             title: 'Insert column right',
             action: () => dispatchInsertAction('insertColumnRight'),
           })
           .appendTo('ribbon.insert.others');
         univerAPI
           .createMenu({
-            id: 'habiv-sheet-insert-sheet',
+            id: 'docsiv-sheet-insert-sheet',
             title: 'Insert sheet',
             action: () => dispatchInsertAction('insertSheet'),
           })

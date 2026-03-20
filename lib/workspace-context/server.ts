@@ -6,6 +6,8 @@ import { getMyWorkspaces, getWorkspaceDetails } from "@/lib/actions/onboarding";
 
 const WORKSPACE_ID_COOKIE = "workspace_id";
 const PLATFORM_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "docsiv.com";
+const UUID_V4_OR_VX_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5,7-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type HostWorkspace = {
   id: string;
@@ -129,17 +131,44 @@ export async function getCurrentWorkspaceContext() {
   const cookieWorkspaceId = cookieStore.get(WORKSPACE_ID_COOKIE)?.value ?? null;
   const userWorkspaces = workspaces.workspaces ?? [];
 
+  const isValidWorkspaceId = (workspaceId: string | null | undefined) =>
+    !!workspaceId && UUID_V4_OR_VX_REGEX.test(workspaceId);
   const isMember = (workspaceId: string | null | undefined) =>
-    !!workspaceId && userWorkspaces.some((ws) => ws.id === workspaceId);
+    isValidWorkspaceId(workspaceId) && userWorkspaces.some((ws) => ws.id === workspaceId);
+  const debugEnabled = process.env.NODE_ENV !== "production";
 
   if (isMember(headerWorkspaceId)) {
+    if (debugEnabled) {
+      console.info("[workspace-context] resolved", {
+        source: "domain-header",
+        workspaceId: headerWorkspaceId,
+        hostWorkspaceId: hostWorkspace?.id ?? null,
+      });
+    }
     return { workspaceId: headerWorkspaceId!, source: "domain-header" as const, hostWorkspace };
   }
   if (isMember(cookieWorkspaceId)) {
+    if (debugEnabled) {
+      console.info("[workspace-context] resolved", {
+        source: "cookie",
+        workspaceId: cookieWorkspaceId,
+        hostWorkspaceId: hostWorkspace?.id ?? null,
+      });
+    }
     return { workspaceId: cookieWorkspaceId!, source: "cookie" as const, hostWorkspace };
   }
 
   const fallbackWorkspaceId = userWorkspaces[0]?.id ?? null;
+  if (debugEnabled) {
+    console.info("[workspace-context] resolved", {
+      source: fallbackWorkspaceId ? "fallback" : "none",
+      workspaceId: fallbackWorkspaceId,
+      hostWorkspaceId: hostWorkspace?.id ?? null,
+      headerWorkspaceId,
+      cookieWorkspaceId,
+      membershipCount: userWorkspaces.length,
+    });
+  }
   return {
     workspaceId: fallbackWorkspaceId,
     source: fallbackWorkspaceId ? ("fallback" as const) : ("none" as const),

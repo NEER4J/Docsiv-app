@@ -233,8 +233,8 @@ export function DocumentEditorView({
       else if (action === 'exportExcel') univerSheetRef.current?.exportExcel();
       else if (action === 'exportCsv') univerSheetRef.current?.exportCsv();
     };
-    window.addEventListener('habiv-univer-file-action', handler);
-    return () => window.removeEventListener('habiv-univer-file-action', handler);
+    window.addEventListener('docsiv-univer-file-action', handler);
+    return () => window.removeEventListener('docsiv-univer-file-action', handler);
   }, []);
 
   const konvaAi = useOptionalKonvaAi();
