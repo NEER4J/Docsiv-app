@@ -106,7 +106,7 @@ export function DocumentArtifact({
   const permConfig = permissionLabels[permission] ?? permissionLabels.view;
 
   return (
-    <Card className={cn("w-full max-w-md overflow-hidden", className)}>
+    <Card className={cn("w-full max-w-md overflow-hidden border-0 bg-muted/30 shadow-sm", className)}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
@@ -130,7 +130,7 @@ export function DocumentArtifact({
 
       <CardContent className="pb-3">
         {/* Thumbnail Preview */}
-        <div className="relative aspect-video rounded-md overflow-hidden bg-muted border">
+        <div className="relative aspect-video rounded-lg overflow-hidden bg-muted/50">
           {thumbnailUrl ? (
             <img
               src={thumbnailUrl}
@@ -264,7 +264,7 @@ export function DocumentArtifactCompact({
   onEdit,
 }: Omit<DocumentArtifactProps, "thumbnailUrl" | "collaboratorsCount" | "shareToken">) {
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
         <FileText className="h-5 w-5 text-muted-foreground" />
       </div>

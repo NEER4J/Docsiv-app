@@ -39,8 +39,9 @@ export default async function AiPage() {
     workspaces.find((w) => w.id === workspaceId)?.name ?? undefined;
 
   return (
-    // Break out of the dashboard layout's p-4/p-6 padding for a full-height edge-to-edge AI workspace
-    <div className="-m-4 flex h-[calc(100%+2rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
+    // Break out of the dashboard layout's p-4/p-6 padding for a full-height edge-to-edge AI workspace.
+    // Use absolute positioning to fill the parent scroll container so the chat viewport is fixed and only messages scroll.
+    <div className="absolute inset-0 flex overflow-hidden">
     <MainAiChatView
       workspaceId={workspaceId}
       workspaceName={workspaceName}

@@ -64,12 +64,15 @@ export function KonvaTopToolbar({
 }: KonvaTopToolbarProps) {
   if (readOnly) return null;
 
+  const btn =
+    'h-8 w-8 cursor-pointer transition-colors duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:active:scale-100 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 disabled:text-zinc-600';
+
   return (
     <header className="flex h-10 shrink-0 items-center gap-1 border-b border-zinc-800 bg-zinc-900 px-2 text-zinc-100">
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 disabled:text-zinc-600"
+        className={btn}
         onClick={onUndo}
         disabled={!canUndo}
         aria-label="Undo"
@@ -79,7 +82,7 @@ export function KonvaTopToolbar({
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 disabled:text-zinc-600"
+        className={btn}
         onClick={onRedo}
         disabled={!canRedo}
         aria-label="Redo"
@@ -91,7 +94,12 @@ export function KonvaTopToolbar({
         <>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 px-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 cursor-pointer gap-1 px-2 transition-colors duration-150 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              >
                 Position
                 <CaretDown className="size-3" weight="bold" />
               </Button>
@@ -126,7 +134,7 @@ export function KonvaTopToolbar({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            className={btn}
             onClick={onToggleLock}
             aria-label={selectionLocked ? 'Unlock' : 'Lock'}
             title={selectionLocked ? 'Unlock' : 'Lock'}
@@ -140,7 +148,7 @@ export function KonvaTopToolbar({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            className={btn}
             onClick={onToggleVisibility}
             aria-label={selectionVisible ? 'Hide' : 'Show'}
             title={selectionVisible ? 'Hide' : 'Show'}
@@ -154,7 +162,7 @@ export function KonvaTopToolbar({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            className={btn}
             onClick={onDuplicate}
             aria-label="Duplicate"
             title="Duplicate"
@@ -164,7 +172,7 @@ export function KonvaTopToolbar({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            className={btn}
             onClick={onDelete}
             aria-label="Delete"
             title="Delete"
@@ -178,7 +186,7 @@ export function KonvaTopToolbar({
           type="button"
           variant="ghost"
           size="sm"
-          className="ml-auto h-8 gap-1.5 px-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+          className="ml-auto h-8 cursor-pointer gap-1.5 px-2 transition-colors duration-150 active:scale-[0.98] text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
           onClick={onPreview}
           aria-label="Preview document"
           title="Preview"

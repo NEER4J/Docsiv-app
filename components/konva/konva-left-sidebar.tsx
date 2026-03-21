@@ -25,6 +25,10 @@ import {
   CaretDoubleLeft,
   CaretDoubleRight,
   MagnifyingGlass,
+  ChartBar,
+  ChartLine,
+  ChartPie,
+  ChartPolar,
 } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import {
@@ -76,7 +80,8 @@ export type KonvaShapeType =
   | 'Star'
   | 'RegularPolygon'
   | 'Icon'
-  | 'Video';
+  | 'Video'
+  | 'Chart';
 
 export type KonvaLeftTabId =
   | 'my-designs'
@@ -88,7 +93,8 @@ export type KonvaLeftTabId =
   | 'draw'
   | 'background'
   | 'layers'
-  | 'pages';
+  | 'pages'
+  | 'charts';
 
 const TAB_CONFIG: { id: KonvaLeftTabId; label: string; icon: React.ReactNode }[] = [
   { id: 'my-designs', label: 'My Designs', icon: <FolderOpen className="size-4" weight="regular" /> },
@@ -97,6 +103,7 @@ const TAB_CONFIG: { id: KonvaLeftTabId; label: string; icon: React.ReactNode }[]
   { id: 'media', label: 'Media', icon: <ImageIcon className="size-4" weight="regular" /> },
   { id: 'icons', label: 'Icons', icon: <Smiley className="size-4" weight="regular" /> },
   { id: 'shapes', label: 'Shapes', icon: <Rectangle className="size-4" weight="regular" /> },
+  { id: 'charts', label: 'Charts', icon: <ChartBar className="size-4" weight="regular" /> },
   { id: 'draw', label: 'Draw', icon: <PencilLine className="size-4" weight="regular" /> },
   { id: 'background', label: 'Background', icon: <PaintBrush className="size-4" weight="regular" /> },
   { id: 'layers', label: 'Layers', icon: <Stack className="size-4" weight="regular" /> },
@@ -459,7 +466,7 @@ export function KonvaLeftSidebar({
             key={tab.id}
             type="button"
             onClick={() => onActiveLeftTabChange(tab.id)}
-            className={`flex w-full flex-col items-center justify-center gap-1 rounded-none px-1 py-3 text-center text-xs transition-colors ${
+            className={`flex w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-none px-1 py-3 text-center text-xs transition-colors duration-150 active:scale-[0.98] ${
               activeLeftTab === tab.id
                 ? 'border-l-2 border-l-blue-500 bg-zinc-700 text-white'
                 : 'border-l-2 border-l-transparent text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
@@ -475,7 +482,7 @@ export function KonvaLeftSidebar({
         <button
           type="button"
           onClick={() => setStripCollapsed((c) => !c)}
-          className="mt-auto flex items-center justify-center border-t border-zinc-800 py-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          className="mt-auto flex cursor-pointer items-center justify-center border-t border-zinc-800 py-2 text-zinc-400 transition-colors duration-150 hover:bg-zinc-800 hover:text-zinc-100 active:scale-[0.98]"
           aria-label={stripCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {stripCollapsed ? (
@@ -532,6 +539,24 @@ export function KonvaLeftSidebar({
               <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'RegularPolygon', { sides: 6 })} onClick={() => onAddShape('RegularPolygon', { sides: 6 })}>
                 <span className="text-xs">⬡</span> Hexagon
               </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'RegularPolygon', { sides: 5 })} onClick={() => onAddShape('RegularPolygon', { sides: 5 })}>
+                <span className="text-xs font-bold">⬠</span> Pentagon
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'RegularPolygon', { sides: 8 })} onClick={() => onAddShape('RegularPolygon', { sides: 8 })}>
+                <span className="text-xs">⯠</span> Octagon
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'RegularPolygon', { sides: 5, rotation: 180 })} onClick={() => onAddShape('RegularPolygon', { sides: 5, rotation: 180 })}>
+                <span className="text-xs">▼</span> Point Down
+              </Button>
+            </div>
+            <h3 className="mb-2 text-xs font-medium text-zinc-400">Callouts & Speech</h3>
+            <div className="mb-3 flex flex-wrap gap-1">
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Rect', { cornerRadius: 8 })} onClick={() => onAddShape('Rect', { cornerRadius: 8 })}>
+                Rounded Box
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-zinc-100" draggable onDragStart={(e) => setDragData(e, 'Rect', { cornerRadius: 20 })} onClick={() => onAddShape('Rect', { cornerRadius: 20 })}>
+                Pill Shape
+              </Button>
             </div>
             <h3 className="mb-2 text-xs font-medium text-zinc-400">Arrows & lines</h3>
             <div className="mb-3 flex flex-wrap gap-1">
@@ -551,6 +576,55 @@ export function KonvaLeftSidebar({
                 <span className="text-xs">⬡</span> Polygon
               </Button>
             </div>
+          </div>
+        )}
+
+        {activeLeftTab === 'charts' && (
+          <div className="flex flex-1 flex-col overflow-y-auto p-2">
+            <h3 className="mb-2 text-xs font-medium text-zinc-400">Chart Types</h3>
+            <div className="mb-4 grid grid-cols-2 gap-2">
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="h-16 flex-col gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                onClick={() => onAddShape('Chart', { chartType: 'bar' })}
+              >
+                <ChartBar className="size-5" />
+                <span className="text-[10px]">Bar</span>
+              </Button>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="h-16 flex-col gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                onClick={() => onAddShape('Chart', { chartType: 'line' })}
+              >
+                <ChartLine className="size-5" />
+                <span className="text-[10px]">Line</span>
+              </Button>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="h-16 flex-col gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                onClick={() => onAddShape('Chart', { chartType: 'pie' })}
+              >
+                <ChartPie className="size-5" />
+                <span className="text-[10px]">Pie</span>
+              </Button>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="h-16 flex-col gap-1 border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                onClick={() => onAddShape('Chart', { chartType: 'area' })}
+              >
+                <ChartPolar className="size-5" />
+                <span className="text-[10px]">Area</span>
+              </Button>
+            </div>
+            
+            <h3 className="mb-2 text-xs font-medium text-zinc-400">Data Editor</h3>
+            <p className="mb-2 text-[10px] text-zinc-500">
+              Select a chart on canvas to edit its data
+            </p>
           </div>
         )}
 
@@ -1434,6 +1508,56 @@ export function KonvaLeftSidebar({
           <div className="flex flex-1 flex-col overflow-y-auto p-2">
             <h3 className="mb-2 text-xs font-medium text-zinc-400">Icons</h3>
             <p className="mb-2 text-[10px] text-zinc-500">Search 200k+ icons from Iconify. Click to add to canvas.</p>
+            
+            {/* Icon Categories */}
+            <div className="mb-2 flex flex-wrap gap-1">
+              {[
+                { id: 'arrow', label: 'Arrows', search: 'mdi:arrow' },
+                { id: 'ui', label: 'UI', search: 'mdi:menu' },
+                { id: 'social', label: 'Social', search: 'mdi:share' },
+                { id: 'media', label: 'Media', search: 'mdi:play' },
+                { id: 'file', label: 'Files', search: 'mdi:file' },
+                { id: 'edit', label: 'Edit', search: 'mdi:pencil' },
+              ].map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    setIconifyQuery(cat.search);
+                    searchIconify(cat.search);
+                  }}
+                  className="rounded bg-zinc-800 px-2 py-1 text-[10px] text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100"
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Recently Used Icons */}
+            {Object.keys(iconCache).length > 0 && (
+              <div className="mb-3">
+                <h4 className="mb-1 text-[10px] font-medium text-zinc-500">Recently Used</h4>
+                <div className="flex flex-wrap gap-1">
+                  {Object.entries(iconCache).slice(0, 8).map(([iconName, attrs]) => {
+                    const svgUrl = `https://api.iconify.design/${iconName.replace(':', '/')}.svg?height=24`;
+                    return (
+                      <button
+                        key={iconName}
+                        type="button"
+                        draggable
+                        onDragStart={(e) => setDragData(e, 'Icon', attrs)}
+                        onClick={() => onAddShape('Icon', attrs)}
+                        className="flex h-8 w-8 items-center justify-center rounded border border-zinc-700 bg-zinc-800 transition-colors hover:border-zinc-600 hover:bg-zinc-700"
+                        title={iconName}
+                      >
+                        <img src={svgUrl} alt="" className="h-4 w-4" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-1.5">
               <Input
                 placeholder="Search icons…"

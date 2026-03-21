@@ -7,8 +7,28 @@ import {
   checkDocumentAccess,
 } from "@/lib/actions/documents";
 import type { Value } from "platejs";
+import {
+  generatePlateContent,
+  generateKonvaShapes,
+  generateUniverCells,
+} from "@/lib/ai/shared/content-generator";
 
 // ── Edit Document Plate Tool ────────────────────────────────────────────────
+
+/**
+ * Check if a document was recently created in this tool session.
+ * Documents created in the same streamText session are always editable
+ * (avoids cookie context issues with checkDocumentAccess during streaming).
+ */
+function isRecentlyCreatedDoc(localCache: Map<string, unknown>, documentId: string): boolean {
+  for (const [key] of localCache) {
+    if (key.startsWith('create_document:') || key.startsWith('create_document_from_template:')) {
+      const cached = localCache.get(key) as { documentId?: string } | undefined;
+      if (cached?.documentId === documentId) return true;
+    }
+  }
+  return false;
+}
 
 export function createEditDocumentPlateTool(
   workspaceId: string,
@@ -17,17 +37,22 @@ export function createEditDocumentPlateTool(
 ) {
   return tool({
     description:
-      "Edit a Plate (rich text) document directly. Use for adding, updating, or modifying content in text documents. Supports append, prepend, insert_at, replace, and update_selection operations. Must have edit permission on the document.",
+      "Edit a Plate (rich text) document directly. Use for adding, updating, or modifying content in text documents. Supports append, prepend, insert_at, replace, update_selection, and generate_content operations. The generate_content operation uses AI to produce high-quality content from a natural language prompt — prefer this for initial document population. Must have edit permission on the document.",
     parameters: z.object({
       document_id: z.string().describe("The document ID to edit"),
       operation: z
-        .enum(["append", "prepend", "insert_at", "replace", "update_selection"])
-        .describe("How to apply the edit"),
+        .enum(["append", "prepend", "insert_at", "replace", "update_selection", "generate_content"])
+        .describe("How to apply the edit. Use 'generate_content' to have AI generate rich content from a prompt."),
       content: z
         .array(z.record(z.any()))
+        .optional()
         .describe(
-          "Array of Slate nodes to insert. Example: [{ type: 'h2', children: [{ text: 'Heading' }] }]"
+          "Array of Slate nodes to insert (required for all operations except generate_content). Example: [{ type: 'h2', children: [{ text: 'Heading' }] }]"
         ),
+      generation_prompt: z
+        .string()
+        .optional()
+        .describe("Natural language prompt describing what content to generate (for generate_content operation). Be detailed about the document structure, sections, and data to include."),
       position: z
         .number()
         .optional()
@@ -46,17 +71,22 @@ export function createEditDocumentPlateTool(
       document_id,
       operation,
       content,
+      generation_prompt,
       position,
       selection_block_ids,
       reason,
     }) => {
-      // Check access permissions
-      const access = await checkDocumentAccess(document_id);
-      if (access.role !== "edit") {
-        return {
-          success: false as const,
-          error: "You do not have edit permission for this document",
-        };
+      try {
+      // Check access permissions (skip for docs created in this session)
+      if (!isRecentlyCreatedDoc(localCache, document_id)) {
+        const access = await checkDocumentAccess(document_id);
+        if (access.role !== "edit") {
+          console.warn('[edit_document_plate] Access denied for document', document_id, 'role:', access.role);
+          return {
+            success: false as const,
+            error: `You do not have edit permission for this document (role: ${access.role ?? 'none'})`,
+          };
+        }
       }
 
       // Get current document
@@ -93,47 +123,76 @@ export function createEditDocumentPlateTool(
       const fullValue = currentContent.pages[0].nodes;
       let newValue: Value;
 
-      // Apply the edit operation
-      switch (operation) {
-        case "append":
-          newValue = [...fullValue, ...(content as Value)];
-          break;
-        case "prepend":
-          newValue = [...(content as Value), ...fullValue];
-          break;
-        case "insert_at": {
-          const idx = Math.max(
-            0,
-            Math.min(position ?? fullValue.length, fullValue.length)
-          );
-          newValue = [...fullValue.slice(0, idx), ...(content as Value), ...fullValue.slice(idx)];
-          break;
+      // Handle generate_content operation — call AI to produce nodes
+      if (operation === "generate_content") {
+        if (!generation_prompt) {
+          return {
+            success: false as const,
+            error: "generation_prompt required for generate_content operation",
+          };
         }
-        case "replace":
-          newValue = content as Value;
-          break;
-        case "update_selection":
-          if (!selection_block_ids || selection_block_ids.length === 0) {
-            return {
-              success: false as const,
-              error: "selection_block_ids required for update_selection operation",
-            };
+        const genResult = await generatePlateContent(generation_prompt, {
+          documentTitle: document.title,
+          existingContent: fullValue.length > 0 ? fullValue : undefined,
+        });
+        if (!genResult.success) {
+          return {
+            success: false as const,
+            error: genResult.error,
+          };
+        }
+        // Replace document content with generated nodes
+        newValue = genResult.nodes as Value;
+      } else {
+        // For non-generate operations, content is required
+        if (!content || content.length === 0) {
+          return {
+            success: false as const,
+            error: "content array is required for this operation",
+          };
+        }
+
+        // Apply the edit operation
+        switch (operation) {
+          case "append":
+            newValue = [...fullValue, ...(content as Value)];
+            break;
+          case "prepend":
+            newValue = [...(content as Value), ...fullValue];
+            break;
+          case "insert_at": {
+            const idx = Math.max(
+              0,
+              Math.min(position ?? fullValue.length, fullValue.length)
+            );
+            newValue = [...fullValue.slice(0, idx), ...(content as Value), ...fullValue.slice(idx)];
+            break;
           }
-          // Replace blocks with matching IDs
-          newValue = fullValue.map((node: Record<string, unknown>) => {
-            const nodeId = node.id as string | undefined;
-            if (nodeId && selection_block_ids.includes(nodeId)) {
-              // Replace with first new content, or keep if no content left
-              const replacement = (content as Value).shift();
-              return replacement ?? node;
+          case "replace":
+            newValue = content as Value;
+            break;
+          case "update_selection":
+            if (!selection_block_ids || selection_block_ids.length === 0) {
+              return {
+                success: false as const,
+                error: "selection_block_ids required for update_selection operation",
+              };
             }
-            return node;
-          });
-          // Append any remaining new content
-          newValue = [...newValue, ...(content as Value)];
-          break;
-        default:
-          newValue = fullValue;
+            // Replace blocks with matching IDs
+            newValue = fullValue.map((node: Record<string, unknown>) => {
+              const nodeId = node.id as string | undefined;
+              if (nodeId && selection_block_ids.includes(nodeId)) {
+                const replacement = (content as Value).shift();
+                return replacement ?? node;
+              }
+              return node;
+            }) as Value;
+            // Append any remaining new content
+            newValue = [...newValue, ...(content as Value)];
+            break;
+          default:
+            newValue = fullValue;
+        }
       }
 
       // Update the document
@@ -158,10 +217,19 @@ export function createEditDocumentPlateTool(
         success: true as const,
         document_id,
         title: document.title,
+        base_type: document.base_type,
         operation,
-        nodes_affected: (content as Value).length,
+        nodes_affected: Array.isArray(content) ? content.length : 0,
         reason: reason ?? `Applied ${operation} operation`,
+        updatedContent: newContent,
       };
+      } catch (err) {
+        console.error('[edit_document_plate] Unexpected error:', err);
+        return {
+          success: false as const,
+          error: `Document edit failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        };
+      }
     },
   });
 }
@@ -206,12 +274,12 @@ export function createEditDocumentKonvaTool(
 ) {
   return tool({
     description:
-      "Edit a Konva (visual) document directly. Use for adding, updating, or modifying pages, shapes, and layout in reports and presentations. Supports add_page, update_page, delete_page, update_shapes, and apply_layout operations. Must have edit permission on the document.",
+      "Edit a Konva (visual) document directly. Use for adding, updating, or modifying pages, shapes, and layout in reports and presentations. Supports add_page, update_page, delete_page, update_shapes, apply_layout, and generate_content operations. The generate_content operation uses AI to produce professional visual layouts from a natural language prompt — prefer this for initial document population. Must have edit permission on the document.",
     parameters: z.object({
       document_id: z.string().describe("The document ID to edit"),
       operation: z
-        .enum(["add_page", "update_page", "delete_page", "update_shapes", "apply_layout"])
-        .describe("How to modify the document"),
+        .enum(["add_page", "update_page", "delete_page", "update_shapes", "apply_layout", "generate_content"])
+        .describe("How to modify the document. Use 'generate_content' to have AI generate professional visual content from a prompt."),
       page_index: z
         .number()
         .optional()
@@ -227,20 +295,28 @@ export function createEditDocumentKonvaTool(
         .array(z.record(z.any()))
         .optional()
         .describe("Array of shape objects to add or update"),
+      generation_prompt: z
+        .string()
+        .optional()
+        .describe("Natural language prompt describing the visual content to generate (for generate_content operation). Be detailed about layout, sections, colors, and data."),
       reason: z
         .string()
         .optional()
         .describe("Brief explanation of the edit for the user"),
     }),
     // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
-    execute: async ({ document_id, operation, page_index, layout_data, shapes, reason }) => {
-      // Check access permissions
-      const access = await checkDocumentAccess(document_id);
-      if (access.role !== "edit") {
-        return {
-          success: false as const,
-          error: "You do not have edit permission for this document",
-        };
+    execute: async ({ document_id, operation, page_index, layout_data, shapes, generation_prompt, reason }) => {
+      try {
+      // Check access permissions (skip for docs created in this session)
+      if (!isRecentlyCreatedDoc(localCache, document_id)) {
+        const access = await checkDocumentAccess(document_id);
+        if (access.role !== "edit") {
+          console.warn('[edit_document_konva] Access denied for document', document_id, 'role:', access.role);
+          return {
+            success: false as const,
+            error: `You do not have edit permission for this document (role: ${access.role ?? 'none'})`,
+          };
+        }
       }
 
       // Get current document
@@ -249,6 +325,7 @@ export function createEditDocumentKonvaTool(
         document_id
       );
       if (docError || !document) {
+        console.error('[edit_document_konva] Document not found:', document_id, docError);
         return {
           success: false as const,
           error: docError ?? "Document not found",
@@ -268,10 +345,10 @@ export function createEditDocumentKonvaTool(
       }
 
       // Get current content
-      const currentContent = (document.content ?? {
-        editor: "konva",
+      const currentContent = (document.content as unknown as KonvaReportContent) ?? {
+        editor: "konva" as const,
         report: { pages: [] },
-      }) as KonvaReportContent;
+      };
 
       const pages = currentContent.report?.pages ?? currentContent.presentation?.slides ?? [];
 
@@ -343,38 +420,188 @@ export function createEditDocumentKonvaTool(
               error: "layout_data required for apply_layout operation",
             };
           }
-          // Create a new page based on layout sections
+
+          // Use page dimensions from the document or defaults
+          const pageW = currentContent.report?.pageWidthPx ?? 794;
+          const pageH = currentContent.report?.pageHeightPx ?? 1123;
+
           const layoutShapes: KonvaShape[] = [];
-          let yOffset = 20;
+          const sections = layout_data.sections ?? [];
+          const colors = layout_data.color_scheme ?? {};
 
-          for (const section of layout_data.sections ?? []) {
-            // Add section header
-            layoutShapes.push({
-              id: `section-${section.type}-${Date.now()}`,
-              type: "text",
-              x: 20,
-              y: yOffset,
-              width: 400,
-              height: 30,
-              text: section.content ?? section.type.toUpperCase(),
-              fontSize: 18,
-              fill: layout_data.color_scheme?.primary ?? "#000000",
-            });
-            yOffset += 40;
+          // Sort by z_index so lower z shapes are added first (rendered behind)
+          const sortedSections = [...sections].sort(
+            (a: Record<string, unknown>, b: Record<string, unknown>) =>
+              ((a.z_index as number) ?? 0) - ((b.z_index as number) ?? 0)
+          );
 
-            // Add placeholder for content
-            if (section.type === "content") {
+          for (const section of sortedSections) {
+            const bounds = section.bounds as {
+              x_percent?: number;
+              y_percent?: number;
+              width_percent?: number;
+              height_percent?: number;
+            } | undefined;
+
+            // Calculate pixel positions from percentage bounds
+            const x = bounds?.x_percent != null ? (bounds.x_percent / 100) * pageW : 0;
+            const y = bounds?.y_percent != null ? (bounds.y_percent / 100) * pageH : 0;
+            const w = bounds?.width_percent != null ? (bounds.width_percent / 100) * pageW : pageW;
+            const h = bounds?.height_percent != null ? (bounds.height_percent / 100) * pageH : 100;
+
+            const style = (section.style ?? {}) as Record<string, unknown>;
+            const sectionType = section.type as string;
+            const contentType = (section.content_type as string) ?? "text";
+            const contentText = (section.content as string) ?? sectionType.toUpperCase();
+
+            const bgColor = (style.background_color as string) ?? "transparent";
+            const textColor = (style.text_color as string) ?? colors.text ?? "#000000";
+            const fontFamily = (style.font_family as string) ?? "Inter";
+            const fontSize = (style.font_size_px as number) ?? 16;
+            const fontWeight = (style.font_weight as string) ?? "normal";
+            const borderWidth = (style.border_width_px as number) ?? 0;
+            const borderColor = (style.border_color as string) ?? "#cccccc";
+            const borderRadius = (style.border_radius_px as number) ?? 0;
+            const opacity = (style.opacity as number) ?? 1;
+            const textAlign = (style.text_align as string) ?? "left";
+            const padding = (style.padding_px as number) ?? 0;
+
+            const shapeId = `layout-${sectionType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+            // Add background rectangle if section has a visible background
+            if (bgColor !== "transparent") {
               layoutShapes.push({
-                id: `content-${Date.now()}-${Math.random()}`,
+                id: `${shapeId}-bg`,
                 type: "rect",
-                x: 20,
-                y: yOffset,
-                width: 500,
-                height: 200,
-                fill: layout_data.color_scheme?.background ?? "#f5f5f5",
-                stroke: layout_data.color_scheme?.secondary ?? "#cccccc",
+                x,
+                y,
+                width: w,
+                height: h,
+                fill: bgColor,
+                stroke: borderWidth > 0 ? borderColor : undefined,
+                strokeWidth: borderWidth > 0 ? borderWidth : undefined,
+                cornerRadius: borderRadius > 0 ? borderRadius : undefined,
+                opacity: opacity < 1 ? opacity : undefined,
               });
-              yOffset += 220;
+            }
+
+            // Add text content for text-based sections
+            if (contentType === "text" || contentType === "mixed") {
+              const isBold = fontWeight === "bold" || fontWeight === "semibold";
+              layoutShapes.push({
+                id: `${shapeId}-text`,
+                type: "text",
+                x: x + padding,
+                y: y + padding,
+                width: w - padding * 2,
+                height: h - padding * 2,
+                text: contentText,
+                fontSize,
+                fontFamily,
+                fontStyle: isBold ? "bold" : "normal",
+                fill: textColor,
+                align: textAlign,
+                verticalAlign: sectionType === "hero" || sectionType === "title" ? "middle" : "top",
+              });
+            }
+
+            // Add image placeholder for image sections
+            if (contentType === "image") {
+              layoutShapes.push({
+                id: `${shapeId}-img-placeholder`,
+                type: "rect",
+                x,
+                y,
+                width: w,
+                height: h,
+                fill: colors.secondary ?? "#e5e7eb",
+                stroke: "#d1d5db",
+                strokeWidth: 1,
+                cornerRadius: borderRadius > 0 ? borderRadius : undefined,
+              });
+              // Add placeholder label
+              layoutShapes.push({
+                id: `${shapeId}-img-label`,
+                type: "text",
+                x,
+                y: y + h / 2 - 10,
+                width: w,
+                height: 20,
+                text: contentText || "Image",
+                fontSize: 12,
+                fontFamily: "Inter",
+                fill: colors.text ?? "#6b7280",
+                align: "center",
+              });
+            }
+
+            // Render children (sub-elements within a section)
+            const children = (section.children ?? []) as Array<Record<string, unknown>>;
+            let childYOffset = y + padding;
+            for (const child of children) {
+              const childType = child.type as string;
+              const childContent = (child.content as string) ?? "";
+              const childStyle = (child.style ?? {}) as Record<string, unknown>;
+              const childFontSize = (childStyle.font_size_px as number) ?? fontSize * 0.85;
+              const childColor = (childStyle.text_color as string) ?? textColor;
+              const childId = `${shapeId}-child-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+              if (childType === "divider") {
+                layoutShapes.push({
+                  id: childId,
+                  type: "rect",
+                  x: x + padding,
+                  y: childYOffset,
+                  width: w - padding * 2,
+                  height: 1,
+                  fill: colors.secondary ?? "#e5e7eb",
+                });
+                childYOffset += 8;
+              } else if (childType === "button") {
+                const btnBg = (childStyle.background_color as string) ?? colors.accent ?? colors.primary ?? "#3b82f6";
+                const btnColor = (childStyle.text_color as string) ?? "#ffffff";
+                layoutShapes.push({
+                  id: `${childId}-bg`,
+                  type: "rect",
+                  x: x + padding,
+                  y: childYOffset,
+                  width: Math.min(w * 0.4, 180),
+                  height: 36,
+                  fill: btnBg,
+                  cornerRadius: 6,
+                });
+                layoutShapes.push({
+                  id: `${childId}-text`,
+                  type: "text",
+                  x: x + padding,
+                  y: childYOffset + 8,
+                  width: Math.min(w * 0.4, 180),
+                  height: 20,
+                  text: childContent || "Button",
+                  fontSize: 14,
+                  fontFamily: fontFamily,
+                  fontStyle: "bold",
+                  fill: btnColor,
+                  align: "center",
+                });
+                childYOffset += 44;
+              } else {
+                // Text, badge, icon — render as text
+                layoutShapes.push({
+                  id: childId,
+                  type: "text",
+                  x: x + padding,
+                  y: childYOffset,
+                  width: w - padding * 2,
+                  height: childFontSize + 8,
+                  text: childContent,
+                  fontSize: childFontSize,
+                  fontFamily,
+                  fill: childColor,
+                  align: textAlign,
+                });
+                childYOffset += childFontSize + 12;
+              }
             }
           }
 
@@ -388,6 +615,37 @@ export function createEditDocumentKonvaTool(
               ? Math.max(0, Math.min(page_index, pages.length))
               : pages.length;
           updatedPages.splice(insertIdx, 0, layoutPage);
+          break;
+        }
+        case "generate_content": {
+          if (!generation_prompt) {
+            return {
+              success: false as const,
+              error: "generation_prompt required for generate_content operation",
+            };
+          }
+          const isPresMode = !!currentContent.presentation;
+          const genResult = await generateKonvaShapes(generation_prompt, {
+            mode: isPresMode ? "presentation" : "report",
+            pageWidth: currentContent.report?.pageWidthPx ?? (isPresMode ? 960 : 794),
+            pageHeight: currentContent.report?.pageHeightPx ?? (isPresMode ? 540 : 1123),
+            layoutData: layout_data as Record<string, unknown> | undefined,
+          });
+          if (!genResult.success) {
+            return {
+              success: false as const,
+              error: genResult.error,
+            };
+          }
+          const genPage: KonvaPage = {
+            id: `gen-page-${Date.now()}`,
+            shapes: genResult.shapes as KonvaShape[],
+          };
+          const genIdx =
+            page_index != null
+              ? Math.max(0, Math.min(page_index, pages.length))
+              : pages.length;
+          updatedPages.splice(genIdx, 0, genPage);
           break;
         }
         default:
@@ -432,11 +690,20 @@ export function createEditDocumentKonvaTool(
         success: true as const,
         document_id,
         title: document.title,
+        base_type: document.base_type,
         operation,
         page_index,
         pages_count: updatedPages.length,
         reason: reason ?? `Applied ${operation} operation`,
+        updatedContent: newContent,
       };
+      } catch (err) {
+        console.error('[edit_document_konva] Unexpected error:', err);
+        return {
+          success: false as const,
+          error: `Visual document edit failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        };
+      }
     },
   });
 }
@@ -471,12 +738,12 @@ export function createEditDocumentUniverTool(
 ) {
   return tool({
     description:
-      "Edit an Univer (spreadsheet) document directly. Use for updating cells, adding sheets, and applying formulas. Supports update_cells, add_sheet, apply_formula, and update_range operations. Must have edit permission on the document.",
+      "Edit an Univer (spreadsheet) document directly. Use for updating cells, adding sheets, and applying formulas. Supports update_cells, add_sheet, apply_formula, update_range, and generate_content operations. The generate_content operation uses AI to produce spreadsheet data from a natural language prompt — prefer this for initial document population. Must have edit permission on the document.",
     parameters: z.object({
       document_id: z.string().describe("The document ID to edit"),
       operation: z
-        .enum(["update_cells", "add_sheet", "apply_formula", "update_range"])
-        .describe("How to modify the spreadsheet"),
+        .enum(["update_cells", "add_sheet", "apply_formula", "update_range", "generate_content"])
+        .describe("How to modify the spreadsheet. Use 'generate_content' to have AI generate spreadsheet data from a prompt."),
       sheet_id: z.string().optional().describe("Sheet ID for sheet-specific operations"),
       cell_updates: z
         .record(z.record(z.any()))
@@ -497,17 +764,25 @@ export function createEditDocumentUniverTool(
         .string()
         .optional()
         .describe("Formula to apply (for apply_formula operation)"),
+      generation_prompt: z
+        .string()
+        .optional()
+        .describe("Natural language prompt describing what spreadsheet data to generate (for generate_content operation). Be detailed about columns, data types, and formulas."),
       reason: z.string().optional().describe("Brief explanation of the edit for the user"),
     }),
     // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
-    execute: async ({ document_id, operation, sheet_id, cell_updates, range, formula, reason }) => {
-      // Check access permissions
-      const access = await checkDocumentAccess(document_id);
-      if (access.role !== "edit") {
-        return {
-          success: false as const,
-          error: "You do not have edit permission for this document",
-        };
+    execute: async ({ document_id, operation, sheet_id, cell_updates, range, formula, generation_prompt, reason }) => {
+      try {
+      // Check access permissions (skip for docs created in this session)
+      if (!isRecentlyCreatedDoc(localCache, document_id)) {
+        const access = await checkDocumentAccess(document_id);
+        if (access.role !== "edit") {
+          console.warn('[edit_document_univer] Access denied for document', document_id, 'role:', access.role);
+          return {
+            success: false as const,
+            error: `You do not have edit permission for this document (role: ${access.role ?? 'none'})`,
+          };
+        }
       }
 
       // Get current document
@@ -516,6 +791,7 @@ export function createEditDocumentUniverTool(
         document_id
       );
       if (docError || !document) {
+        console.error('[edit_document_univer] Document not found:', document_id, docError);
         return {
           success: false as const,
           error: docError ?? "Document not found",
@@ -531,11 +807,18 @@ export function createEditDocumentUniverTool(
         };
       }
 
-      // Get current content
-      const currentContent = (document.content ?? {
-        editor: "univer-sheets",
-        snapshot: { sheets: {} },
-      }) as UniverContent;
+      // Get current content — handle null, empty, or misshapen content gracefully
+      const rawContent = document.content;
+      const currentContent: UniverContent = (
+        rawContent &&
+        typeof rawContent === 'object' &&
+        (rawContent as Record<string, unknown>).editor === 'univer-sheets'
+      )
+        ? rawContent as unknown as UniverContent
+        : {
+            editor: "univer-sheets",
+            snapshot: { sheets: {} },
+          };
 
       const sheets = currentContent.snapshot?.sheets ?? {};
 
@@ -644,6 +927,28 @@ export function createEditDocumentUniverTool(
           }
           break;
         }
+        case "generate_content": {
+          if (!generation_prompt) {
+            return {
+              success: false as const,
+              error: "generation_prompt required for generate_content operation",
+            };
+          }
+          const genResult = await generateUniverCells(generation_prompt, {
+            documentTitle: document.title,
+            existingCells: Object.keys(targetSheet.cellData).length > 0 ? targetSheet.cellData : undefined,
+          });
+          if (!genResult.success) {
+            return {
+              success: false as const,
+              error: genResult.error,
+            };
+          }
+          targetSheet.cellData = genResult.cellData as Record<string, Record<string, UniverCell>>;
+          targetSheet.rowCount = genResult.rowCount;
+          targetSheet.columnCount = genResult.columnCount;
+          break;
+        }
         default:
           return {
             success: false as const,
@@ -677,11 +982,20 @@ export function createEditDocumentUniverTool(
         success: true as const,
         document_id,
         title: document.title,
+        base_type: document.base_type,
         operation,
         sheet_id: targetSheetId,
         sheets_count: Object.keys(sheets).length,
         reason: reason ?? `Applied ${operation} operation`,
+        updatedContent: newContent,
       };
+      } catch (err) {
+        console.error('[edit_document_univer] Unexpected error:', err);
+        return {
+          success: false as const,
+          error: `Spreadsheet edit failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        };
+      }
     },
   });
 }

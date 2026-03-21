@@ -4,24 +4,50 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { createClient } from "@/lib/supabase/server";
 
-const ANALYSIS_PROMPT = `You are a layout analysis expert. Analyze the uploaded layout/design image and return a structured JSON description.
+const ANALYSIS_PROMPT = `You are a layout analysis expert. Analyze the uploaded layout/design image and return a precise, structured JSON description that can be used to REPRODUCE the design programmatically.
 
 Return ONLY a JSON object with this exact structure:
 {
   "layout_type": "report" | "presentation" | "spreadsheet" | "proposal" | "doc" | "contract",
+  "page_dimensions": {
+    "aspect_ratio": "portrait" | "landscape" | "square",
+    "columns": number (1 for single column, 2+ for multi-column layouts)
+  },
   "sections": [
     {
-      "type": "header" | "content" | "footer" | "sidebar" | "title" | "image" | "table" | "chart",
-      "position": "top" | "bottom" | "left" | "right" | "center",
-      "height_percent": number (0-100),
-      "width_percent": number (0-100),
-      "style": {
-        "background_color": "hex color",
-        "text_color": "hex color",
-        "border_radius": number,
-        "padding": number
+      "type": "header" | "content" | "footer" | "sidebar" | "title" | "hero" | "image" | "table" | "chart" | "nav" | "cta" | "stats" | "testimonial" | "logo",
+      "bounds": {
+        "x_percent": number (0-100, left edge position as % of page width),
+        "y_percent": number (0-100, top edge position as % of page height),
+        "width_percent": number (0-100, width as % of page width),
+        "height_percent": number (0-100, height as % of page height)
       },
-      "content": "brief description of what's in this section"
+      "z_index": number (0 = bottom, higher = on top; use for overlapping elements),
+      "style": {
+        "background_color": "hex color or 'transparent'",
+        "background_gradient": "CSS gradient string or null (e.g., 'linear-gradient(135deg, #667eea, #764ba2)')",
+        "text_color": "hex color",
+        "font_family": "font family name",
+        "font_size_px": number,
+        "font_weight": "normal" | "bold" | "light" | "semibold",
+        "text_align": "left" | "center" | "right",
+        "letter_spacing_px": number or null,
+        "line_height": number or null (e.g., 1.5),
+        "border_width_px": number or 0,
+        "border_color": "hex color or null",
+        "border_radius_px": number or 0,
+        "padding_px": number or 0,
+        "opacity": number (0-1, default 1)
+      },
+      "content": "exact text visible in this section, or descriptive placeholder if image/chart",
+      "content_type": "text" | "image" | "icon" | "chart" | "table" | "mixed",
+      "children": [
+        {
+          "type": "text" | "image" | "icon" | "button" | "divider" | "badge",
+          "content": "text content or description",
+          "style": { ... same style fields as parent, only include overrides ... }
+        }
+      ]
     }
   ],
   "color_scheme": {
@@ -29,30 +55,45 @@ Return ONLY a JSON object with this exact structure:
     "secondary": "hex color",
     "accent": "hex color",
     "background": "hex color",
-    "text": "hex color"
+    "text": "hex color",
+    "text_secondary": "hex color"
   },
   "typography": {
     "heading_font": "font family name",
     "body_font": "font family name",
-    "heading_size": "e.g., 24px",
-    "body_size": "e.g., 16px"
+    "heading_size_px": number,
+    "subheading_size_px": number,
+    "body_size_px": number,
+    "caption_size_px": number,
+    "heading_weight": "normal" | "bold" | "light" | "semibold",
+    "body_weight": "normal" | "light"
+  },
+  "spacing": {
+    "section_gap_px": number (vertical gap between major sections),
+    "margin_px": number (page margin),
+    "content_padding_px": number (inner padding of content areas)
   },
   "suggested_base_type": "doc" | "sheet" | "presentation" | "contract"
 }
 
 Guidelines:
-- layout_type: Choose based on the overall purpose (report for multi-page docs, presentation for slides, etc.)
-- sections: Identify all major visual sections (header, main content, footer, sidebars, images, tables, charts)
-- color_scheme: Extract the main colors visible in the layout
-- typography: Identify the font styles used (or suggest appropriate ones)
-- suggested_base_type: Recommend the document type that best fits this layout
+- **Precise positioning**: Measure x/y/width/height as percentages of the total page. Be as accurate as possible — these values will be used to place elements programmatically.
+- **All visible sections**: Capture EVERY distinct visual region — headers, footers, sidebars, content blocks, image placeholders, stat cards, CTAs, navigation bars, logos, decorative elements.
+- **Overlapping elements**: Use z_index to indicate layering order (e.g., text overlaying a background image).
+- **Multi-column layouts**: If content is in columns, create separate sections for each column with correct x_percent and width_percent.
+- **Colors**: Extract exact hex colors from the image. Identify gradients where present.
+- **Typography**: Identify font families (or suggest the closest match from: Inter, Roboto, Open Sans, Lato, Montserrat, Poppins, Playfair Display, Merriweather, Bebas Neue, Oswald, Raleway).
+- **Content**: Capture actual text visible in the image. For images/charts, describe what's shown (e.g., "bar chart showing monthly revenue", "team photo").
+- **Children**: For sections with mixed content (e.g., a card with heading + description + button), list child elements.
 
 If the image is NOT a layout/design (e.g., a photo, screenshot, or unrelated image), return:
 {
   "layout_type": "doc",
+  "page_dimensions": { "aspect_ratio": "portrait", "columns": 1 },
   "sections": [],
-  "color_scheme": { "primary": "#000000", "secondary": "#666666" },
-  "typography": { "heading_font": "Inter", "body_font": "Inter" },
+  "color_scheme": { "primary": "#000000", "secondary": "#666666", "accent": "#3b82f6", "background": "#ffffff", "text": "#000000", "text_secondary": "#666666" },
+  "typography": { "heading_font": "Inter", "body_font": "Inter", "heading_size_px": 24, "subheading_size_px": 18, "body_size_px": 14, "caption_size_px": 12, "heading_weight": "bold", "body_weight": "normal" },
+  "spacing": { "section_gap_px": 16, "margin_px": 24, "content_padding_px": 16 },
   "suggested_base_type": "doc",
   "not_a_layout": true
 }`;
@@ -156,7 +197,7 @@ export async function POST(req: NextRequest) {
             {
               type: "image",
               image: base64,
-              mimeType,
+              mediaType: mimeType,
             },
           ],
         },

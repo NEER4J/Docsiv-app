@@ -328,7 +328,8 @@ export function getMainAiTools(workspaceId: string) {
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ image_data_url }) => {
-        const res = await fetch('http://localhost:3000/api/ai/analyze-layout', {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+        const res = await fetch(`${appUrl}/api/ai/analyze-layout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image_data_url }),

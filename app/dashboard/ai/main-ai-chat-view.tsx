@@ -1,119 +1,84 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowUp, Check, Loader2, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, Search, Sparkles, X } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  Ellipsis,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Paperclip,
+  Plus,
+  Search,
+  Sparkles,
+  X,
+  FileText,
+} from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { updateDocumentRecord, upsertDocumentAiChatSession } from "@/lib/actions/documents";
-import { listDocumentTemplates } from "@/lib/actions/templates";
-import { createClientRecord } from "@/lib/actions/clients";
 import {
   createMainAiSession,
   updateMainAiSession,
   type MainAiSessionItem,
-  type MainAiHandoffStep,
 } from "@/lib/actions/ai-sessions";
+import { listDocumentTemplates } from "@/lib/actions/templates";
 import { getDisplayForDocumentType } from "@/lib/document-type-icons";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { inferClientResolutionFromUserText } from "@/lib/main-ai-client-resolution";
 import { BASE_TYPE_FALLBACK } from "@/app/dashboard/documents/document-types";
-import type { DocumentBaseType, DocumentListItem } from "@/types/database";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { DocumentListItem } from "@/types/database";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DocumentArtifact } from "@/components/chat/document-artifact";
+import { DocumentPreviewPanel } from "@/components/chat/document-preview-panel";
+import {
+  useMainAiChat,
+  getMessageText,
+  getToolInfo,
+  type DocumentToolResult,
+} from "./use-main-ai-chat";
+import type { UIMessage } from "ai";
+
+// Re-export the set for use in rendering
+const DOCUMENT_TOOL_NAMES_SET = new Set([
+  "create_document",
+  "create_document_from_template",
+  "edit_document_plate",
+  "edit_document_konva",
+  "edit_document_univer",
+]);
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
 const MAX_IMAGES = 25;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
-type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-  images?: string[];
-  files?: Array<{ name: string; mimeType: string }>;
-  documentLink?: { documentId: string; title: string; phase?: "opening" | "opened" };
-  handoffTrace?: MainAiHandoffStep[];
-  documentArtifact?: {
-    documentId: string;
-    title: string;
-    baseType: string;
-    thumbnailUrl?: string | null;
-    permission: "owner" | "edit" | "view" | "comment" | "shared";
-    collaboratorsCount?: number;
-    shareToken?: string | null;
-  };
-};
-
-type HandoffState = "idle" | "creating_document" | "seeding_editor" | "opening_editor";
-
-type HandoffStep = MainAiHandoffStep;
-
-/** Stored sessions may omit `phase`; treat as completed so we never show a stale spinner. */
-function normalizeChatMessagesFromSession(raw: MainAiSessionItem["messages"]): ChatMessage[] {
-  return (raw ?? []).map((m) => {
-    const msg = m as ChatMessage;
-    if (msg.documentLink && !msg.documentLink.phase) {
-      return { ...msg, documentLink: { ...msg.documentLink, phase: "opened" } };
-    }
-    return msg;
-  });
-}
-
-/** Mark the matching assistant bubble as opened and attach a completed handoff trace. */
-function applyOpenedEditorToMessages(
-  prev: ChatMessage[],
-  opts: {
-    documentId: string;
-    title: string;
-    handoffTrace: HandoffStep[];
-    /** Open-document flow: last assistant message has no link yet — add one as opened. */
-    addDocumentLinkToLastAssistant?: boolean;
-  }
-): ChatMessage[] {
-  const next = [...prev];
-  for (let i = next.length - 1; i >= 0; i--) {
-    const m = next[i];
-    if (m?.role !== "assistant") continue;
-    if (m.documentLink?.documentId === opts.documentId) {
-      next[i] = {
-        ...m,
-        documentLink: {
-          documentId: opts.documentId,
-          title: opts.title,
-          phase: "opened",
-        },
-        handoffTrace: opts.handoffTrace,
-      };
-      return next;
-    }
-  }
-  if (opts.addDocumentLinkToLastAssistant) {
-    for (let i = next.length - 1; i >= 0; i--) {
-      const m = next[i];
-      if (m?.role === "assistant") {
-        next[i] = {
-          ...m,
-          documentLink: {
-            documentId: opts.documentId,
-            title: opts.title,
-            phase: "opened",
-          },
-          handoffTrace: opts.handoffTrace,
-        };
-        break;
-      }
-    }
-  }
-  return next;
-}
-
-type MainAiDraftSnapshot = {
-  input: string;
-  attachedImages: Array<{ dataUrl: string; name: string }>;
-  attachedFiles: ProcessedAttachment[];
-  selectedDocumentId: string | null;
-  selectedDocTypeId: string | null;
-};
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type ProcessedAttachmentStatus = "processing" | "ready" | "error";
 
@@ -137,24 +102,25 @@ type ProcessDocumentsApiItem = {
   error?: string;
 };
 
-type InlineRetry = {
+type ActivePreview = {
+  documentId: string;
   title: string;
-  message: string;
-  retryKind: "open";
-  payload: {
-    documentId?: string;
-    seedPrompt?: string;
-    editorPrompt?: string;
-    seedMessage?: string;
-    attachmentDigest?: string;
-    attachmentNames?: string[];
-  };
+  baseType: string;
+  content?: unknown;
+} | null;
+
+/** Metadata stored alongside user messages for display (images, files). */
+type UserMessageMeta = {
+  images?: string[];
+  files?: Array<{ name: string; mimeType: string }>;
 };
 
-const MAIN_AI_CONTEXT_RECENT_LIMIT = 10;
-const MAIN_AI_SUMMARY_MAX_CHARS = 4000;
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function resizeImageDataUrl(dataUrl: string, maxDim = 1024): Promise<string> {
+function resizeImageDataUrl(
+  dataUrl: string,
+  maxDim = 1024
+): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -175,56 +141,118 @@ function resizeImageDataUrl(dataUrl: string, maxDim = 1024): Promise<string> {
   });
 }
 
-function formatAiMessage(text: string): React.ReactNode {
-  const paragraphs = text.split(/\n\n+/);
-  return paragraphs.map((para, i) => (
-    <p key={i} className={i > 0 ? "mt-2" : ""}>
-      {para.split("\n").map((line, li) => (
-        <React.Fragment key={li}>
-          {li > 0 && <br />}
-          {line.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
-            part.startsWith("**") && part.endsWith("**") ? (
-              <strong key={j}>{part.slice(2, -2)}</strong>
-            ) : (
-              <React.Fragment key={j}>{part}</React.Fragment>
-            )
-          )}
-        </React.Fragment>
-      ))}
-    </p>
-  ));
+function MarkdownContent({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      components={{
+        h1: ({ children }) => <h1 className="mb-4 mt-6 text-[1.35rem] font-bold leading-snug tracking-tight first:mt-0">{children}</h1>,
+        h2: ({ children }) => <h2 className="mb-3 mt-6 text-lg font-semibold leading-snug tracking-tight first:mt-0">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-2 mt-5 text-[0.95rem] font-semibold leading-snug first:mt-0">{children}</h3>,
+        h4: ({ children }) => <h4 className="mb-2 mt-4 text-sm font-semibold leading-snug first:mt-0">{children}</h4>,
+        p: ({ children }) => <p className="mb-3 leading-relaxed last:mb-0">{children}</p>,
+        ul: ({ children }) => <ul className="mb-4 ml-5 list-disc space-y-1.5 last:mb-0 [&_ul]:mb-1 [&_ul]:mt-1">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-4 ml-5 list-decimal space-y-1.5 last:mb-0 [&_ol]:mb-1 [&_ol]:mt-1">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+        em: ({ children }) => <em className="text-foreground/80">{children}</em>,
+        code: ({ children, className }) => {
+          const isBlock = className?.includes("language-");
+          if (isBlock) {
+            return <code className="block overflow-x-auto rounded-xl bg-neutral-100/80 p-4 text-[13px] leading-relaxed dark:bg-zinc-800/60">{children}</code>;
+          }
+          return <code className="rounded-md bg-neutral-100/80 px-1.5 py-0.5 text-[13px] font-medium dark:bg-zinc-800/60">{children}</code>;
+        },
+        pre: ({ children }) => <pre className="mb-4 last:mb-0">{children}</pre>,
+        blockquote: ({ children }) => (
+          <blockquote className="mb-4 border-l-[3px] border-neutral-300/80 pl-4 text-muted-foreground last:mb-0 dark:border-zinc-600">
+            {children}
+          </blockquote>
+        ),
+        a: ({ children, href }) => (
+          <a href={href} className="font-medium text-primary underline decoration-primary/30 underline-offset-2 transition-colors hover:decoration-primary/60" target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        ),
+        hr: () => <hr className="my-5 border-neutral-200/60 dark:border-zinc-700/60" />,
+        table: ({ children }) => (
+          <div className="mb-4 overflow-x-auto rounded-xl border border-neutral-200/80 last:mb-0 dark:border-zinc-700/80">
+            <table className="w-full border-collapse text-sm">{children}</table>
+          </div>
+        ),
+        th: ({ children }) => <th className="border-b border-neutral-200/80 bg-neutral-50/80 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground dark:border-zinc-700/80 dark:bg-zinc-800/50">{children}</th>,
+        td: ({ children }) => <td className="border-b border-neutral-100/80 px-4 py-2.5 dark:border-zinc-800/50">{children}</td>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
-function buildAttachmentDigest(
-  files: Array<{ name: string; mimeType: string; extractedText?: string }>
-): string {
-  if (files.length === 0) return "";
-  const blocks = files.map((f) => {
-    const header = `File: ${f.name} (${f.mimeType})`;
-    const body = (f.extractedText ?? "").trim();
-    return body ? `${header}\n${body.slice(0, 2000)}` : `${header}\n(Binary attachment)`;
-  });
-  return blocks.join("\n\n---\n\n").slice(0, 10000);
-}
-
-function buildRollingSummary(messages: ChatMessage[]): string {
-  if (messages.length <= MAIN_AI_CONTEXT_RECENT_LIMIT) return "";
-  const older = messages.slice(0, messages.length - MAIN_AI_CONTEXT_RECENT_LIMIT);
-  const summaryLines = older.map((m, idx) => {
-    const who = m.role === "user" ? "User" : "Assistant";
-    const text = m.content.replace(/\s+/g, " ").trim().slice(0, 180);
-    return `${idx + 1}. ${who}: ${text}`;
-  });
-  return summaryLines.join("\n").slice(0, MAIN_AI_SUMMARY_MAX_CHARS);
-}
-
-function trackAiEvent(name: string, meta?: Record<string, unknown>) {
-  const payload = { name, at: Date.now(), ...meta };
-  if (typeof window !== "undefined") {
-    // Non-blocking, best-effort telemetry for flow diagnostics.
-    console.info("[main-ai-event]", payload);
+function getToolLabel(toolName: string): string {
+  switch (toolName) {
+    case "create_document":
+      return "Creating document";
+    case "create_document_from_template":
+      return "Creating from template";
+    case "edit_document_plate":
+      return "Editing document";
+    case "edit_document_konva":
+      return "Editing design";
+    case "edit_document_univer":
+      return "Editing spreadsheet";
+    case "recommend_template":
+      return "Finding templates";
+    case "analyze_layout_image":
+      return "Analyzing layout";
+    case "create_client":
+      return "Creating client";
+    case "export_document":
+      return "Exporting document";
+    case "manage_collaborators":
+      return "Managing permissions";
+    case "create_share_link":
+      return "Creating share link";
+    case "manage_share_links":
+      return "Managing share links";
+    case "assign_client_to_document":
+      return "Assigning client";
+    case "seed_editor_ai":
+      return "Preparing editor";
+    case "proposal_quality_check":
+      return "Running quality check";
+    case "sheet_anomaly_insights":
+      return "Analyzing spreadsheet";
+    default:
+      return `Running ${toolName}`;
   }
 }
+
+/** Convert stored session messages to UIMessage format for useChat */
+function sessionMessagesToUIMessages(
+  sessionMessages: Array<{ role: string; content: string }>
+): UIMessage[] {
+  return sessionMessages
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m, i) => ({
+      id: `session-${i}-${Date.now()}`,
+      role: m.role as "user" | "assistant",
+      parts: [{ type: "text" as const, text: m.content ?? "" }],
+    }));
+}
+
+/** Extract simple role+content from UIMessages for session storage */
+function uiMessagesToSessionFormat(
+  messages: UIMessage[]
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return messages
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: getMessageText(m),
+    }));
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export type MainAiChatViewProps = {
   workspaceId: string | null;
@@ -256,9 +284,37 @@ export function MainAiChatView({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
+
+  // ─── Session state ───────────────────────────────────────────────────────
+  const [sessions, setSessions] =
+    React.useState<MainAiSessionItem[]>(initialSessions ?? []);
+  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(
+    null
+  );
+  const prevActiveSessionIdRef = React.useRef<string | null>(null);
+  const skipNextUrlSyncRef = React.useRef(false);
+  const forcedNewSessionRef = React.useRef(false);
+
+  // ─── UI state ────────────────────────────────────────────────────────────
+  const [sessionsCollapsed, setSessionsCollapsed] = React.useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false);
+  const [sessionSearch, setSessionSearch] = React.useState("");
+  const [docSearch, setDocSearch] = React.useState("");
+  const [showAllRecentDocs, setShowAllRecentDocs] = React.useState(false);
+  const [selectedDocumentId, setSelectedDocumentId] = React.useState<
+    string | null
+  >(null);
+  const [selectedDocTypeId, setSelectedDocTypeId] = React.useState<
+    string | null
+  >(null);
+  const [clientChoiceModalOpen, setClientChoiceModalOpen] =
+    React.useState(false);
+
+  // ─── Input state (managed locally, not by useChat) ────────────────────────
   const [input, setInput] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
+  const [isSending, setIsSending] = React.useState(false);
+
+  // ─── Attachment state ────────────────────────────────────────────────────
   const [attachedImages, setAttachedImages] = React.useState<
     Array<{ dataUrl: string; name: string }>
   >([]);
@@ -266,49 +322,59 @@ export function MainAiChatView({
     ProcessedAttachment[]
   >([]);
   const [isProcessingFiles, setIsProcessingFiles] = React.useState(false);
-  const [docSearch, setDocSearch] = React.useState("");
-  const [sessionSearch, setSessionSearch] = React.useState("");
-  const [sessionsCollapsed, setSessionsCollapsed] = React.useState(false);
-  const [selectedDocumentId, setSelectedDocumentId] = React.useState<string | null>(null);
-  const [showAllRecentDocs, setShowAllRecentDocs] = React.useState(false);
-  const [selectedDocTypeId, setSelectedDocTypeId] = React.useState<string | null>(null);
-  const [handoffState, setHandoffState] = React.useState<HandoffState>("idle");
-  const [handoffSteps, setHandoffSteps] = React.useState<HandoffStep[]>([]);
-  const [inlineRetry, setInlineRetry] = React.useState<InlineRetry | null>(null);
-  const [sessions, setSessions] = React.useState<MainAiSessionItem[]>(initialSessions ?? []);
-  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null);
-  const [clientChoiceModalOpen, setClientChoiceModalOpen] = React.useState(false);
-  const [pendingClientChoices, setPendingClientChoices] = React.useState<
-    Array<{ id: string; name: string }>
+
+  // ─── Preview panel state ─────────────────────────────────────────────────
+  const [activePreview, setActivePreview] = React.useState<ActivePreview>(null);
+
+  // ─── User message attachment metadata (for display in chat) ──────────────
+  const userMessageMetaRef = React.useRef<Map<string, UserMessageMeta>>(
+    new Map()
+  );
+  const pendingAttachmentMetaRef = React.useRef<UserMessageMeta | null>(null);
+
+  // ─── Refs for attachments passed to the chat hook ────────────────────────
+  const pendingImagesRef = React.useRef<string[]>([]);
+  const pendingFilesRef = React.useRef<
+    Array<{ name: string; mimeType: string; dataUrl: string }>
   >([]);
-  const [templatesIndex, setTemplatesIndex] = React.useState<
-    Array<{ id: string; title: string; base_type: string; is_marketplace: boolean }>
-  >([]);
+
+  // ─── Refs ────────────────────────────────────────────────────────────────
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const draftSnapshotRef = React.useRef<MainAiDraftSnapshot | null>(null);
+
+  // ─── Derived values ──────────────────────────────────────────────────────
   const processingTotal = attachedFiles.length;
-  const processingReady = attachedFiles.filter((f) => f.status === "ready").length;
-  const hasPendingAttachments = attachedFiles.some((f) => f.status === "processing");
-  /** When user must pick a client before we seed + open editor (ambiguous match). */
-  const pendingOpenEditorRef = React.useRef<{
-    documentId: string;
-    editorPrompt: string;
-    seedMessage?: string;
-    attachmentDigest?: string;
-    attachmentNames?: string[];
-  } | null>(null);
-  const prevActiveSessionIdRef = React.useRef<string | null>(null);
-  /** Prevents URL->state sync from overriding a user-initiated session change (race condition fix). */
-  const skipNextUrlSyncRef = React.useRef(false);
-  
-  /** Set active session from user interaction (prevents URL sync race). */
-  const setActiveSessionFromUser = React.useCallback((sessionId: string | null) => {
-    skipNextUrlSyncRef.current = true;
-    setActiveSessionId(sessionId);
-  }, []);
-  const forcedNewSessionRef = React.useRef(false);
+  const processingReady = attachedFiles.filter(
+    (f) => f.status === "ready"
+  ).length;
+  const hasPendingAttachments = attachedFiles.some(
+    (f) => f.status === "processing"
+  );
+
+  const [templatesIndex, setTemplatesIndex] = React.useState<
+    Array<{
+      id: string;
+      title: string;
+      base_type: string;
+      is_marketplace: boolean;
+    }>
+  >([]);
+
+  const documentsIndex = React.useMemo(() => {
+    const take = 40;
+    return documents.slice(0, take).map((d) => ({
+      id: d.id,
+      title: d.title,
+      client_name: d.client_name,
+      base_type: d.base_type,
+    }));
+  }, [documents]);
+
+  const selectedDocument = React.useMemo(
+    () => documents.find((d) => d.id === selectedDocumentId) ?? null,
+    [documents, selectedDocumentId]
+  );
 
   const filteredDocuments = React.useMemo(() => {
     const q = docSearch.trim().toLowerCase();
@@ -322,6 +388,83 @@ export function MainAiChatView({
     return sessions.filter((s) => s.title.toLowerCase().includes(q));
   }, [sessions, sessionSearch]);
 
+  const documentTypeChips = React.useMemo(
+    () =>
+      documentTypes.slice(0, 8).map((t) => ({
+        ...t,
+        display: getDisplayForDocumentType({
+          name: t.name,
+          icon: t.icon ?? null,
+          color: t.color ?? null,
+          bg_color: t.bg_color ?? null,
+        }),
+      })),
+    [documentTypes]
+  );
+
+  const greetingLabel = greetingName?.trim()
+    ? `Hello ${greetingName.trim()}`
+    : "Hello";
+
+  // ─── Chat hook ───────────────────────────────────────────────────────────
+  const chat = useMainAiChat({
+    chatId: activeSessionId ?? undefined,
+    workspaceContext: {
+      workspaceId: workspaceId ?? "",
+      workspaceName,
+      clients,
+      documentTypes,
+      selectedDocumentId,
+      activeDocumentId: activePreview?.documentId ?? null,
+      documentsIndex,
+      templatesIndex,
+    },
+    pendingImagesRef,
+    pendingFilesRef,
+    onDocumentUpdate: (doc) => {
+      setActivePreview(doc);
+    },
+    onFinish: (_message) => {
+      // Store attachment meta for the user message that triggered this
+      if (pendingAttachmentMetaRef.current) {
+        // Find the last user message and store its meta
+        const lastUserMsg = chat.messages
+          .filter((m) => m.role === "user")
+          .at(-1);
+        if (lastUserMsg) {
+          userMessageMetaRef.current.set(
+            lastUserMsg.id,
+            pendingAttachmentMetaRef.current
+          );
+        }
+        pendingAttachmentMetaRef.current = null;
+      }
+      // Clear pending attachment refs
+      pendingImagesRef.current = [];
+      pendingFilesRef.current = [];
+
+      // Persist to session
+      if (activeSessionId) {
+        const allMessages = uiMessagesToSessionFormat(chat.messages);
+        void updateMainAiSession(activeSessionId, {
+          messages: allMessages,
+        });
+      }
+    },
+    onError: (error) => {
+      toast.error(error.message ?? "AI request failed");
+      pendingImagesRef.current = [];
+      pendingFilesRef.current = [];
+      pendingAttachmentMetaRef.current = null;
+    },
+  });
+
+  const hasChatStarted = chat.messages.length > 0;
+  const isLoading = chat.status === "streaming" || chat.status === "submitted";
+
+  // ─── Effects ─────────────────────────────────────────────────────────────
+
+  // Fetch templates
   React.useEffect(() => {
     if (!workspaceId) {
       setTemplatesIndex([]);
@@ -348,138 +491,7 @@ export function MainAiChatView({
     };
   }, [workspaceId]);
 
-  const documentsIndex = React.useMemo(() => {
-    // Keep prompt context bounded; model still has "all docs" behavior by selecting relevant subset.
-    const take = 40;
-    return documents.slice(0, take).map((d) => ({
-      id: d.id,
-      title: d.title,
-      client_name: d.client_name,
-      base_type: d.base_type,
-    }));
-  }, [documents]);
-
-  const selectedDocument = React.useMemo(
-    () => documents.find((d) => d.id === selectedDocumentId) ?? null,
-    [documents, selectedDocumentId]
-  );
-  const hasChatStarted = messages.length > 0;
-  const greetingLabel = greetingName?.trim() ? `Hello ${greetingName.trim()}` : "Hello";
-  const documentTypeChips = React.useMemo(
-    () =>
-      documentTypes.slice(0, 8).map((t) => ({
-        ...t,
-        display: getDisplayForDocumentType({
-          name: t.name,
-          icon: t.icon ?? null,
-          color: t.color ?? null,
-          bg_color: t.bg_color ?? null,
-        }),
-      })),
-    [documentTypes]
-  );
-
-  const resumeOpenDocumentAfterClientPick = React.useCallback(
-    async (clientId: string, clientName: string) => {
-      const pending = pendingOpenEditorRef.current;
-      if (!pending || !workspaceId) return;
-      pendingOpenEditorRef.current = null;
-      setPendingClientChoices([]);
-      setLoading(true);
-
-      try {
-        const { documentId, editorPrompt, seedMessage, attachmentDigest } = pending;
-        const docTitle = documents.find((d) => d.id === documentId)?.title ?? "this document";
-        const seededInput = attachmentDigest
-          ? `${editorPrompt}\n\nUse this uploaded file context from Main AI:\n${attachmentDigest}`
-          : editorPrompt;
-
-        trackAiEvent("handoff_open_editor_resumed", { documentId, clientId });
-        setHandoffSteps([
-          {
-            id: "assign_doc",
-            label: `Assigning "${docTitle}" to ${clientName}`,
-            status: "running",
-          },
-          { id: "seed", label: `Preparing AI context for "${docTitle}"`, status: "pending" },
-          { id: "open", label: "Opening editor", status: "pending" },
-        ]);
-        setHandoffState("seeding_editor");
-
-        const { error: assignErr } = await updateDocumentRecord(documentId, { client_id: clientId });
-        if (assignErr) {
-          setHandoffSteps((prev) =>
-            prev.map((s) => (s.id === "assign_doc" ? { ...s, status: "error", detail: assignErr } : s))
-          );
-          toast.error(assignErr);
-          setHandoffState("idle");
-          return;
-        }
-        setHandoffSteps((prev) =>
-          prev.map((s) =>
-            s.id === "assign_doc"
-              ? { ...s, status: "done" }
-              : s.id === "seed"
-                ? { ...s, status: "running" }
-                : s
-          )
-        );
-
-        try {
-          await upsertDocumentAiChatSession(documentId, {
-            messages: [
-              { role: "assistant", content: seedMessage ?? `Let's start editing "${docTitle}".` },
-            ],
-            input: seededInput,
-          });
-        } catch {
-          toast.error("Couldn't seed editor AI session.");
-          setHandoffSteps((prev) => prev.map((s) => (s.id === "seed" ? { ...s, status: "error" } : s)));
-          setHandoffState("idle");
-          return;
-        }
-
-        setHandoffSteps((prev) =>
-          prev.map((s) =>
-            s.id === "seed"
-              ? { ...s, status: "done" }
-              : s.id === "open"
-                ? { ...s, status: "running" }
-                : s
-          )
-        );
-        setHandoffState("opening_editor");
-        trackAiEvent("handoff_open_editor_success", { documentId });
-
-        const completion: ChatMessage = {
-          role: "assistant",
-          content: `Ready — **${docTitle}** is prepared and assigned to ${clientName}.`,
-          documentArtifact: {
-            documentId,
-            title: docTitle,
-            baseType: documents.find((d) => d.id === documentId)?.base_type ?? "doc",
-            thumbnailUrl: documents.find((d) => d.id === documentId)?.thumbnail_url,
-            permission: "edit",
-          },
-        };
-        setMessages((prev) => [...prev, completion]);
-        if (activeSessionId) {
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === activeSessionId ? { ...s, messages: [...s.messages, completion] } : s
-            )
-          );
-        }
-        setHandoffState("idle");
-        setHandoffSteps([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [workspaceId, documents, activeSessionId]
-  );
-
-  // Load session from localStorage
+  // Init sessions
   React.useEffect(() => {
     if (initialSessions?.length) {
       setSessions(initialSessions);
@@ -488,62 +500,43 @@ export function MainAiChatView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSessions]);
 
+  // Load session messages when switching
   React.useEffect(() => {
     if (!activeSessionId) return;
     const session = sessions.find((s) => s.id === activeSessionId);
     if (!session) return;
-    setMessages(normalizeChatMessagesFromSession(session.messages ?? []));
-    setInput(session.input ?? "");
-  }, [activeSessionId, sessions]);
+    const uiMessages = sessionMessagesToUIMessages(session.messages ?? []);
+    chat.setMessages(uiMessages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]);
 
-  /** Switching sessions clears transient handoff / picker state (fixes stuck "Opening editor"). */
+  // Clear preview panel on session switch
   React.useEffect(() => {
     const prev = prevActiveSessionIdRef.current;
     if (prev !== null && prev !== activeSessionId) {
-      setHandoffState("idle");
-      setHandoffSteps([]);
-      pendingOpenEditorRef.current = null;
-      setPendingClientChoices([]);
-      setInlineRetry(null);
+      setActivePreview(null);
     }
     prevActiveSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
 
-  /** bfcache restore can revive mid-handoff UI from a full-page navigation — normalize. */
+  // Debounced session persistence
   React.useEffect(() => {
-    const onPageShow = (e: PageTransitionEvent) => {
-      if (!e.persisted) return;
-      setHandoffState("idle");
-      setHandoffSteps([]);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.documentLink?.phase === "opening"
-            ? { ...m, documentLink: { ...m.documentLink, phase: "opened" } }
-            : m
-        )
-      );
-    };
-    window.addEventListener("pageshow", onPageShow);
-    return () => window.removeEventListener("pageshow", onPageShow);
-  }, []);
-
-  React.useEffect(() => {
-    if (activeSessionId) {
+    if (activeSessionId && chat.messages.length > 0) {
       const t = setTimeout(() => {
         void updateMainAiSession(activeSessionId, {
-          messages,
-          input,
-          summary: buildRollingSummary(messages),
+          messages: uiMessagesToSessionFormat(chat.messages),
         });
-      }, 500);
+      }, 1000);
       return () => clearTimeout(t);
     }
-  }, [messages, input, activeSessionId]);
+  }, [chat.messages, activeSessionId]);
 
+  // Scroll to bottom
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [chat.messages]);
 
+  // Auto-resize textarea
   const adjustHeight = React.useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -554,10 +547,161 @@ export function MainAiChatView({
     adjustHeight();
   }, [input, adjustHeight]);
 
+  // URL sync: session param → state
+  React.useEffect(() => {
+    if (skipNextUrlSyncRef.current) {
+      skipNextUrlSyncRef.current = false;
+      return;
+    }
+    const sessionIdFromUrl = searchParams.get("session");
+    if (!sessionIdFromUrl) return;
+    if (activeSessionId === sessionIdFromUrl) return;
+    if (sessions.some((s) => s.id === sessionIdFromUrl)) {
+      setActiveSessionId(sessionIdFromUrl);
+    }
+  }, [searchParams, sessions, activeSessionId]);
+
+  // URL sync: state → session param
+  React.useEffect(() => {
+    const currentInUrl = searchParams.get("session");
+    if (!activeSessionId) {
+      if (!currentInUrl) return;
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("session");
+      const nextUrl = nextParams.toString()
+        ? `${pathname}?${nextParams.toString()}`
+        : pathname;
+      router.replace(nextUrl, { scroll: false });
+      return;
+    }
+    if (currentInUrl === activeSessionId) return;
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("session", activeSessionId);
+    nextParams.delete("newSession");
+    const nextUrl = `${pathname}?${nextParams.toString()}`;
+    router.replace(nextUrl, { scroll: false });
+  }, [activeSessionId, searchParams, pathname, router]);
+
+  // ─── Session CRUD ────────────────────────────────────────────────────────
+
+  const setActiveSessionFromUser = React.useCallback(
+    (sessionId: string | null) => {
+      skipNextUrlSyncRef.current = true;
+      setActiveSessionId(sessionId);
+    },
+    []
+  );
+
+  const createNewSession = React.useCallback(async () => {
+    if (!workspaceId) return false;
+    const { sessionId, error } = await createMainAiSession(workspaceId, {
+      title: "New chat",
+      messages: [],
+      input: "",
+    });
+    if (error || !sessionId) {
+      toast.error(error ?? "Could not create chat session");
+      return false;
+    }
+    const fresh: MainAiSessionItem = {
+      id: sessionId,
+      title: "New chat",
+      summary: "",
+      messages: [],
+      input: "",
+      archived: false,
+      updated_at: new Date().toISOString(),
+      last_message_at: new Date().toISOString(),
+    };
+    setSessions((prev) => [fresh, ...prev]);
+    setActiveSessionFromUser(sessionId);
+    chat.setMessages([]);
+    setInput("");
+    setActivePreview(null);
+    return true;
+  }, [workspaceId, setActiveSessionFromUser, chat]);
+
+  // Force new session from URL param
+  React.useEffect(() => {
+    if (!workspaceId) return;
+    if (forcedNewSessionRef.current) return;
+    if (searchParams.get("newSession") !== "1") return;
+    forcedNewSessionRef.current = true;
+    void (async () => {
+      const created = await createNewSession();
+      if (!created) {
+        forcedNewSessionRef.current = false;
+        return;
+      }
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("newSession");
+      const nextUrl = nextParams.toString()
+        ? `${pathname}?${nextParams.toString()}`
+        : pathname;
+      router.replace(nextUrl, { scroll: false });
+    })();
+  }, [workspaceId, searchParams, createNewSession, pathname, router]);
+
+  const archiveSession = React.useCallback(
+    async (sessionId: string) => {
+      const { error } = await updateMainAiSession(sessionId, {
+        archived: true,
+      });
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null);
+        chat.setMessages([]);
+        setInput("");
+        setActivePreview(null);
+      }
+    },
+    [activeSessionId, chat]
+  );
+
+  const renameSession = React.useCallback(
+    async (sessionId: string) => {
+      const current = sessions.find((s) => s.id === sessionId);
+      if (!current) return;
+      const next = window.prompt("Rename chat", current.title)?.trim();
+      if (!next || next === current.title) return;
+      const { error } = await updateMainAiSession(sessionId, { title: next });
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, title: next } : s))
+      );
+    },
+    [sessions]
+  );
+
+  const copySessionLink = React.useCallback(
+    async (sessionId: string) => {
+      if (typeof window === "undefined") return;
+      const url = new URL(`${window.location.origin}${pathname}`);
+      url.searchParams.set("session", sessionId);
+      try {
+        await navigator.clipboard.writeText(url.toString());
+        toast.success("Session link copied");
+      } catch {
+        toast.error("Could not copy session link");
+      }
+    },
+    [pathname]
+  );
+
+  // ─── Attachment handlers ─────────────────────────────────────────────────
+
   const handleImageAttach = React.useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
-      const slotsLeft = MAX_IMAGES - (attachedImages.length + attachedFiles.length);
+      const slotsLeft =
+        MAX_IMAGES - (attachedImages.length + attachedFiles.length);
       if (slotsLeft <= 0) {
         toast.error(`Maximum ${MAX_IMAGES} attachments allowed.`);
         e.target.value = "";
@@ -570,7 +714,9 @@ export function MainAiChatView({
 
       for (const file of accepted) {
         const isImage = file.type.startsWith("image/");
-        const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+        const isPdf =
+          file.type === "application/pdf" ||
+          file.name.toLowerCase().endsWith(".pdf");
         const isTextLike =
           file.type.startsWith("text/") ||
           file.name.toLowerCase().endsWith(".txt") ||
@@ -600,18 +746,23 @@ export function MainAiChatView({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             dataUrl,
             name: file.name,
-            mimeType: file.type || (isPdf ? "application/pdf" : "text/plain"),
+            mimeType:
+              file.type || (isPdf ? "application/pdf" : "text/plain"),
             status: "processing",
           });
         }
       }
 
       if (imageAdds.length > 0) {
-        setAttachedImages((prev) => [...prev, ...imageAdds].slice(0, MAX_IMAGES));
+        setAttachedImages((prev) =>
+          [...prev, ...imageAdds].slice(0, MAX_IMAGES)
+        );
       }
 
       if (docsToProcess.length > 0) {
-        setAttachedFiles((prev) => [...prev, ...docsToProcess].slice(0, MAX_IMAGES));
+        setAttachedFiles((prev) =>
+          [...prev, ...docsToProcess].slice(0, MAX_IMAGES)
+        );
         setIsProcessingFiles(true);
         const batchSize = 3;
         for (let i = 0; i < docsToProcess.length; i += batchSize) {
@@ -646,18 +797,26 @@ export function MainAiChatView({
                     mimeType: found.mimeType ?? file.mimeType,
                     extractedText: found.extractedText ?? file.extractedText,
                     summary: found.summary ?? file.summary,
-                    status: "ready",
+                    status: "ready" as const,
                     error: undefined,
                   };
                 }
-                return { ...file, status: "error", error: found.error ?? "Processing failed" };
+                return {
+                  ...file,
+                  status: "error" as const,
+                  error: found.error ?? "Processing failed",
+                };
               })
             );
           } catch {
             setAttachedFiles((prev) =>
               prev.map((file) =>
                 batch.some((b) => b.id === file.id)
-                  ? { ...file, status: "error", error: "Processing failed" }
+                  ? {
+                    ...file,
+                    status: "error" as const,
+                    error: "Processing failed",
+                  }
                   : file
               )
             );
@@ -671,176 +830,252 @@ export function MainAiChatView({
     [attachedImages.length, attachedFiles.length]
   );
 
-  const retryAttachmentProcessing = React.useCallback(async (id: string) => {
-    const file = attachedFiles.find((f) => f.id === id);
-    if (!file) return;
-    setAttachedFiles((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, status: "processing", error: undefined } : f))
-    );
-    setIsProcessingFiles(true);
-    try {
-      const res = await fetch("/api/ai/process-documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          files: [{ id: file.id, name: file.name, mimeType: file.mimeType, dataUrl: file.dataUrl }],
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      const out = Array.isArray(data?.processed)
-        ? ((data.processed[0] as ProcessDocumentsApiItem | undefined) ?? null)
-        : null;
+  const retryAttachmentProcessing = React.useCallback(
+    async (id: string) => {
+      const file = attachedFiles.find((f) => f.id === id);
+      if (!file) return;
       setAttachedFiles((prev) =>
         prev.map((f) =>
-          f.id !== id
-            ? f
-            : out?.status === "done"
-              ? {
+          f.id === id
+            ? { ...f, status: "processing" as const, error: undefined }
+            : f
+        )
+      );
+      setIsProcessingFiles(true);
+      try {
+        const res = await fetch("/api/ai/process-documents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            files: [
+              {
+                id: file.id,
+                name: file.name,
+                mimeType: file.mimeType,
+                dataUrl: file.dataUrl,
+              },
+            ],
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const out = Array.isArray(data?.processed)
+          ? ((data.processed[0] as ProcessDocumentsApiItem | undefined) ?? null)
+          : null;
+        setAttachedFiles((prev) =>
+          prev.map((f) =>
+            f.id !== id
+              ? f
+              : out?.status === "done"
+                ? {
                   ...f,
                   mimeType: out.mimeType ?? f.mimeType,
                   extractedText: out.extractedText ?? f.extractedText,
                   summary: out.summary ?? f.summary,
-                  status: "ready",
+                  status: "ready" as const,
                   error: undefined,
                 }
-              : { ...f, status: "error", error: out?.error ?? "Processing failed" }
-        )
-      );
-    } catch {
-      setAttachedFiles((prev) =>
-        prev.map((f) => (f.id === id ? { ...f, status: "error", error: "Processing failed" } : f))
-      );
-    } finally {
-      setIsProcessingFiles(false);
-    }
-  }, [attachedFiles]);
+                : {
+                  ...f,
+                  status: "error" as const,
+                  error: out?.error ?? "Processing failed",
+                }
+          )
+        );
+      } catch {
+        setAttachedFiles((prev) =>
+          prev.map((f) =>
+            f.id === id
+              ? {
+                ...f,
+                status: "error" as const,
+                error: "Processing failed",
+              }
+              : f
+          )
+        );
+      } finally {
+        setIsProcessingFiles(false);
+      }
+    },
+    [attachedFiles]
+  );
 
-  const createNewSession = React.useCallback(async () => {
-    if (!workspaceId) return;
-    const { sessionId, error } = await createMainAiSession(workspaceId, {
-      title: "New chat",
-      messages: [],
-      input: "",
-    });
-    if (error || !sessionId) {
-      toast.error(error ?? "Could not create chat session");
-      return false;
-    }
-    const fresh: MainAiSessionItem = {
-      id: sessionId,
-      title: "New chat",
-      summary: "",
-      messages: [],
-      input: "",
-      archived: false,
-      updated_at: new Date().toISOString(),
-      last_message_at: new Date().toISOString(),
-    };
-    setSessions((prev) => [fresh, ...prev]);
-    setActiveSessionFromUser(sessionId);
-    setMessages([]);
-    setInput("");
-    return true;
-  }, [workspaceId]);
+  // ─── Paste handler (Ctrl+V images & files) ─────────────────────────────
+  const handlePaste = React.useCallback(
+    async (e: React.ClipboardEvent) => {
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const pastedFiles: File[] = [];
+      for (const item of items) {
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) pastedFiles.push(file);
+        }
+      }
+      if (pastedFiles.length === 0) return; // let normal text paste happen
 
-  React.useEffect(() => {
-    if (!workspaceId) return;
-    if (forcedNewSessionRef.current) return;
-    if (searchParams.get("newSession") !== "1") return;
-
-    forcedNewSessionRef.current = true;
-    void (async () => {
-      const created = await createNewSession();
-      if (!created) {
-        forcedNewSessionRef.current = false;
+      e.preventDefault();
+      const slotsLeft =
+        MAX_IMAGES - (attachedImages.length + attachedFiles.length);
+      if (slotsLeft <= 0) {
+        toast.error(`Maximum ${MAX_IMAGES} attachments allowed.`);
         return;
       }
-      const nextParams = new URLSearchParams(searchParams.toString());
-      nextParams.delete("newSession");
-      const nextUrl = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
-      router.replace(nextUrl, { scroll: false });
-    })();
-  }, [workspaceId, searchParams, createNewSession, pathname, router]);
 
-  const archiveSession = React.useCallback(async (sessionId: string) => {
-    const { error } = await updateMainAiSession(sessionId, { archived: true });
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-    if (activeSessionId === sessionId) {
-      setActiveSessionId(null);
-      setMessages([]);
-      setInput("");
-    }
-  }, [activeSessionId]);
+      const accepted = pastedFiles.slice(0, slotsLeft);
+      const imageAdds: Array<{ dataUrl: string; name: string }> = [];
+      const docsToProcess: ProcessedAttachment[] = [];
 
-  const renameSession = React.useCallback(async (sessionId: string) => {
-    const current = sessions.find((s) => s.id === sessionId);
-    if (!current) return;
-    const next = window.prompt("Rename chat", current.title)?.trim();
-    if (!next || next === current.title) return;
-    const { error } = await updateMainAiSession(sessionId, { title: next });
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title: next } : s)));
-  }, [sessions]);
+      for (const file of accepted) {
+        const isImage = file.type.startsWith("image/");
+        const isPdf =
+          file.type === "application/pdf" ||
+          file.name.toLowerCase().endsWith(".pdf");
+        const isTextLike =
+          file.type.startsWith("text/") ||
+          file.name.toLowerCase().endsWith(".txt") ||
+          file.name.toLowerCase().endsWith(".md") ||
+          file.name.toLowerCase().endsWith(".csv") ||
+          file.name.toLowerCase().endsWith(".json");
+        if (!isImage && !isPdf && !isTextLike) {
+          toast.error(`Unsupported file: ${file.name}`);
+          continue;
+        }
+        if (file.size > MAX_IMAGE_SIZE) {
+          toast.error(`File "${file.name}" exceeds 10MB limit.`);
+          continue;
+        }
 
-  const copySessionLink = React.useCallback(async (sessionId: string) => {
-    if (typeof window === "undefined") return;
-    const url = new URL(`${window.location.origin}${pathname}`);
-    url.searchParams.set("session", sessionId);
-    try {
-      await navigator.clipboard.writeText(url.toString());
-      toast.success("Session link copied");
-    } catch {
-      toast.error("Could not copy session link");
-    }
-  }, [pathname]);
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
 
+        if (isImage) {
+          const resized = await resizeImageDataUrl(dataUrl);
+          imageAdds.push({
+            dataUrl: resized,
+            name: file.name || `pasted-image-${Date.now()}.png`,
+          });
+        } else {
+          docsToProcess.push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            dataUrl,
+            name: file.name || `pasted-file-${Date.now()}`,
+            mimeType:
+              file.type || (isPdf ? "application/pdf" : "text/plain"),
+            status: "processing",
+          });
+        }
+      }
+
+      if (imageAdds.length > 0) {
+        setAttachedImages((prev) =>
+          [...prev, ...imageAdds].slice(0, MAX_IMAGES)
+        );
+        toast.success(
+          `${imageAdds.length} image${imageAdds.length > 1 ? "s" : ""} pasted`
+        );
+      }
+
+      if (docsToProcess.length > 0) {
+        setAttachedFiles((prev) =>
+          [...prev, ...docsToProcess].slice(0, MAX_IMAGES)
+        );
+        setIsProcessingFiles(true);
+        try {
+          const res = await fetch("/api/ai/process-documents", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              files: docsToProcess.map((f) => ({
+                id: f.id,
+                name: f.name,
+                mimeType: f.mimeType,
+                dataUrl: f.dataUrl,
+              })),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          const processed = Array.isArray(data?.processed)
+            ? (data.processed as ProcessDocumentsApiItem[])
+            : [];
+          const byId = new Map<string, ProcessDocumentsApiItem>(
+            processed.map((item) => [item.id, item])
+          );
+          setAttachedFiles((prev) =>
+            prev.map((file) => {
+              const found = byId.get(file.id);
+              if (!found) return file;
+              if (found.status === "done") {
+                return {
+                  ...file,
+                  mimeType: found.mimeType ?? file.mimeType,
+                  extractedText: found.extractedText ?? file.extractedText,
+                  summary: found.summary ?? file.summary,
+                  status: "ready" as const,
+                  error: undefined,
+                };
+              }
+              return {
+                ...file,
+                status: "error" as const,
+                error: found.error ?? "Processing failed",
+              };
+            })
+          );
+        } catch {
+          setAttachedFiles((prev) =>
+            prev.map((file) =>
+              docsToProcess.some((b) => b.id === file.id)
+                ? {
+                  ...file,
+                  status: "error" as const,
+                  error: "Processing failed",
+                }
+                : file
+            )
+          );
+        } finally {
+          setIsProcessingFiles(false);
+        }
+      }
+    },
+    [attachedImages.length, attachedFiles.length]
+  );
+
+  // ─── Submit handler ──────────────────────────────────────────────────────
+
+  // Queue: when a session is being created, buffer the message to send after session is ready
+  const pendingSendRef = React.useRef<string | null>(null);
+
+  // When activeSessionId changes and we have a pending message, send it
   React.useEffect(() => {
-    // Skip if this was a user-initiated change (syncing state->URL, not URL->state)
-    if (skipNextUrlSyncRef.current) {
-      skipNextUrlSyncRef.current = false;
-      return;
+    if (activeSessionId && pendingSendRef.current !== null) {
+      const text = pendingSendRef.current;
+      pendingSendRef.current = null;
+      // Small delay to let useChat reinitialize with new chatId
+      const timer = setTimeout(() => {
+        void chat.sendMessage({ text });
+        setIsSending(false);
+      }, 100);
+      return () => clearTimeout(timer);
     }
-    const sessionIdFromUrl = searchParams.get("session");
-    if (!sessionIdFromUrl) return;
-    if (activeSessionId === sessionIdFromUrl) return;
-    if (sessions.some((s) => s.id === sessionIdFromUrl)) {
-      setActiveSessionId(sessionIdFromUrl);
-    }
-  }, [searchParams, sessions, activeSessionId]);
-
-  React.useEffect(() => {
-    const currentInUrl = searchParams.get("session");
-    if (!activeSessionId) {
-      if (!currentInUrl) return;
-      const nextParams = new URLSearchParams(searchParams.toString());
-      nextParams.delete("session");
-      const nextUrl = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
-      router.replace(nextUrl, { scroll: false });
-      return;
-    }
-    if (currentInUrl === activeSessionId) return;
-    const nextParams = new URLSearchParams(searchParams.toString());
-    nextParams.set("session", activeSessionId);
-    nextParams.delete("newSession");
-    const nextUrl = `${pathname}?${nextParams.toString()}`;
-    router.replace(nextUrl, { scroll: false });
-  }, [activeSessionId, searchParams, pathname, router]);
+  }, [activeSessionId, chat]);
 
   const handleSubmit = React.useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      let navigating = false;
       const trimmed = input.trim();
-      const seedPrompt = trimmed;
       const readyFiles = attachedFiles.filter((f) => f.status === "ready");
-      if (!trimmed && attachedImages.length === 0 && attachedFiles.length === 0) return;
+      if (
+        !trimmed &&
+        attachedImages.length === 0 &&
+        attachedFiles.length === 0
+      )
+        return;
+      // Prevent duplicate sends
+      if (isSending || isLoading) return;
       if (hasPendingAttachments || isProcessingFiles) {
         toast.error("Please wait until attachment processing is complete.");
         return;
@@ -850,421 +1085,117 @@ export function MainAiChatView({
         return;
       }
 
-      let currentSessionId = activeSessionId;
-      if (!currentSessionId) {
-        const { sessionId, error } = await createMainAiSession(workspaceId, {
-          title: "New chat",
-          messages: [],
-          input: "",
-        });
-        if (error || !sessionId) {
-          toast.error(error ?? "Could not start a chat session");
-          return;
-        }
-        currentSessionId = sessionId;
-        setActiveSessionFromUser(sessionId);
-        setSessions((prev) => [
-          {
+      // Lock immediately to prevent double-sends
+      setIsSending(true);
+
+      // Set pending attachment data for the hook's body function
+      pendingImagesRef.current = attachedImages.map((img) => img.dataUrl);
+      pendingFilesRef.current = readyFiles.map((f) => ({
+        name: f.name,
+        mimeType: f.mimeType,
+        dataUrl: f.dataUrl,
+      }));
+
+      // Store attachment meta for display
+      if (attachedImages.length > 0 || readyFiles.length > 0) {
+        pendingAttachmentMetaRef.current = {
+          images:
+            attachedImages.length > 0
+              ? attachedImages.map((img) => img.dataUrl)
+              : undefined,
+          files:
+            readyFiles.length > 0
+              ? readyFiles.map((f) => ({ name: f.name, mimeType: f.mimeType }))
+              : undefined,
+        };
+      }
+
+      // Clear attachments and input immediately
+      setAttachedImages([]);
+      setAttachedFiles([]);
+      setInput("");
+
+      const messageText = trimmed || "See attached file(s)";
+
+      // Ensure session exists
+      if (!activeSessionId) {
+        try {
+          const { sessionId, error } = await createMainAiSession(workspaceId, {
+            title: trimmed ? trimmed.slice(0, 56) : "New chat",
+            messages: [],
+            input: "",
+          });
+          if (error || !sessionId) {
+            toast.error(error ?? "Could not start a chat session");
+            setIsSending(false);
+            return;
+          }
+          const fresh: MainAiSessionItem = {
             id: sessionId,
-            title: "New chat",
+            title: trimmed ? trimmed.slice(0, 56) : "New chat",
             summary: "",
             messages: [],
             input: "",
             archived: false,
             updated_at: new Date().toISOString(),
             last_message_at: new Date().toISOString(),
-          },
-          ...prev,
-        ]);
+          };
+          setSessions((prev) => [fresh, ...prev]);
+          // Buffer the message — it will be sent when activeSessionId updates
+          pendingSendRef.current = messageText;
+          setActiveSessionFromUser(sessionId);
+        } catch {
+          toast.error("Could not start a chat session");
+          setIsSending(false);
+        }
+        return;
       }
 
-      setInlineRetry(null);
-      draftSnapshotRef.current = {
-        input,
-        attachedImages: [...attachedImages],
-        attachedFiles: [...attachedFiles],
-        selectedDocumentId,
-        selectedDocTypeId,
-      };
-
-      setInput("");
-      const textAttachmentContext =
-        readyFiles
-          .filter((f) => f.extractedText && f.extractedText.trim().length > 0)
-          .map((f) => `File: ${f.name}\n${f.extractedText}`)
-          .join("\n\n---\n\n") || "";
-      const attachmentDigest = buildAttachmentDigest(readyFiles);
-      const attachmentNames = readyFiles.map((f) => f.name);
-      const userMessage: ChatMessage = {
-        role: "user",
-        content:
-          trimmed ||
-          (readyFiles.length > 0 ? "See attached file(s)" : "See attached image(s)"),
-        images:
-          attachedImages.length > 0 ? attachedImages.map((img) => img.dataUrl) : undefined,
-        files:
-          readyFiles.length > 0
-            ? readyFiles.map((f) => ({ name: f.name, mimeType: f.mimeType }))
-            : undefined,
-      };
-      setAttachedImages([]);
-      setAttachedFiles([]);
-      setMessages((prev) => [...prev, userMessage]);
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === currentSessionId
-            ? { ...s, messages: [...s.messages, userMessage], input: "" }
-            : s
-        )
-      );
-      setLoading(true);
-      // Only show document-specific handoff steps if we're actually creating/editing a document
-      // For now, start with generic loading - steps will be shown when AI confirms document creation
-      setHandoffState("idle");
-      setHandoffSteps([]);
-
-      const historyWithCurrent = [...messages, userMessage];
-      const rollingSummary = buildRollingSummary(historyWithCurrent);
-      const compactMessages = historyWithCurrent.slice(-MAIN_AI_CONTEXT_RECENT_LIMIT);
-      const chatMessages = compactMessages.map((m) => ({
-        role: m.role,
-        content:
-          m === userMessage && textAttachmentContext
-            ? `${m.content}\n\nUploaded text attachments:\n${textAttachmentContext}`
-            : m.content,
-        images: m.images,
-        files:
-          m === userMessage
-            ? readyFiles.map((f) => ({
-                name: f.name,
-                mimeType: f.mimeType,
-                dataUrl: f.dataUrl,
-              }))
-            : undefined,
-      }));
-
-      try {
-        trackAiEvent("main_request_started", {
-          hasAttachments: attachedImages.length + attachedFiles.length > 0,
-          selectedDocumentId,
-        });
-        const res = await fetch("/api/ai/main", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            idempotencyKey: `${activeSessionId ?? "new"}:${Date.now()}:${messages.length}`,
-            messages: chatMessages,
-            workspaceContext: {
-              workspaceId,
-              workspaceName,
-              clients,
-              documentTypes,
-              selectedDocumentId,
-              documentsIndex,
-              templatesIndex,
-              sessionSummary: rollingSummary || undefined,
-            },
-          }),
-        });
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          const msg = data?.error ?? `Request failed (${res.status})`;
-          toast.error(msg);
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: `Error: ${msg}` },
-          ]);
-          trackAiEvent("main_request_failed", { status: res.status, message: msg });
-          return;
-        }
-
-        const data = (await res.json()) as {
-          message?: string;
-          sessionTitle?: string;
-          _meta?: {
-            idempotencyKey?: string;
-            toolTraceCount?: number;
-            serverAuthoritativeHandoff?: boolean;
-          };
-          clientResolution?: {
-            mode: "existing" | "create_new" | "ambiguous";
-            clientId?: string;
-            clientName?: string;
-            candidates?: Array<{ id: string; name: string }>;
-          };
-          requireClientChoice?: {
-            prompt: string;
-            options: Array<{ id: string; name: string }>;
-          };
-          createDocument?: {
-            title: string;
-            base_type: DocumentBaseType;
-            client_id: string | null;
-            document_type_id: string | null;
-            template_id?: string | null;
-          };
-          openDocumentForEditor?: {
-            documentId: string;
-            editorPrompt: string;
-            seedMessage?: string;
-          };
-        };
-
-        const clientResolution =
-          data.clientResolution ??
-          inferClientResolutionFromUserText(trimmed, clients) ??
-          undefined;
-
-        const replyMessage = data.message ?? "Done.";
-        const aiSessionTitle = data.sessionTitle?.trim();
-        const createDoc = data.createDocument;
-        if (aiSessionTitle && currentSessionId) {
-          void updateMainAiSession(currentSessionId, { title: aiSessionTitle.slice(0, 80) });
-        }
-
-        // Server-authoritative handoff: server has already created/seeded the document.
-        // Show document artifact in chat instead of navigating to editor.
-        if (data._meta?.serverAuthoritativeHandoff && data.openDocumentForEditor?.documentId) {
-          const { documentId, editorPrompt } = data.openDocumentForEditor;
-          const doc = documents.find((d) => d.id === documentId);
-          const docTitle = doc?.title ?? "this document";
-          const assistantMsg: ChatMessage = {
-            role: "assistant",
-            content: replyMessage,
-            documentArtifact: {
-              documentId,
-              title: docTitle,
-              baseType: doc?.base_type ?? "doc",
-              thumbnailUrl: doc?.thumbnail_url,
-              permission: "edit",
-            },
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === currentSessionId
-                ? {
-                    ...s,
-                    messages: [...s.messages, assistantMsg],
-                    title:
-                      s.title === "New chat"
-                        ? (aiSessionTitle || seedPrompt || replyMessage).slice(0, 56)
-                        : s.title,
-                  }
-                : s
-            )
-          );
-          setHandoffState("idle");
-          setHandoffSteps([]);
-          trackAiEvent("handoff_server_authoritative", {
-            documentId,
-            toolTraceCount: data._meta?.toolTraceCount ?? 0,
-            hasEditorPrompt: Boolean(editorPrompt),
-          });
-          return;
-        }
-        if (data.requireClientChoice?.options?.length) {
-          const options = data.requireClientChoice.options;
-          if (data.openDocumentForEditor?.documentId && data.openDocumentForEditor.editorPrompt) {
-            pendingOpenEditorRef.current = {
-              documentId: data.openDocumentForEditor.documentId,
-              editorPrompt: data.openDocumentForEditor.editorPrompt,
-              seedMessage: data.openDocumentForEditor.seedMessage,
-              attachmentDigest,
-              attachmentNames,
-            };
-          }
-          setPendingClientChoices(options);
-          const choiceContent =
-            `${replyMessage}\n\n${data.requireClientChoice?.prompt ?? "Please choose a client:"}\n` +
-            options.map((o) => `- ${o.name}`).join("\n");
-          setMessages((prev) => [...prev, { role: "assistant", content: choiceContent }]);
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === currentSessionId
-                ? { ...s, messages: [...s.messages, { role: "assistant", content: choiceContent }] }
-                : s
-            )
-          );
-          return;
-        }
-
-        // Document created - show artifact in chat instead of navigating to editor
-        if (data.openDocumentForEditor) {
-          const { documentId } = data.openDocumentForEditor;
-          const doc = documents.find((d) => d.id === documentId);
-          const docTitle = doc?.title ?? "this document";
-          const assistantMsg: ChatMessage = {
-            role: "assistant",
-            content: replyMessage,
-            documentArtifact: {
-              documentId,
-              title: docTitle,
-              baseType: doc?.base_type ?? "doc",
-              thumbnailUrl: doc?.thumbnail_url,
-              permission: "edit",
-            },
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === currentSessionId
-                ? {
-                    ...s,
-                    messages: [...s.messages, assistantMsg],
-                    title:
-                      s.title === "New chat"
-                        ? (aiSessionTitle || seedPrompt || replyMessage).slice(0, 56)
-                        : s.title,
-                  }
-                : s
-            )
-          );
-          setHandoffState("idle");
-          setHandoffSteps([]);
-          trackAiEvent("handoff_document_created", { documentId });
-          return;
-        } else if (createDoc) {
-          // Legacy fallback guard: server should already convert create -> open.
-          const warn = `${replyMessage}\n\nI prepared the plan but could not open the editor automatically. Please retry once.`;
-          setMessages((prev) => [...prev, { role: "assistant", content: warn }]);
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === currentSessionId
-                ? { ...s, messages: [...s.messages, { role: "assistant", content: warn }] }
-                : s
-            )
-          );
-          trackAiEvent("handoff_create_legacy_fallback", { hasCreateDoc: true });
-          return;
-        } else {
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: replyMessage },
-          ]);
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === currentSessionId
-                ? {
-                    ...s,
-                    messages: [...s.messages, { role: "assistant", content: replyMessage }],
-                    title:
-                      s.title === "New chat"
-                        ? (aiSessionTitle || seedPrompt || "New chat").slice(0, 56)
-                        : s.title,
-                  }
-                : s
-            )
-          );
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Request failed";
-        toast.error(msg);
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `Error: ${msg}` },
-        ]);
-        trackAiEvent("main_request_failed", { message: msg });
-      } finally {
-        setLoading(false);
-        if (!navigating) {
-          setHandoffState("idle");
-          setHandoffSteps([]);
-        }
+      // Session already exists — update title if first message
+      if (chat.messages.length === 0 && trimmed) {
+        const title = trimmed.slice(0, 56);
+        void updateMainAiSession(activeSessionId, { title });
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === activeSessionId ? { ...s, title } : s
+          )
+        );
       }
+
+      // Send directly
+      void chat.sendMessage({ text: messageText });
+      setIsSending(false);
     },
     [
+      chat,
       input,
       attachedImages,
       attachedFiles,
-      messages,
       workspaceId,
-      workspaceName,
-      clients,
-      documentTypes,
-      selectedDocumentId,
-      documentsIndex,
-      documents,
       activeSessionId,
-      templatesIndex,
+      isSending,
+      isLoading,
       hasPendingAttachments,
       isProcessingFiles,
+      setActiveSessionFromUser,
     ]
   );
 
   const handleResetChat = React.useCallback(() => {
-    setMessages([]);
+    chat.setMessages([]);
     setInput("");
-    setInlineRetry(null);
-    setHandoffState("idle");
-    setHandoffSteps([]);
-    pendingOpenEditorRef.current = null;
-    setPendingClientChoices([]);
-  }, []);
+    setActivePreview(null);
+  }, [chat]);
 
-  const retryInlineAction = React.useCallback(async () => {
-    if (!inlineRetry || !workspaceId) return;
-    setInlineRetry(null);
-    setLoading(true);
-    try {
-      if (inlineRetry.retryKind === "open" && inlineRetry.payload.documentId && inlineRetry.payload.editorPrompt) {
-        setHandoffSteps([
-          { id: "seed", label: "Preparing AI context", status: "running" },
-          { id: "open", label: "Opening editor", status: "pending" },
-        ]);
-        setHandoffState("seeding_editor");
-        const seededInput = inlineRetry.payload.attachmentDigest
-          ? `${inlineRetry.payload.editorPrompt}\n\nUse this uploaded file context from Main AI:\n${inlineRetry.payload.attachmentDigest}`
-          : inlineRetry.payload.editorPrompt;
-        await upsertDocumentAiChatSession(inlineRetry.payload.documentId, {
-          messages: [{ role: "assistant", content: inlineRetry.payload.seedMessage ?? "Let's continue in editor AI." }],
-          input: seededInput,
-        });
-        const docId = inlineRetry.payload.documentId;
-        const docTitle = documents.find((d) => d.id === docId)?.title ?? "this document";
-        const retryOpenTrace: HandoffStep[] = [
-          { id: "seed", label: `Prepared AI context for "${docTitle}"`, status: "done" },
-          { id: "open", label: "Opened document editor", status: "done" },
-        ];
-        const retryOpenMsg: ChatMessage = {
-          role: "assistant",
-          content: `Ready — **${docTitle}** is prepared and ready to use.`,
-          documentArtifact: {
-            documentId: docId,
-            title: docTitle,
-            baseType: documents.find((d) => d.id === docId)?.base_type ?? "doc",
-            thumbnailUrl: documents.find((d) => d.id === docId)?.thumbnail_url,
-            permission: "edit",
-          },
-        };
-        setMessages((prev) => [...prev, retryOpenMsg]);
-        if (activeSessionId) {
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === activeSessionId ? { ...s, messages: [...s.messages, retryOpenMsg] } : s
-            )
-          );
-        }
-        setHandoffSteps([]);
-        setHandoffState("idle");
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Retry failed";
-      toast.error(msg);
-      setHandoffSteps((prev) => prev.map((s) => s.status === "running" ? { ...s, status: "error" } : s));
-      setInlineRetry(inlineRetry);
-      setHandoffState("idle");
-    } finally {
-      setLoading(false);
-    }
-  }, [inlineRetry, workspaceId, activeSessionId, documents]);
+  // ─── No workspace guard ──────────────────────────────────────────────────
 
   if (!workspaceId) {
     return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 p-8 text-center [&_button]:cursor-pointer [&_a]:cursor-pointer">
-        <Sparkles className="size-10 text-muted-foreground" />
-        <p className="mt-4 text-sm font-medium text-foreground">No workspace selected</p>
+      <div className="flex min-h-[50vh] flex-col items-center justify-center rounded-2xl bg-neutral-50 p-8 text-center dark:bg-zinc-900 [&_button]:cursor-pointer [&_a]:cursor-pointer">
+        <Sparkles className="size-10 text-muted-foreground/50" />
+        <p className="mt-4 text-sm font-medium text-foreground">
+          No workspace selected
+        </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Select a workspace from the sidebar to use the AI assistant.
         </p>
@@ -1272,908 +1203,1072 @@ export function MainAiChatView({
     );
   }
 
-  return (
-    <div className="flex h-full w-full overflow-hidden [&_button]:cursor-pointer [&_a]:cursor-pointer">
-      {/* Sessions sidebar — flush left, full height, TBS-style */}
-      <aside
+  // ─── Render ──────────────────────────────────────────────────────────────
+
+  const sidebarContent = (
+    <div className="flex h-full w-full flex-col bg-neutral-50 dark:bg-zinc-900">
+      <div
         className={cn(
-          "hidden h-full shrink-0 flex-col overflow-hidden border-r border-border bg-background transition-all duration-200 lg:sticky lg:top-0 lg:flex",
-          sessionsCollapsed ? "w-[52px]" : "w-[240px]"
+          "flex shrink-0 items-center px-3 py-4",
+          "justify-between"
         )}
       >
-        {/* Sidebar header */}
-        <div className={cn(
-          "flex shrink-0 items-center border-b border-border px-3 py-3",
-          sessionsCollapsed ? "justify-center" : "justify-between"
-        )}>
-          {!sessionsCollapsed && (
-            <p className="text-[13px] font-semibold text-foreground">Chat sessions</p>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 shrink-0"
-            onClick={() => setSessionsCollapsed((v) => !v)}
-            aria-label={sessionsCollapsed ? "Expand chat sessions" : "Collapse chat sessions"}
-          >
-            {sessionsCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-          </Button>
-        </div>
+        <p className="text-sm font-medium text-foreground/80">
+          Chats
+        </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0"
+          onClick={() => {
+            setSessionsCollapsed(true);
+            setMobileSidebarOpen(false);
+          }}
+          aria-label="Collapse chat sessions"
+        >
+          <PanelLeftClose className="size-4" />
+        </Button>
+      </div>
 
-        {/* New chat button */}
-        {sessionsCollapsed ? (
-          <div className="flex flex-col items-center gap-2 overflow-auto px-1.5 py-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-8 shrink-0"
-              onClick={createNewSession}
-              aria-label="New chat"
-            >
-              <Plus className="size-4" />
-            </Button>
-              {filteredSessions.slice(0, 16).map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setActiveSessionFromUser(s.id)}
-                className={cn(
-                  "grid size-8 shrink-0 place-items-center rounded text-[10px] font-semibold transition-colors",
-                  activeSessionId === s.id
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/60"
-                )}
-                title={s.title}
-              >
-                {(s.title || "C").slice(0, 1).toUpperCase()}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <>
-            {/* New chat + search */}
-            <div className="shrink-0 px-3 pt-3">
-              <button
-                type="button"
-                onClick={createNewSession}
-                className="flex w-full items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <Plus className="size-3.5 shrink-0" />
-                New chat
-              </button>
-            </div>
-            <div className="shrink-0 px-3 pt-2">
-              <Input
-                value={sessionSearch}
-                onChange={(e) => setSessionSearch(e.target.value)}
-                placeholder="Search..."
-                className="h-7 text-xs"
-              />
-            </div>
-            {/* Session list */}
-            <div className="min-h-0 flex-1 overflow-auto py-2">
-              {filteredSessions.map((s) => (
-                <div
-                  key={s.id}
-                  className={cn(
-                    "group flex w-full flex-col items-stretch px-0 py-0.5 text-left transition-colors"
-                  )}
-                >
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setActiveSessionFromUser(s.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setActiveSessionFromUser(s.id);
-                      }
-                    }}
-                    className={cn(
-                      "flex w-full flex-col items-start rounded-md px-3 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                      activeSessionId === s.id
-                        ? "bg-accent text-foreground"
-                        : "text-foreground hover:bg-accent/50"
-                    )}
-                  >
-                    <p className="w-full truncate text-[13px] font-medium leading-tight">{s.title}</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {s.updated_at
-                        ? new Date(s.updated_at).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })
-                        : ""}
-                    </p>
-                  </div>
-                  {/* Session actions — outside row button to avoid invalid nested <button> */}
-                  <div className="mt-1 hidden gap-2 px-3 group-hover:flex">
-                    <button
-                      type="button"
-                      className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-                      onClick={() => {
-                        void copySessionLink(s.id);
-                      }}
-                    >
-                      Copy link
-                    </button>
-                    <button
-                      type="button"
-                      className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-                      onClick={() => {
-                        void renameSession(s.id);
-                      }}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-                      onClick={() => {
-                        void archiveSession(s.id);
-                      }}
-                    >
-                      Archive
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {filteredSessions.length === 0 && (
-                <p className="px-3 py-4 text-[12px] text-muted-foreground">No chats yet.</p>
+      <div className="shrink-0 px-3 pt-3">
+        <button
+          type="button"
+          onClick={() => {
+            createNewSession();
+            setMobileSidebarOpen(false);
+          }}
+          className="flex w-full items-center gap-2 rounded-lg bg-white px-3 py-2.5 text-sm text-foreground shadow-sm transition-all duration-200 hover:shadow dark:bg-zinc-800"
+        >
+          <Plus className="size-3.5 shrink-0" />
+          New chat
+        </button>
+      </div>
+      <div className="shrink-0 px-3 pt-2">
+        <Input
+          value={sessionSearch}
+          onChange={(e) => setSessionSearch(e.target.value)}
+          placeholder="Search..."
+          className="h-8 rounded-lg border-0 bg-white text-xs shadow-sm dark:bg-zinc-800"
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto py-2">
+        {filteredSessions.map((s) => (
+          <div
+            key={s.id}
+            className="group relative flex w-full items-center px-2 py-0.5"
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setActiveSessionFromUser(s.id);
+                setMobileSidebarOpen(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setActiveSessionFromUser(s.id);
+                  setMobileSidebarOpen(false);
+                }
+              }}
+              className={cn(
+                "flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 outline-none transition-all duration-200",
+                activeSessionId === s.id
+                  ? "bg-white text-foreground shadow-sm dark:bg-zinc-800"
+                  : "text-foreground/70 hover:bg-white/80 hover:text-foreground dark:hover:bg-zinc-800/60"
               )}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="w-full truncate text-[13px] font-medium leading-tight">
+                  {s.title}
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {s.updated_at
+                    ? new Date(s.updated_at).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                    : ""}
+                </p>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="ml-1 shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-neutral-200/60 hover:text-foreground group-hover:opacity-100 dark:hover:bg-zinc-700"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="Session options"
+                  >
+                    <Ellipsis className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" side="bottom" className="w-36">
+                  <DropdownMenuItem onClick={() => void renameSession(s.id)}>
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void copySessionLink(s.id)}>
+                    Copy link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => void archiveSession(s.id)}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-          </>
+          </div>
+        ))}
+        {filteredSessions.length === 0 && (
+          <p className="px-3 py-4 text-[12px] text-muted-foreground">
+            No chats yet.
+          </p>
         )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="relative flex h-full w-full overflow-hidden [&_button]:cursor-pointer [&_a]:cursor-pointer">
+      {/* ─── Sessions sidebar (Desktop) ─── */}
+      <aside
+        className={cn(
+          "hidden h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200/70 bg-neutral-50 transition-all duration-300 dark:border-zinc-800 dark:bg-zinc-900 lg:sticky lg:top-0 lg:flex",
+          sessionsCollapsed ? "w-0 overflow-hidden border-0 p-0" : "w-[260px]"
+        )}
+      >
+        {sidebarContent}
       </aside>
 
-      {/* Main chat content */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-4 py-4 md:px-6 md:py-6">
-      {inlineRetry && (
-        <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
-          <p className="text-xs font-medium text-foreground">{inlineRetry.title}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{inlineRetry.message}</p>
-          <div className="mt-2 flex gap-2">
-            <Button type="button" size="sm" className="h-7 text-xs" onClick={retryInlineAction}>
-              Retry
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setInlineRetry(null)}>
-              Dismiss
-            </Button>
-          </div>
-        </div>
-      )}
-      {pendingClientChoices.length > 0 && (
-        <div className="mb-3 rounded-lg border border-border bg-muted/30 p-2">
-          <p className="text-xs font-medium text-foreground">Select a client</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {pendingClientChoices.slice(0, 6).map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className="rounded-full border border-border px-2.5 py-1 text-[11px] text-foreground hover:bg-muted"
-                onClick={() => {
-                  if (pendingOpenEditorRef.current) {
-                    void resumeOpenDocumentAfterClientPick(c.id, c.name);
-                    return;
-                  }
-                  setInput(`Use client ${c.name} and continue.`);
-                  setPendingClientChoices([]);
-                }}
-              >
-                {c.name}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-muted"
-              onClick={() => setClientChoiceModalOpen(true)}
-            >
-              View all
-            </button>
-          </div>
-        </div>
-      )}
-      {hasChatStarted ? (
-        <>
-          <div className="flex shrink-0 items-center justify-between border-b border-border pb-4">
-            <div>
-              <h1 className="font-ui text-base font-semibold tracking-tight text-foreground">
-              {workspaceName ? `Workspace: ${workspaceName}` : "AI Workspace"}
-              </h1>
-             
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-xs text-muted-foreground hover:text-foreground"
-              onClick={handleResetChat}
-            >
-              New chat
-            </Button>
-          </div>
+      {/* ─── Sessions sidebar (Mobile) ─── */}
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetContent side="left" className="w-[280px] p-0 sm:w-[320px]">
+          {sidebarContent}
+        </SheetContent>
+      </Sheet>
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-4">
-            <div className="flex-1 overflow-auto">
-              <div className="flex flex-col gap-3 text-sm">
-                {messages.map((m, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      "rounded-lg border border-border p-3",
-                      m.role === "user"
-                        ? "ml-4 bg-muted/50 text-foreground"
-                        : "bg-background text-muted-foreground"
-                    )}
-                  >
-                    <p className="mb-1 text-xs font-medium text-muted-foreground">
-                      {m.role === "user" ? "You" : "Assistant"}
-                    </p>
-                    {m.role === "assistant" ? (
-                      <>
-                        <div className="whitespace-pre-wrap">{formatAiMessage(m.content)}</div>
-                        {m.documentLink?.phase === "opening" && (
-                          <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Loader2 className="size-3 animate-spin" />
-                            Opening editor for &ldquo;{m.documentLink.title}&rdquo;...
+      {/* Floating pill when sidebar is collapsed (or on mobile) */}
+      <div className={cn(
+        "absolute left-3 top-3 z-30 flex animate-in fade-in-0 slide-in-from-left-2 items-center gap-1 rounded-full bg-white p-1 shadow-md ring-1 ring-neutral-200/60 duration-200 dark:bg-zinc-900 dark:ring-zinc-700",
+        sessionsCollapsed ? "flex" : "flex lg:hidden"
+      )}>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 rounded-full text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setSessionsCollapsed(false);
+                  setMobileSidebarOpen(true);
+                }}
+                aria-label="Open chat sessions"
+              >
+                <PanelLeftOpen className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={8}>
+              Open sidebar
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 rounded-full text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  createNewSession();
+                  setMobileSidebarOpen(false);
+                }}
+                aria-label="New chat"
+              >
+                <Plus className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={8}>
+              New chat
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+
+      {/* ─── Main chat area ─── */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-neutral-100/70 dark:bg-zinc-950">
+        <div className="flex h-full w-full max-w-3xl mx-auto">
+          {/* Chat column */}
+          <div
+            className={cn(
+              "flex min-w-0 flex-col",
+              activePreview ? "flex-1" : "flex-1"
+            )}
+          >
+            <div className="relative flex h-full min-h-0 w-full flex-col">
+              {hasChatStarted ? (
+                <>
+                  {/* Scrollable messages — scrollbar sits at the far left edge */}
+                  <div className="flex-1 overflow-y-auto">
+                    <div className="mx-auto w-full max-w-3xl px-4 md:px-8">
+                      <div className="flex flex-col gap-6 pb-40 pt-6 text-[0.9rem] leading-relaxed">
+                        {chat.messages.map((m) => (
+                          <div
+                            key={m.id}
+                            className={cn(
+                              "flex animate-in fade-in-0 slide-in-from-bottom-2 duration-300",
+                              m.role === "user"
+                                ? "justify-end"
+                                : "justify-start"
+                            )}
+                          >
+                            {m.role === "assistant" ? (
+                              <div className="max-w-[90%] text-foreground">
+                                <AssistantMessageContent
+                                  message={m}
+                                  onPreviewDocument={(doc) =>
+                                    setActivePreview(doc)
+                                  }
+                                />
+                              </div>
+                            ) : (
+                              <div className="flex max-w-[85%] flex-col items-end gap-2">
+                                <UserMessageContent
+                                  message={m}
+                                  meta={userMessageMetaRef.current.get(m.id)}
+                                />
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {m.documentLink?.phase === "opened" && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <Check className="size-3.5 shrink-0 text-green-600" />
-                            <span>
-                              Opened{" "}
-                              <Link
-                                href={`/d/${m.documentLink.documentId}?aiOpen=1`}
-                                className="font-medium text-foreground underline-offset-2 hover:underline"
-                              >
-                                {m.documentLink.title}
-                              </Link>
-                              {" "}in the editor.
-                            </span>
-                          </div>
-                        )}
-                        {m.handoffTrace && m.handoffTrace.length > 0 && (
-                          <div className="mt-3 rounded-lg border border-border bg-muted/20 px-3 py-2">
-                            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Steps completed
-                            </p>
-                            <ul className="space-y-1.5">
-                              {m.handoffTrace.map((step) => (
-                                <li key={`${step.id}-${step.label}`} className="flex items-start gap-2 text-[11px]">
-                                  {step.status === "error" ? (
-                                    <X className="mt-0.5 size-3 shrink-0 text-destructive" />
-                                  ) : (
-                                    <Check className="mt-0.5 size-3 shrink-0 text-green-600" />
-                                  )}
-                                  <span className={step.status === "error" ? "text-destructive" : "text-muted-foreground"}>
-                                    {step.label}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {m.documentArtifact && (
-                          <div className="mt-4">
-                            <DocumentArtifact
-                              documentId={m.documentArtifact.documentId}
-                              title={m.documentArtifact.title}
-                              baseType={m.documentArtifact.baseType}
-                              thumbnailUrl={m.documentArtifact.thumbnailUrl}
-                              permission={m.documentArtifact.permission}
-                              collaboratorsCount={m.documentArtifact.collaboratorsCount}
-                              shareToken={m.documentArtifact.shareToken}
-                              onEdit={(docId) => {
-                                const url = `/d/${docId}?aiOpen=1`;
-                                window.location.assign(url);
+                        ))}
+                        {isLoading &&
+                          chat.messages.at(-1)?.role !== "assistant" && (
+                            <div className="flex animate-in fade-in-0 slide-in-from-bottom-2 justify-start duration-300">
+                              <div className="flex items-center gap-2 px-1 py-3">
+                                <span className="size-2 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: '0ms', animationDuration: '1s' }} />
+                                <span className="size-2 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: '200ms', animationDuration: '1s' }} />
+                                <span className="size-2 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: '400ms', animationDuration: '1s' }} />
+                              </div>
+                            </div>
+                          )}
+                        <div ref={messagesEndRef} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Floating input — pinned to bottom with gradient fade */}
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+                    <div className="h-8 " />
+                    <div className="pointer-events-auto pb-4">
+                      <div className="mx-auto w-full max-w-3xl px-4 md:px-8">
+                        <AttachmentPreview
+                          images={attachedImages}
+                          files={attachedFiles}
+                          selectedDocument={selectedDocument}
+                          onRemoveSelectedDocument={() => setSelectedDocumentId(null)}
+                          isProcessing={isProcessingFiles}
+                          hasPending={hasPendingAttachments}
+                          processingReady={processingReady}
+                          processingTotal={processingTotal}
+                          onRemoveImage={(i) =>
+                            setAttachedImages((prev) =>
+                              prev.filter((_, j) => j !== i)
+                            )
+                          }
+                          onRemoveFile={(id) =>
+                            setAttachedFiles((prev) =>
+                              prev.filter((f) => f.id !== id)
+                            )
+                          }
+                          onRetryFile={retryAttachmentProcessing}
+                        />
+                        <form className="flex gap-2" onSubmit={handleSubmit}>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*,.pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,application/pdf"
+                            multiple
+                            className="hidden"
+                            onChange={handleImageAttach}
+                          />
+                          <div className="flex min-w-0 flex-1 items-end gap-1 rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-neutral-200/50 transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/20 dark:bg-zinc-900 dark:ring-zinc-700/50">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={
+                                isLoading ||
+                                isProcessingFiles ||
+                                attachedImages.length + attachedFiles.length >=
+                                MAX_IMAGES
+                              }
+                              aria-label="Attach file"
+                            >
+                              <Paperclip className="size-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                              onClick={() => setShowAllRecentDocs(true)}
+                              aria-label="Search recent documents"
+                            >
+                              <Search className="size-3.5" />
+                            </Button>
+
+                            <textarea
+                              ref={textareaRef}
+                              placeholder="Ask to create a document or edit selected..."
+                              className="min-h-[24px] max-h-36 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                              rows={1}
+                              value={input}
+                              onChange={(e) => setInput(e.target.value)}
+                              onPaste={handlePaste}
+                              disabled={isLoading}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleSubmit(
+                                    e as unknown as React.FormEvent
+                                  );
+                                }
                               }}
                             />
                           </div>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <p className="whitespace-pre-wrap">{m.content}</p>
-                        {m.images && m.images.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {m.images.map((src, j) => (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                key={j}
-                                src={src}
-                                alt="attached"
-                                className="h-16 w-16 rounded border border-border object-cover"
-                              />
-                            ))}
-                          </div>
-                        )}
-                        {m.files && m.files.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {m.files.map((file, j) => (
-                              <span
-                                key={`${file.name}-${j}`}
-                                className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-                              >
-                                {file.name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ))}
-                {/* In-chat handoff step indicators */}
-                {handoffSteps.length > 0 && (
-                  <div className="rounded-xl border border-border bg-background p-4">
-                    <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Working on it</p>
-                    <div className="space-y-2.5">
-                      {handoffSteps.map((step) => (
-                        <div key={step.id} className="flex items-start gap-2.5">
-                          <div className="mt-0.5 shrink-0">
-                            {step.status === "running" && <Loader2 className="size-3.5 animate-spin text-foreground" />}
-                            {step.status === "done" && <Check className="size-3.5 text-green-500" />}
-                            {step.status === "error" && <X className="size-3.5 text-destructive" />}
-                            {step.status === "pending" && <div className="size-3.5 rounded-full border border-border" />}
-                          </div>
-                          <div className="min-w-0">
-                            <p className={cn(
-                              "text-[13px] leading-tight",
-                              step.status === "done" ? "text-muted-foreground line-through" :
-                              step.status === "error" ? "text-destructive" :
-                              step.status === "running" ? "font-medium text-foreground" :
-                              "text-muted-foreground"
-                            )}>
-                              {step.label}
-                            </p>
-                            {step.detail && (
-                              <p className="mt-0.5 text-[11px] text-destructive">{step.detail}</p>
+                          <Button
+                            type="submit"
+                            size="icon"
+                            className="size-9 shrink-0 self-end rounded-full shadow-sm transition-all duration-200 hover:shadow-md"
+                            disabled={
+                              isLoading ||
+                              (!input.trim() &&
+                                attachedImages.length === 0 &&
+                                attachedFiles.length === 0) ||
+                              hasPendingAttachments
+                            }
+                          >
+                            {isLoading ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <ArrowUp className="size-4" />
                             )}
+                          </Button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* ─── Welcome screen ─── */
+                <div className="flex min-h-0 flex-1 flex-col items-center px-4">
+                  <div className="flex w-full flex-1 flex-col items-center justify-center">
+                    <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+                      {greetingLabel}
+                    </h1>
+                    <div className="mt-5 w-full max-w-3xl">
+                      <form className="space-y-2" onSubmit={handleSubmit}>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*,.pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,application/pdf"
+                          multiple
+                          className="hidden"
+                          onChange={handleImageAttach}
+                        />
+                        <AttachmentPreview
+                          images={attachedImages}
+                          files={attachedFiles}
+                          selectedDocument={selectedDocument}
+                          onRemoveSelectedDocument={() => setSelectedDocumentId(null)}
+                          isProcessing={isProcessingFiles}
+                          hasPending={hasPendingAttachments}
+                          processingReady={processingReady}
+                          processingTotal={processingTotal}
+                          onRemoveImage={(i) =>
+                            setAttachedImages((prev) =>
+                              prev.filter((_, j) => j !== i)
+                            )
+                          }
+                          onRemoveFile={(id) =>
+                            setAttachedFiles((prev) =>
+                              prev.filter((f) => f.id !== id)
+                            )
+                          }
+                          onRetryFile={retryAttachmentProcessing}
+                        />
+                        <div className="rounded-2xl bg-white shadow-sm transition-all duration-300 ease-out focus-within:shadow-md dark:bg-zinc-900">
+                          <div className="px-2 pt-1">
+                            <textarea
+                              ref={textareaRef}
+                              placeholder="What do you want to create?"
+                              className="w-full resize-none bg-transparent p-3 text-base outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
+                              rows={2}
+                              value={input}
+                              onChange={(e) => setInput(e.target.value)}
+                              onPaste={handlePaste}
+                              disabled={isLoading}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleSubmit(
+                                    e as unknown as React.FormEvent
+                                  );
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between p-3">
+                            <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 shrink-0 rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:text-muted-foreground/60 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={
+                                  isLoading ||
+                                  isProcessingFiles ||
+                                  attachedImages.length + attachedFiles.length >=
+                                  MAX_IMAGES
+                                }
+                                aria-label="Attach file"
+                              >
+                                <Plus className="size-4" />
+                              </Button>
+                            </div>
+                            <div className="ml-3 flex items-center gap-2">
+                              <Button
+                                type="submit"
+                                size="icon"
+                                className="size-8 rounded-full transition-colors hover:bg-primary hover:text-primary-foreground dark:text-muted-foreground/60 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                                disabled={
+                                  isLoading ||
+                                  (!input.trim() &&
+                                    attachedImages.length === 0 &&
+                                    attachedFiles.length === 0) ||
+                                  hasPendingAttachments
+                                }
+                              >
+                                {isLoading ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <ArrowUp className="size-4" />
+                                )}
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {loading && handoffSteps.length === 0 && (
-                  <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-3 text-muted-foreground">
-                    <Loader2 className="size-4 shrink-0 animate-spin" />
-                    <span className="text-xs">Thinking...</span>
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-            </div>
-
-            <div className="sticky bottom-0 z-20 shrink-0 border-t border-border bg-background pt-3">
-              {attachedImages.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {attachedImages.map((img, i) => (
-                    <div key={i} className="group relative">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={img.dataUrl}
-                        alt={img.name}
-                        className="h-12 w-12 rounded border border-border object-cover"
-                      />
-                      <button
-                        type="button"
-                        className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-white opacity-0 transition-opacity group-hover:opacity-100"
-                        onClick={() =>
-                          setAttachedImages((prev) => prev.filter((_, j) => j !== i))
-                        }
-                      >
-                        <X className="size-2.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {attachedFiles.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {attachedFiles.map((file, i) => (
-                    <span
-                      key={`${file.id}-${i}`}
-                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-foreground"
-                    >
-                      <span className="max-w-[180px] truncate">{file.name}</span>
-                      {file.status === "processing" && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
-                      {file.status === "ready" && <Check className="size-3 text-muted-foreground" />}
-                      {file.status === "error" && (
-                        <button
-                          type="button"
-                          className="text-[10px] text-destructive hover:underline"
-                          onClick={() => retryAttachmentProcessing(file.id)}
-                        >
-                          retry
-                        </button>
+                      </form>
+                      {documentTypeChips.length > 0 && (
+                        <div className="mt-5 flex flex-wrap justify-center gap-2">
+                          {documentTypeChips.map((t) => {
+                            const Icon = t.display.icon;
+                            const selected = selectedDocTypeId === t.id;
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                className={cn(
+                                  "inline-flex border border-gray-200 dark:border-gray-800 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs transition-all duration-200",
+                                  selected
+                                    ? "bg-white  text-foreground shadow-sm dark:bg-zinc-800"
+                                    : "bg-white/60 text-muted-foreground hover:bg-white hover:text-foreground dark:bg-zinc-800/40 dark:hover:bg-zinc-800"
+                                )}
+                                onClick={() => {
+                                  setSelectedDocTypeId((prevSelected) => {
+                                    const nextSelected =
+                                      prevSelected === t.id ? null : t.id;
+                                    if (nextSelected) {
+                                      setInput((prevInput: string) =>
+                                        prevInput
+                                          ? prevInput
+                                          : `Create a ${t.name}`
+                                      );
+                                    }
+                                    return nextSelected;
+                                  });
+                                }}
+                              >
+                                <Icon
+                                  weight="fill"
+                                  className="size-5"
+                                  style={{ color: t.display.color }}
+                                />
+                                <span className="text-sm font-medium">
+                                  {t.name}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={() => setAttachedFiles((prev) => prev.filter((f) => f.id !== file.id))}
-                        aria-label={`Remove ${file.name}`}
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              {(processingTotal > 0 || isProcessingFiles) && (
-                <div className="mb-2 inline-flex items-center gap-2 rounded border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground">
-                  {(isProcessingFiles || hasPendingAttachments) && <Loader2 className="size-3 animate-spin" />}
-                  <span>Processing files: {processingReady}/{processingTotal} ready</span>
-                </div>
-              )}
-              <form className="flex gap-2" onSubmit={handleSubmit}>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*,.pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,application/pdf"
-                  multiple
-                  className="hidden"
-                  onChange={handleImageAttach}
-                />
-                <div className="flex min-w-0 flex-1 items-end gap-1 rounded-2xl border border-input bg-background px-2 py-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={loading || isProcessingFiles || attachedImages.length + attachedFiles.length >= MAX_IMAGES}
-                    aria-label="Attach image"
-                  >
-                    <Paperclip className="size-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowAllRecentDocs(true)}
-                    aria-label="Search recent documents"
-                  >
-                    <Search className="size-3.5" />
-                  </Button>
-                  {selectedDocument && (
-                    <div className="mb-0.5 inline-flex max-w-[45%] items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] text-foreground">
-                      <span className="truncate">Editing: {selectedDocument.title}</span>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedDocumentId(null)}
-                        className="text-muted-foreground hover:text-foreground"
-                        aria-label="Clear selected document"
-                      >
-                        <X className="size-3" />
-                      </button>
+                    </div>
+                  </div>
+                  {/* Recent documents inside the welcome scroll area */}
+                  {documents.length > 0 && (
+                    <div className="w-full max-w-3xl">
+                      <RecentDocumentsSection
+                        documents={documents}
+                        selectedDocumentId={selectedDocumentId}
+                        onViewAll={() => setShowAllRecentDocs(true)}
+                        onSelectDocument={(id) => {
+                          setSelectedDocumentId(id);
+                        }}
+                      />
                     </div>
                   )}
-                  <textarea
-                    ref={textareaRef}
-                    placeholder="Ask to create a document or edit selected..."
-                    className="min-h-[24px] max-h-36 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
-                    rows={1}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    disabled={loading}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSubmit(e as unknown as React.FormEvent);
-                      }
-                    }}
-                  />
                 </div>
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="shrink-0 self-end rounded-full"
-                  disabled={
-                    loading ||
-                    (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0) ||
-                    hasPendingAttachments
-                  }
+              )}
+
+
+
+              {/* Document search sheet (supports both chat started and welcome screen) */}
+              <Sheet
+                  open={showAllRecentDocs}
+                  onOpenChange={setShowAllRecentDocs}
                 >
-                  {loading ? <Loader2 className="size-4 animate-spin" /> : "Send"}
-                </Button>
-              </form>
+                  <SheetContent side="bottom" className="h-[85vh] max-h-[85vh] w-full max-w-5xl mx-auto rounded-t-2xl px-6 md:px-8 py-6 flex flex-col gap-0 border-x border-t border-border">
+                    <SheetHeader className="px-0 pb-4 text-left">
+                      <SheetTitle>Select a document</SheetTitle>
+                    </SheetHeader>
+                    <div className="mb-4 shrink-0">
+                      <Input
+                        value={docSearch}
+                        onChange={(e) => setDocSearch(e.target.value)}
+                        placeholder="Search documents..."
+                        className="h-10 text-base md:text-sm"
+                      />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 overflow-y-auto pb-8 pr-1">
+                      {filteredDocuments.slice(0, 24).map((doc) => {
+                        const typeConfig = doc.document_type
+                          ? getDisplayForDocumentType(doc.document_type)
+                          : BASE_TYPE_FALLBACK[doc.base_type];
+                        const Icon = typeConfig.icon;
+                        const isSelected = selectedDocumentId === doc.id;
+                        return (
+                          <button
+                            key={doc.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedDocumentId(doc.id);
+                              setShowAllRecentDocs(false);
+                            }}
+                            className={cn(
+                              "group rounded-xl p-3 text-left transition-all duration-200 hover:shadow-sm border border-border bg-white dark:bg-zinc-900",
+                              isSelected
+                                ? "ring-2 ring-primary/40 shadow-sm"
+                                : ""
+                            )}
+                          >
+                            <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-neutral-100 dark:bg-zinc-800">
+                              {doc.thumbnail_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={doc.thumbnail_url}
+                                  alt=""
+                                  className="absolute inset-0 h-full w-full object-cover object-left-top"
+                                />
+                              ) : (
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <Icon
+                                    weight="fill"
+                                    className="size-8"
+                                    style={{ color: typeConfig.color }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                            <p className="mt-2 truncate text-sm font-medium text-foreground">
+                              {doc.title}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+
+              {/* Client choice modal */}
+              <Dialog
+                open={clientChoiceModalOpen}
+                onOpenChange={setClientChoiceModalOpen}
+              >
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Select client</DialogTitle>
+                  </DialogHeader>
+                  <div className="max-h-[420px] space-y-1 overflow-auto">
+                    {clients.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="w-full rounded-lg bg-neutral-100 px-3 py-2.5 text-left text-sm transition-colors hover:bg-neutral-200/70 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                        onClick={() => {
+                          setInput(`Use client ${c.name} and continue.`);
+                          setClientChoiceModalOpen(false);
+                        }}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
-        </>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8">
-          <h1 className="text-4xl font-semibold text-foreground font-[family-name:var(--font-playfair)] ">
-          {greetingLabel}!
-          </h1>
-          <div className="w-full">
-            {selectedDocument && (
-              <div className="mb-3 inline-flex items-center gap-2 rounded-xl border border-border bg-muted/40 p-1.5 pr-2 text-xs text-foreground">
-                <div className="relative size-10 overflow-hidden rounded-md bg-muted">
-                  {selectedDocument.thumbnail_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={selectedDocument.thumbnail_url}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-cover object-left-top"
+
+          {/* ─── Document preview panel ─── */}
+          {activePreview && (
+            <div className="hidden w-[50%] shrink-0 border-l border-border/30 md:flex">
+              <DocumentPreviewPanel
+                documentId={activePreview.documentId}
+                title={activePreview.title}
+                baseType={activePreview.baseType}
+                content={activePreview.content}
+                className="w-full"
+                onClose={() => setActivePreview(null)}
+                onOpenInEditor={(docId) => {
+                  window.location.assign(`/d/${docId}?aiOpen=1`);
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+/** Renders an assistant message's parts (text, tool invocations, artifacts) */
+function AssistantMessageContent({
+  message,
+  onPreviewDocument,
+}: {
+  message: UIMessage;
+  onPreviewDocument: (doc: ActivePreview) => void;
+}) {
+  if (!message.parts || message.parts.length === 0) {
+    return (
+      <div>
+        <MarkdownContent text={getMessageText(message)} />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {message.parts.map((part, i) => {
+        if (part.type === "text") {
+          if (!part.text.trim()) return null;
+          return (
+            <div key={i}>
+              <MarkdownContent text={part.text} />
+            </div>
+          );
+        }
+
+        // Handle tool parts (typed: 'tool-${name}' or dynamic: 'dynamic-tool')
+        const toolInfo = getToolInfo(part);
+        if (toolInfo) {
+          const { toolName, state } = toolInfo;
+
+          // Tool in progress
+          if (state === "input-streaming" || state === "input-available") {
+            return (
+              <div
+                key={i}
+                className="mt-3 inline-flex animate-in fade-in-0 slide-in-from-bottom-1 items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-muted-foreground duration-200 dark:bg-zinc-800"
+              >
+                <Loader2 className="size-3 animate-spin" />
+                <span>{getToolLabel(toolName)}...</span>
+              </div>
+            );
+          }
+
+          // Tool completed
+          if (state === "output-available") {
+            const result = toolInfo.output as DocumentToolResult | undefined;
+            const isDocTool = DOCUMENT_TOOL_NAMES_SET.has(toolName);
+
+            if (isDocTool && result?.success) {
+              const documentId =
+                result.document_id ?? result.documentId;
+              if (documentId) {
+                return (
+                  <div
+                    key={i}
+                    className="mt-4 animate-in fade-in-0 slide-in-from-bottom-2 cursor-pointer duration-300"
+                    onClick={() => {
+                      onPreviewDocument({
+                        documentId,
+                        title: result.title ?? "Document",
+                        baseType: result.base_type ?? "doc",
+                        content: result.updatedContent,
+                      });
+                    }}
+                  >
+                    <DocumentArtifact
+                      documentId={documentId}
+                      title={result.title ?? "Document"}
+                      baseType={result.base_type ?? "doc"}
+                      permission="edit"
+                      onEdit={(docId) => {
+                        window.location.assign(`/d/${docId}?aiOpen=1`);
+                      }}
                     />
+                  </div>
+                );
+              }
+            }
+
+            // Non-document tool result — show success/error
+            if (result && typeof result === "object" && "success" in result) {
+              return (
+                <div
+                  key={i}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-muted-foreground dark:bg-zinc-800"
+                >
+                  {result.success ? (
+                    <Check className="size-3 text-emerald-500" />
                   ) : (
-                    <div className="absolute inset-0 grid place-items-center text-[10px] text-muted-foreground">
-                      Doc
-                    </div>
+                    <X className="size-3 text-destructive" />
                   )}
+                  <span>
+                    {getToolLabel(toolName)}{" "}
+                    {result.success ? "done" : "failed"}
+                  </span>
                 </div>
-                <div className="max-w-[240px] min-w-0">
-                  <p className="truncate text-[11px] text-muted-foreground">Selected document</p>
-                  <p className="truncate text-xs font-medium">{selectedDocument.title}</p>
-                </div>
+              );
+            }
+
+            return null;
+          }
+
+          // Tool error
+          if (state === "error") {
+            return (
+              <div
+                key={i}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-destructive dark:bg-red-950/40"
+              >
+                <X className="size-3" />
+                <span>{getToolLabel(toolName)} failed</span>
+              </div>
+            );
+          }
+
+          return null;
+        }
+
+        return null;
+      })}
+    </>
+  );
+}
+
+/** Renders a user message with optional attachment metadata */
+function UserMessageContent({
+  message,
+  meta,
+}: {
+  message: UIMessage;
+  meta?: UserMessageMeta;
+}) {
+  const text = getMessageText(message);
+  const hasImages = meta?.images && meta.images.length > 0;
+  const hasFiles = meta?.files && meta.files.length > 0;
+
+  return (
+    <>
+      {/* Attached images shown above the text bubble */}
+      {hasImages && (
+        <div className={cn(
+          "flex flex-wrap justify-end gap-1.5",
+          meta!.images!.length === 1 ? "" : "max-w-[320px]"
+        )}>
+          {meta!.images!.map((src, j) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={j}
+              src={src}
+              alt="attached"
+              className={cn(
+                "rounded-2xl object-cover shadow-sm",
+                meta!.images!.length === 1
+                  ? "max-h-64 max-w-[280px]"
+                  : "h-24 w-24 sm:h-28 sm:w-28"
+              )}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Attached files shown above the text bubble */}
+      {hasFiles && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {meta!.files!.map((file, j) => (
+            <span
+              key={`${file.name}-${j}`}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-white/20 px-3 py-1.5 text-xs font-medium backdrop-blur-sm"
+            >
+              <FileText className="size-3.5 opacity-70" />
+              <span className="max-w-[160px] truncate">{file.name}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Text bubble */}
+      {text && text !== "See attached file(s)" && (
+        <div className="rounded-2xl rounded-br-md bg-foreground px-4 py-2.5 text-background">
+          <p className="whitespace-pre-wrap leading-relaxed">{text}</p>
+        </div>
+      )}
+      {text === "See attached file(s)" && !hasImages && !hasFiles && (
+        <div className="rounded-2xl rounded-br-md bg-foreground px-4 py-2.5 text-background">
+          <p className="whitespace-pre-wrap leading-relaxed">{text}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Shared attachment preview strip (used in both welcome and chat input areas) */
+function AttachmentPreview({
+  images,
+  files,
+  selectedDocument,
+  onRemoveSelectedDocument,
+  isProcessing,
+  hasPending,
+  processingReady,
+  processingTotal,
+  onRemoveImage,
+  onRemoveFile,
+  onRetryFile,
+}: {
+  images: Array<{ dataUrl: string; name: string }>;
+  files: ProcessedAttachment[];
+  selectedDocument?: { title: string; thumbnail_url?: string | null } | null;
+  onRemoveSelectedDocument?: () => void;
+  isProcessing: boolean;
+  hasPending: boolean;
+  processingReady: number;
+  processingTotal: number;
+  onRemoveImage: (index: number) => void;
+  onRemoveFile: (id: string) => void;
+  onRetryFile: (id: string) => void;
+}) {
+  const hasContent = images.length > 0 || files.length > 0 || !!selectedDocument;
+  if (!hasContent) return null;
+
+  /** Extract file extension */
+  const getFileExt = (name: string) => {
+    const ext = name.split(".").pop()?.toUpperCase() ?? "";
+    return ext.length > 5 ? ext.slice(0, 4) : ext;
+  };
+
+  return (
+    <div className="mb-2 -mx-1 flex items-center gap-2 overflow-x-auto px-1 py-1" style={{ scrollbarWidth: 'none' }}>
+      {/* ── Selected document card ── */}
+      {selectedDocument && (
+        <div className="group relative flex h-14 shrink-0 max-w-[200px] animate-in fade-in-0 slide-in-from-bottom-1 items-center gap-2 rounded-xl bg-white p-1.5 pr-2.5 ring-1 ring-neutral-200/60 transition-all duration-200 hover:ring-neutral-300 dark:bg-zinc-800/80 dark:ring-zinc-700 dark:hover:ring-zinc-600">
+          <div className="relative size-10 shrink-0 overflow-hidden rounded-lg bg-neutral-100 dark:bg-zinc-700">
+            {selectedDocument.thumbnail_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={selectedDocument.thumbnail_url}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover object-left-top"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <FileText className="size-4 text-neutral-400 dark:text-zinc-500" />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[9px] text-muted-foreground">Selected document</p>
+            <p className="truncate text-xs font-medium text-foreground">
+              {selectedDocument.title}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRemoveSelectedDocument}
+            className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-neutral-200/80 text-neutral-500 opacity-0 transition-all duration-150 hover:bg-neutral-300 hover:text-foreground group-hover:opacity-100 dark:bg-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-600 dark:hover:text-zinc-200"
+            aria-label="Clear selected document"
+          >
+            <X className="size-2.5" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Image thumbnails ── */}
+      {images.map((img, i) => (
+        <div
+          key={`img-${img.name}-${i}`}
+          className="group relative size-14 shrink-0 animate-in fade-in-0 zoom-in-95 overflow-hidden rounded-xl bg-neutral-100 ring-1 ring-neutral-200/60 transition-all duration-200 hover:ring-neutral-300 dark:bg-zinc-800 dark:ring-zinc-700 dark:hover:ring-zinc-600"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={img.dataUrl}
+            alt={img.name}
+            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+          />
+          <button
+            type="button"
+            className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur-sm transition-all duration-150 hover:bg-black/80 group-hover:opacity-100"
+            onClick={() => onRemoveImage(i)}
+            aria-label={`Remove ${img.name}`}
+          >
+            <X className="size-2.5" />
+          </button>
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-1 pb-0.5 pt-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            <p className="truncate text-[8px] font-medium text-white">{img.name}</p>
+          </div>
+        </div>
+      ))}
+
+      {/* ── File cards (compact neutral) ── */}
+      {files.map((file, i) => (
+        <div
+          key={`file-${file.id}-${i}`}
+          className="group relative flex h-14 shrink-0 animate-in fade-in-0 slide-in-from-bottom-1 items-center gap-2 rounded-xl bg-white px-2.5 ring-1 ring-neutral-200/60 transition-all duration-200 hover:ring-neutral-300 dark:bg-zinc-800/80 dark:ring-zinc-700 dark:hover:ring-zinc-600"
+        >
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 dark:bg-zinc-700">
+            <FileText className="size-4 text-neutral-400 dark:text-zinc-500" />
+          </div>
+          <div className="min-w-0 pr-3">
+            <p className="max-w-[130px] truncate text-xs font-medium text-foreground">
+              {file.name}
+            </p>
+            <div className="mt-px flex items-center gap-1">
+              <span className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                {getFileExt(file.name)}
+              </span>
+              {file.status === "processing" && (
+                <Loader2 className="size-2.5 animate-spin text-muted-foreground" />
+              )}
+              {file.status === "ready" && (
+                <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                  <Check className="size-2.5" />
+                  Ready
+                </span>
+              )}
+              {file.status === "error" && (
                 <button
                   type="button"
-                  onClick={() => setSelectedDocumentId(null)}
-                  className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  aria-label="Clear selected document"
+                  className="text-[9px] text-destructive hover:underline"
+                  onClick={() => onRetryFile(file.id)}
                 >
-                  <X className="size-3.5" />
+                  Failed — retry
                 </button>
-              </div>
-            )}
-            <form className="space-y-2" onSubmit={handleSubmit}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,.pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,application/pdf"
-                multiple
-                className="hidden"
-                onChange={handleImageAttach}
-              />
-              {attachedImages.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {attachedImages.map((img, i) => (
-                    <span
-                      key={`${img.name}-${i}`}
-                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-foreground"
-                    >
-                      <span className="max-w-[180px] truncate">{img.name}</span>
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={() => setAttachedImages((prev) => prev.filter((_, j) => j !== i))}
-                        aria-label={`Remove ${img.name}`}
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
               )}
-              {attachedFiles.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {attachedFiles.map((file, i) => (
-                    <span
-                      key={`${file.id}-${i}`}
-                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-foreground"
-                    >
-                      <span className="max-w-[180px] truncate">{file.name}</span>
-                      {file.status === "processing" && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
-                      {file.status === "ready" && <Check className="size-3 text-muted-foreground" />}
-                      {file.status === "error" && (
-                        <button
-                          type="button"
-                          className="text-[10px] text-destructive hover:underline"
-                          onClick={() => retryAttachmentProcessing(file.id)}
-                        >
-                          retry
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={() => setAttachedFiles((prev) => prev.filter((f) => f.id !== file.id))}
-                        aria-label={`Remove ${file.name}`}
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              {(processingTotal > 0 || isProcessingFiles) && (
-                <div className="mb-2 inline-flex items-center gap-2 rounded border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground">
-                  {(isProcessingFiles || hasPendingAttachments) && <Loader2 className="size-3 animate-spin" />}
-                  <span>Processing files: {processingReady}/{processingTotal} ready</span>
-                </div>
-              )}
-              <div className="rounded-3xl border border-input bg-muted/60 focus-within:bg-muted/80 transition-colors duration-200 ease-out">
-                <div className="px-2 pt-1">
-                  <textarea
-                    ref={textareaRef}
-                    placeholder="What do you want to create for your client?"
-                    className="w-full resize-none p-3 text-base outline-none placeholder:text-muted-foreground disabled:opacity-50"
-                    rows={2}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    disabled={loading}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSubmit(e as unknown as React.FormEvent);
-                      }
-                    }}
-                  />
-                </div>
-                <div className="flex items-center justify-between p-3">
-                  <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto border border-border rounded-full bg-muted/30">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0 rounded-full text-foreground hover:text-foreground hover:bg-muted/90"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={loading || isProcessingFiles || attachedImages.length + attachedFiles.length >= MAX_IMAGES}
-                      aria-label="Attach image"
-                    >
-                      <Plus className="size-4" />
-                    </Button>
-                  </div>
-                  <div className="ml-3 flex items-center gap-2">
-                    <Button
-                      type="submit"
-                      size="icon"
-                      className="size-8 rounded-full"
-                      disabled={
-                        loading ||
-                        (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0) ||
-                        hasPendingAttachments
-                      }
-                    >
-                      {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </form>
-            {documentTypeChips.length > 0 && (
-              <div className="mt-5 flex flex-wrap gap-2 justify-center">
-                {documentTypeChips.map((t) => {
-                  const Icon = t.display.icon;
-                  const selected = selectedDocTypeId === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className={cn(
-                        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition-colors",
-                        selected
-                          ? "border-primary/60 bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                      )}
-                      onClick={() => {
-                        setSelectedDocTypeId((prevSelected) => {
-                          const nextSelected = prevSelected === t.id ? null : t.id;
-                          if (nextSelected) {
-                            setInput((prevInput) => (prevInput ? prevInput : `Create a ${t.name}`));
-                          }
-                          return nextSelected;
-                        });
-                      }}
-                    >
-                      <Icon
-                        weight="fill"
-                        className="size-5"
-                        style={{ color: t.display.color }}
-                      />
-                      <span className="text-sm font-medium">{t.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            </div>
           </div>
+          <button
+            type="button"
+            className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-neutral-200/80 text-neutral-500 opacity-0 transition-all duration-150 hover:bg-neutral-300 hover:text-foreground group-hover:opacity-100 dark:bg-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-600 dark:hover:text-zinc-200"
+            onClick={() => onRemoveFile(file.id)}
+            aria-label={`Remove ${file.name}`}
+          >
+            <X className="size-2.5" />
+          </button>
+        </div>
+      ))}
+
+      {/* Processing indicator */}
+      {(isProcessing || hasPending) && (
+        <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] text-muted-foreground dark:bg-zinc-800">
+          <Loader2 className="size-3 animate-spin" />
+          <span>
+            {processingReady}/{processingTotal}
+          </span>
         </div>
       )}
+    </div>
+  );
+}
 
-      {!hasChatStarted && documents.length > 0 && (
-        <div className="mt-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-xs font-medium text-foreground">Recent documents</p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-              onClick={() => setShowAllRecentDocs((v) => !v)}
-            >
-              {showAllRecentDocs ? "Close" : "View all"}
-            </Button>
-          </div>
-
-          {showAllRecentDocs && (
-            <div className="mb-2">
-              <Input
-                value={docSearch}
-                onChange={(e) => setDocSearch(e.target.value)}
-                placeholder="Search documents..."
-                className="h-8 text-sm"
-              />
-            </div>
-          )}
-
-          {!showAllRecentDocs ? (
-            <div className="grid grid-cols-4 gap-2">
-              {documents.slice(0, 4).map((doc) => {
-                const typeConfig = doc.document_type
-                  ? getDisplayForDocumentType(doc.document_type)
-                  : BASE_TYPE_FALLBACK[doc.base_type];
-                const Icon = typeConfig.icon;
-                const isSelected = selectedDocumentId === doc.id;
-                return (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedDocumentId(doc.id);
-                      setShowAllRecentDocs(false);
-                    }}
-                    className={cn(
-                      "rounded-3xl border p-3 text-left transition-colors hover:bg-muted/40",
-                      isSelected ? "border-primary ring-1 ring-primary/25" : "border-border bg-muted/20"
-                    )}
-                  >
-                    <div className="relative h-20 overflow-hidden rounded-[10px] bg-muted/40">
-                      {doc.thumbnail_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={doc.thumbnail_url}
-                          alt=""
-                          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[10px] inset-0 h-full w-full object-cover object-center"
-                        />
-                      ) : (
-                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[10px] inset-0 flex items-center justify-center">
-                          <Icon weight="fill" className="size-5" style={{ color: typeConfig.color }} />
-                        </div>
-                      )}
-                    </div>
-                    <p className="mt-3 truncate text-xs font-medium text-foreground">{doc.title}</p>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {filteredDocuments.slice(0, 16).map((doc) => {
-                const typeConfig = doc.document_type
-                  ? getDisplayForDocumentType(doc.document_type)
-                  : BASE_TYPE_FALLBACK[doc.base_type];
-                const Icon = typeConfig.icon;
-                const isSelected = selectedDocumentId === doc.id;
-                return (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedDocumentId(doc.id);
-                      setShowAllRecentDocs(false);
-                    }}
-                    className={cn(
-                      "group text-left rounded border p-2 transition-colors hover:bg-muted/40",
-                      isSelected ? "border-primary ring-1 ring-primary/25" : "border-border bg-muted/20"
-                    )}
-                  >
-                    <div className="relative aspect-[4/3] overflow-hidden rounded bg-muted/40">
-                      {doc.thumbnail_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={doc.thumbnail_url}
-                          alt=""
-                          className="absolute inset-0 h-full w-full object-cover object-left-top"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <Icon weight="fill" className="size-7" style={{ color: typeConfig.color }} />
-                        </div>
-                      )}
-                      {doc.client_name && (
-                        <div className="absolute left-1.5 top-1.5 rounded bg-background/80 px-1 py-0.5 text-[10px] text-muted-foreground">
-                          {doc.client_name}
-                        </div>
-                      )}
-                    </div>
-                    <p className="mt-1 min-w-0 truncate text-[11px] font-medium text-foreground">
-                      {doc.title}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-      {hasChatStarted && (
-        <Dialog open={showAllRecentDocs} onOpenChange={setShowAllRecentDocs}>
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Select a document</DialogTitle>
-            </DialogHeader>
-            <div className="mb-2">
-              <Input
-                value={docSearch}
-                onChange={(e) => setDocSearch(e.target.value)}
-                placeholder="Search documents..."
-                className="h-9 text-sm"
-              />
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {filteredDocuments.slice(0, 24).map((doc) => {
-                const typeConfig = doc.document_type
-                  ? getDisplayForDocumentType(doc.document_type)
-                  : BASE_TYPE_FALLBACK[doc.base_type];
-                const Icon = typeConfig.icon;
-                const isSelected = selectedDocumentId === doc.id;
-                return (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedDocumentId(doc.id);
-                      setShowAllRecentDocs(false);
-                    }}
-                    className={cn(
-                      "group rounded border p-2 text-left transition-colors hover:bg-muted/40",
-                      isSelected ? "border-primary ring-1 ring-primary/25" : "border-border bg-muted/20"
-                    )}
-                  >
-                    <div className="relative aspect-[4/3] overflow-hidden rounded bg-muted/40">
-                      {doc.thumbnail_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={doc.thumbnail_url} alt="" className="absolute inset-0 h-full w-full object-cover object-left-top" />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <Icon weight="fill" className="size-7" style={{ color: typeConfig.color }} />
-                        </div>
-                      )}
-                    </div>
-                    <p className="mt-1 truncate text-xs font-medium text-foreground">{doc.title}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-      <Dialog open={clientChoiceModalOpen} onOpenChange={setClientChoiceModalOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Select client</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[420px] overflow-auto space-y-1">
-            {clients.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className="w-full rounded border border-border bg-muted/20 px-3 py-2 text-left text-sm hover:bg-muted/40"
-                onClick={() => {
-                  if (pendingOpenEditorRef.current) {
-                    void resumeOpenDocumentAfterClientPick(c.id, c.name);
-                  } else {
-                    setInput(`Use client ${c.name} and continue.`);
-                    setPendingClientChoices([]);
-                  }
-                  setClientChoiceModalOpen(false);
-                }}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
+function RecentDocumentsSection({
+  documents,
+  selectedDocumentId,
+  onViewAll,
+  onSelectDocument,
+}: {
+  documents: DocumentListItem[];
+  selectedDocumentId: string | null;
+  onViewAll: () => void;
+  onSelectDocument: (id: string) => void;
+}) {
+  return (
+    <div className="my-6">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-foreground/60">Recent documents</p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+          onClick={onViewAll}
+        >
+          View all
+        </Button>
       </div>
+      <div className="grid grid-cols-4 gap-2">
+        {documents.slice(0, 4).map((doc) => {
+          const typeConfig = doc.document_type
+            ? getDisplayForDocumentType(doc.document_type)
+            : BASE_TYPE_FALLBACK[doc.base_type];
+          const Icon = typeConfig.icon;
+          const isSelected = selectedDocumentId === doc.id;
+          return (
+            <button
+              key={doc.id}
+              type="button"
+              onClick={() => onSelectDocument(doc.id)}
+              className={cn(
+                "rounded-2xl p-3 text-left transition-all duration-200 hover:shadow border border-gray-200 dark:border-gray-800",
+                isSelected
+                  ? "bg-white shadow-sm ring-1 ring-primary/20 dark:bg-zinc-900"
+                  : "bg-white/70 hover:bg-white dark:bg-zinc-900/50 dark:hover:bg-zinc-900"
+              )}
+            >
+              <div className="relative h-20 overflow-hidden rounded-xl bg-neutral-100 dark:bg-zinc-800">
+                {doc.thumbnail_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={doc.thumbnail_url}
+                    alt=""
+                    className="absolute inset-0 h-full w-full rounded-xl object-cover object-center"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-xl">
+                    <Icon
+                      weight="fill"
+                      className="size-5"
+                      style={{ color: typeConfig.color }}
+                    />
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 truncate text-xs font-medium text-foreground">
+                {doc.title}
+              </p>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

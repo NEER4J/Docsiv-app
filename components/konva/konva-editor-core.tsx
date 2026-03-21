@@ -7,8 +7,9 @@ import React, {
   useState,
   forwardRef,
   useEffect,
+  useMemo,
 } from 'react';
-import { Stage, Layer, Group, Transformer, Line, Rect, Circle } from 'react-konva';
+import { Stage, Layer, Transformer, Line, Rect } from 'react-konva';
 import type Konva from 'konva';
 import {
   getStableId,
@@ -99,124 +100,44 @@ function getInitials(name?: string | null): string {
   return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
 }
 
-const VIEW_ALL_ROW_HEIGHT_EXTRA = 60; // gap + label
+const PREVIEW_ROW_HEIGHT_EXTRA = 60;
 
-function ViewAllPagesVirtualList({
-  pages,
-  width,
-  height,
-  mode,
-  currentIndex,
-  getChildren,
-  goToPage,
-  setViewAllPages,
-  scrollRef,
-}: {
-  pages: PageOrSlide[];
-  width: number;
-  height: number;
-  mode: 'report' | 'presentation';
-  currentIndex: number;
-  getChildren: (page: PageOrSlide) => KonvaShapeDesc[];
-  goToPage: (index: number) => void;
-  setViewAllPages: (v: boolean) => void;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  const scale = 0.2;
-  const thumbW = width * scale;
-  const thumbH = height * scale;
-  const rowHeight = thumbH + VIEW_ALL_ROW_HEIGHT_EXTRA;
-  const virtualizer = useVirtualizer({
-    count: pages.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => rowHeight,
-    overscan: 5,
-  });
-  const virtualItems = virtualizer.getVirtualItems();
-  const totalSize = virtualizer.getTotalSize();
+const ZOOM_MAX = 2;
+const ZOOM_ABS_MIN = 0.12;
 
-  return (
-    <div
-      className="mx-auto w-full"
-      style={{
-        height: `${totalSize}px`,
-        width: '100%',
-        maxWidth: thumbW + 32,
-        position: 'relative',
-      }}
-    >
-      {virtualItems.map((virtualRow) => {
-        const pageIndex = virtualRow.index;
-        const page = pages[pageIndex];
-        const pageShapes = getChildren(page);
-        return (
-          <div
-            key={virtualRow.key}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              transform: `translateY(${virtualRow.start}px)`,
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                goToPage(pageIndex);
-                setViewAllPages(false);
-              }}
-              className={`flex flex-col items-center gap-2 rounded border-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                pageIndex === currentIndex
-                  ? 'border-primary bg-primary/5'
-                  : 'border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50'
-              }`}
-              style={{ padding: 4 }}
-            >
-              <div
-                className="overflow-hidden rounded border border-zinc-200 bg-white"
-                style={{ width: thumbW, height: thumbH }}
-              >
-                <div
-                  style={{
-                    width,
-                    height,
-                    transform: `scale(${scale})`,
-                    transformOrigin: 'top left',
-                  }}
-                >
-                  <Stage width={width} height={height} listening={false}>
-                    <Layer>
-                      {pageShapes.map((shape, idx) => (
-                        <KonvaShapeRenderer
-                          key={getStableId(shape, idx)}
-                          shape={shape}
-                          index={idx}
-                          shapeId={getStableId(shape, idx)}
-                          readOnly
-                          isSelected={false}
-                          onSelect={() => {}}
-                          onDragEnd={() => {}}
-                          onTransformEnd={() => {}}
-                          setNodeRef={() => {}}
-                        />
-                      ))}
-                    </Layer>
-                  </Stage>
-                </div>
-              </div>
-              <span className="text-xs font-medium text-zinc-600">
-                {mode === 'report' ? 'Page' : 'Slide'} {pageIndex + 1}
-              </span>
-            </button>
-          </div>
-        );
-      })}
-    </div>
-  );
+function clampPanForZoom(
+  pan: { x: number; y: number },
+  zoom: number,
+  pageW: number,
+  pageH: number,
+  slotW: number,
+  slotH: number
+): { x: number; y: number } {
+  const scaledW = pageW * zoom;
+  const scaledH = pageH * zoom;
+  const maxX = Math.max(0, (scaledW - slotW) / 2);
+  const maxY = Math.max(0, (scaledH - slotH) / 2);
+  return {
+    x: Math.max(-maxX, Math.min(maxX, pan.x)),
+    y: Math.max(-maxY, Math.min(maxY, pan.y)),
+  };
 }
 
-const PREVIEW_ROW_HEIGHT_EXTRA = 60;
+/** Normalize wheel deltas (lines/pages modes) for reliable scroll/zoom on trackpads. */
+function normalizeWheelDelta(e: WheelEvent): { dx: number; dy: number } {
+  const LINE = 16;
+  const PAGE = 800;
+  let dx = e.deltaX;
+  let dy = e.deltaY;
+  if (e.deltaMode === 1) {
+    dx *= LINE;
+    dy *= LINE;
+  } else if (e.deltaMode === 2) {
+    dx *= PAGE;
+    dy *= PAGE;
+  }
+  return { dx, dy };
+}
 
 function PreviewDialogVirtualList({
   pages,
@@ -372,7 +293,8 @@ const KonvaEditorCoreInner = (
   }: KonvaEditorCoreProps,
   ref: React.Ref<KonvaEditorCoreHandle>
 ) => {
-  const stageRef = useRef<Konva.Stage>(null);
+  const stageRef = useRef<Konva.Stage | null>(null);
+  const stageRefsMapRef = useRef<Record<number, Konva.Stage | null>>({});
   const transformerRef = useRef<Konva.Transformer>(null);
   const nodeMapRef = useRef<Map<string, Konva.Node>>(new Map());
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -410,19 +332,18 @@ const KonvaEditorCoreInner = (
   const [isPanning, setIsPanning] = useState(false);
   const [activeLeftTab, setActiveLeftTab] = useState<KonvaLeftTabId>('layers');
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
-  const [viewAllPages, setViewAllPages] = useState(false);
-  const [viewAllPanStart, setViewAllPanStart] = useState<{
-    scrollLeft: number;
-    scrollTop: number;
-    clientX: number;
-    clientY: number;
-  } | null>(null);
+  const [thumbnailStripOpen, setThumbnailStripOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewZoom, setPreviewZoom] = useState(1);
   const [pageThumbnailUrls, setPageThumbnailUrls] = useState<(string | null)[]>([]);
-  const viewAllScrollRef = useRef<HTMLDivElement>(null);
+  const [slotPreviewUrls, setSlotPreviewUrls] = useState<(string | null)[]>([]);
+  const pagesScrollRef = useRef<HTMLDivElement>(null);
+  const pageSlotRefs = useRef<(HTMLDivElement | null)[]>([]);
+  /** Skip IntersectionObserver-driven index updates while programmatically scrolling (avoids flicker). */
+  const skipIoSyncRef = useRef(false);
+  const programmaticScrollClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
-  const [canvasCursor, setCanvasCursor] = useState<'grab' | 'default' | 'move' | 'grabbing' | string>('grab');
+  const [canvasCursor, setCanvasCursor] = useState<'grab' | 'default' | 'move' | 'grabbing' | string>('default');
   const [guideLines, setGuideLines] = useState<{ vertical: number[]; horizontal: number[] }>({ vertical: [], horizontal: [] });
   const [drawMode, setDrawMode] = useState<{ color: string; strokeWidth: number } | null>(null);
   const [currentDrawPoints, setCurrentDrawPoints] = useState<number[]>([]);
@@ -442,9 +363,30 @@ const KonvaEditorCoreInner = (
   const unifiedCommentsEnabled = isUnifiedCommentsEnabledForEditor('konva');
   const comments = useDocumentComments(canComment ? documentId : '', 'konva');
 
+  const fitZoom = useMemo(() => {
+    const padding = 24;
+    const aw = canvasSize.width - padding;
+    const ah = canvasSize.height - padding;
+    if (aw <= 0 || ah <= 0) return 1;
+    return Math.max(ZOOM_ABS_MIN, Math.min(ZOOM_MAX, Math.min(aw / width, ah / height) * 0.95));
+  }, [canvasSize.width, canvasSize.height, width, height]);
+
+  const zoomRef = useRef(zoom);
+  const panRef = useRef(pan);
+  const fitZoomRef = useRef(fitZoom);
+  const isZoomedInRef = useRef(false);
   useEffect(() => {
-    if (!viewAllPages) setViewAllPanStart(null);
-  }, [viewAllPages]);
+    zoomRef.current = zoom;
+  }, [zoom]);
+  useEffect(() => {
+    panRef.current = pan;
+  }, [pan]);
+  useEffect(() => {
+    fitZoomRef.current = fitZoom;
+  }, [fitZoom]);
+  useEffect(() => {
+    isZoomedInRef.current = zoom > fitZoom + 1e-4;
+  }, [zoom, fitZoom]);
 
   useEffect(() => {
     const el = canvasContainerRef.current;
@@ -456,24 +398,23 @@ const KonvaEditorCoreInner = (
     return () => observer.disconnect();
   }, []);
 
+  const fitToScreen = useCallback(() => {
+    const fz = fitZoomRef.current;
+    setZoom(fz);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  // Fit to screen on initial load
   useEffect(() => {
-    if (viewAllPanStart == null) return;
-    const el = viewAllScrollRef.current;
-    const onMove = (e: MouseEvent) => {
-      if (!el) return;
-      const dx = viewAllPanStart.clientX - e.clientX;
-      const dy = viewAllPanStart.clientY - e.clientY;
-      el.scrollLeft = viewAllPanStart.scrollLeft + dx;
-      el.scrollTop = viewAllPanStart.scrollTop + dy;
-    };
-    const onUp = () => setViewAllPanStart(null);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [viewAllPanStart]);
+    if (readOnly) return;
+    if (canvasSize.width > 0 && canvasSize.height > 0 && pages.length > 0) {
+      // Small delay to ensure container is fully rendered
+      const timer = setTimeout(() => {
+        fitToScreen();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [readOnly, canvasSize.width, canvasSize.height, pages.length, fitToScreen]);
 
   /** Resolve cursor when over stage: default (page), move (shape), or resize (transformer anchor) */
   const getCursorForStagePoint = useCallback(
@@ -501,44 +442,78 @@ const KonvaEditorCoreInner = (
     []
   );
 
-  const fitToScreen = useCallback(() => {
-    const el = canvasContainerRef.current;
-    if (!el) return;
-    const padding = 24;
-    const availableW = el.clientWidth - padding;
-    const availableH = el.clientHeight - padding;
-    if (availableW <= 0 || availableH <= 0) return;
-    const fitZoom = Math.min(availableW / width, availableH / height) * 0.95;
-    setZoom(Math.max(0.25, Math.min(2, fitZoom)));
-    setPan({ x: 0, y: 0 });
-  }, [width, height]);
+  // fitToScreen is defined above (before the useEffect that references it)
+
+  const applyZoomChange = useCallback(
+    (nextZoom: number) => {
+      const fz = fitZoomRef.current;
+      const z = Math.max(fz, Math.min(ZOOM_MAX, nextZoom));
+      setZoom(z);
+      setPan((p) => {
+        const slotW = canvasContainerRef.current?.clientWidth ?? 0;
+        const slotH = canvasContainerRef.current?.clientHeight ?? 0;
+        if (z <= fz + 1e-4) return { x: 0, y: 0 };
+        return clampPanForZoom(p, z, width, height, slotW, slotH);
+      });
+    },
+    [width, height]
+  );
 
   const spacePressedRef = useRef(false);
 
-  const handleCanvasWheel = useCallback(
+  const handlePagesScrollWheel = useCallback(
     (e: WheelEvent) => {
       if (readOnly) return;
-      e.preventDefault();
+      const fz = fitZoomRef.current;
+      const z = zoomRef.current;
+      const isZoomedIn = z > fz + 1e-4;
       const isZoom = e.ctrlKey || e.metaKey;
+      const slotW = canvasContainerRef.current?.clientWidth ?? 0;
+      const slotH = canvasContainerRef.current?.clientHeight ?? 0;
+      const { dx, dy } = normalizeWheelDelta(e);
       if (isZoom) {
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        setZoom((z) => Math.max(0.25, Math.min(2, z + delta)));
-      } else {
-        setPan((p) => ({
-          x: p.x - e.deltaX,
-          y: p.y - e.deltaY,
-        }));
+        e.preventDefault();
+        const raw = dy !== 0 ? dy : dx;
+        if (raw === 0) return;
+        const delta = raw > 0 ? -0.1 : 0.1;
+        const nz = Math.max(fz, Math.min(ZOOM_MAX, z + delta));
+        setZoom(nz);
+        if (nz <= fz + 1e-4) setPan({ x: 0, y: 0 });
+        else setPan((p) => clampPanForZoom(p, nz, width, height, slotW, slotH));
+        return;
       }
+      if (isZoomedIn) {
+        e.preventDefault();
+        setPan((p) => {
+          const np = { x: p.x - dx, y: p.y - dy };
+          return clampPanForZoom(np, z, width, height, slotW, slotH);
+        });
+        return;
+      }
+      // At fit zoom - let native scroll handle it for smooth snap behavior
+      // Don't call preventDefault, allow browser to handle wheel naturally
     },
-    [readOnly]
+    [readOnly, width, height]
   );
 
   useEffect(() => {
-    const el = canvasContainerRef.current;
+    const el = pagesScrollRef.current;
     if (!el) return;
-    el.addEventListener('wheel', handleCanvasWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleCanvasWheel);
-  }, [handleCanvasWheel]);
+    const onWheel = (e: WheelEvent) => handlePagesScrollWheel(e);
+    const clearSkip = () => {
+      skipIoSyncRef.current = false;
+      if (programmaticScrollClearTimerRef.current) {
+        clearTimeout(programmaticScrollClearTimerRef.current);
+        programmaticScrollClearTimerRef.current = null;
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    el.addEventListener('scrollend', clearSkip);
+    return () => {
+      el.removeEventListener('wheel', onWheel, { capture: true });
+      el.removeEventListener('scrollend', clearSkip);
+    };
+  }, [handlePagesScrollWheel, pages.length]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -596,7 +571,7 @@ const KonvaEditorCoreInner = (
         return;
       }
       const onCanvas = (e.target as HTMLElement).closest('canvas');
-      const startPan = spacePressedRef.current || !onCanvas;
+      const startPan = (spacePressedRef.current || !onCanvas) && isZoomedInRef.current;
       if (startPan) {
         panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
         setIsPanning(true);
@@ -639,10 +614,13 @@ const KonvaEditorCoreInner = (
         }
       }
       if (panStartRef.current) {
-        setPan({
+        const np = {
           x: e.clientX - panStartRef.current.x,
           y: e.clientY - panStartRef.current.y,
-        });
+        };
+        const slotW = canvasContainerRef.current?.clientWidth ?? 0;
+        const slotH = canvasContainerRef.current?.clientHeight ?? 0;
+        setPan(clampPanForZoom(np, zoomRef.current, width, height, slotW, slotH));
         return;
       }
       // Marquee tracking
@@ -666,7 +644,7 @@ const KonvaEditorCoreInner = (
       const stage = stageRef.current;
       const target = e.target as HTMLElement;
       if (target === container) {
-        setCanvasCursor('grab');
+        setCanvasCursor(isZoomedInRef.current ? 'grab' : 'default');
         return;
       }
       const isOnStageCanvas =
@@ -679,7 +657,7 @@ const KonvaEditorCoreInner = (
         setCanvasCursor(cursor);
         return;
       }
-      setCanvasCursor('grab');
+      setCanvasCursor(isZoomedInRef.current ? 'grab' : 'default');
     },
     [readOnly, width, height, getCursorForStagePoint, screenToStage, commentPlacementMode, unifiedCommentsEnabled, canComment]
   );
@@ -694,27 +672,29 @@ const KonvaEditorCoreInner = (
   const handleCanvasMouseLeave = useCallback(() => {
     panStartRef.current = null;
     setIsPanning(false);
-    setCanvasCursor('grab');
+    setCanvasCursor(isZoomedInRef.current ? 'grab' : 'default');
     setPlacementCursorPos(null);
   }, []);
 
   useEffect(() => {
     if (readOnly) return;
-    const el = canvasContainerRef.current;
-    if (!el) return;
-    const applyFit = () => {
-      const padding = 24;
-      const availableW = el.clientWidth - padding;
-      const availableH = el.clientHeight - padding;
-      if (availableW <= 0 || availableH <= 0) return;
-      const fitZoom = Math.min(availableW / width, availableH / height) * 0.95;
-      setZoom(Math.max(0.25, Math.min(2, fitZoom)));
-    };
-    const id = requestAnimationFrame(() => {
-      applyFit();
+    setZoom((z) => Math.max(fitZoom, Math.min(ZOOM_MAX, z)));
+    setPan((p) => {
+      const z = Math.max(fitZoom, Math.min(ZOOM_MAX, zoomRef.current));
+      if (z <= fitZoom + 1e-4) return { x: 0, y: 0 };
+      const slotW = canvasContainerRef.current?.clientWidth ?? 0;
+      const slotH = canvasContainerRef.current?.clientHeight ?? 0;
+      return clampPanForZoom(p, z, width, height, slotW, slotH);
     });
-    return () => cancelAnimationFrame(id);
-  }, [readOnly, width, height]);
+  }, [readOnly, fitZoom, width, height]);
+
+  useEffect(() => {
+    stageRef.current = stageRefsMapRef.current[currentIndex] ?? null;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [currentIndex]);
 
   const currentPage = pages[currentIndex] ?? { layer: { children: [] } };
   const shapes = getChildren(currentPage);
@@ -846,7 +826,7 @@ const KonvaEditorCoreInner = (
   const THUMB_BATCH_SIZE = 15;
   const THUMB_BATCH_DELAY_MS = 80;
   useEffect(() => {
-    if (activeLeftTab !== 'pages') return;
+    if (activeLeftTab !== 'pages' && !thumbnailStripOpen) return;
     let cancelled = false;
     const n = pages.length;
     if (n === 0) {
@@ -897,12 +877,125 @@ const KonvaEditorCoreInner = (
     return () => {
       cancelled = true;
     };
-  }, [pages, width, height, activeLeftTab]);
+  }, [pages, width, height, activeLeftTab, thumbnailStripOpen]);
+
+  useEffect(() => {
+    setSlotPreviewUrls((prev) => {
+      if (pageThumbnailUrls.length !== pages.length) return Array(pages.length).fill(null);
+      return pageThumbnailUrls.map((u, i) => u ?? prev[i] ?? null);
+    });
+  }, [pageThumbnailUrls, pages.length]);
+
+  // Track scroll momentum for smoother page detection
+  const scrollMomentumRef = useRef(0);
+  const lastScrollTimeRef = useRef(0);
+  const ioDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const root = pagesScrollRef.current;
+    if (!root || pages.length === 0) return;
+
+    // Track scroll velocity for better snap prediction
+    const handleScroll = () => {
+      const now = Date.now();
+      const delta = now - lastScrollTimeRef.current;
+      lastScrollTimeRef.current = now;
+      // Simple velocity tracking
+      scrollMomentumRef.current = delta;
+    };
+    root.addEventListener('scroll', handleScroll, { passive: true });
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (skipIoSyncRef.current) return;
+
+        // Clear any pending debounce
+        if (ioDebounceTimerRef.current) {
+          clearTimeout(ioDebounceTimerRef.current);
+        }
+
+        let bestIdx = -1;
+        let bestRatio = 0;
+        for (const entry of entries) {
+          const idx = Number((entry.target as HTMLElement).dataset.pageIndex);
+          if (!Number.isFinite(idx)) continue;
+          if (entry.intersectionRatio > bestRatio) {
+            bestRatio = entry.intersectionRatio;
+            bestIdx = idx;
+          }
+        }
+
+        // Only switch if we have a clear winner (>60% visible) and no momentum
+        if (bestIdx >= 0 && bestRatio >= 0.6) {
+          // Small debounce to let snap finish naturally
+          ioDebounceTimerRef.current = setTimeout(() => {
+            setCurrentIndex((prev) => {
+              // Don't switch if already on this page
+              if (prev === bestIdx) return prev;
+
+              // Check distance - don't jump more than 1 page at a time during scroll
+              const distance = Math.abs(prev - bestIdx);
+              if (distance > 1 && scrollMomentumRef.current < 50) {
+                // Momentum scroll - let it settle before switching
+                return prev;
+              }
+              return bestIdx;
+            });
+          }, 50);
+        }
+      },
+      { root, threshold: [0, 0.25, 0.5, 0.6, 0.75, 0.9, 1] }
+    );
+
+    pageSlotRefs.current.forEach((el) => {
+      if (el) obs.observe(el);
+    });
+
+    return () => {
+      obs.disconnect();
+      root.removeEventListener('scroll', handleScroll);
+      if (ioDebounceTimerRef.current) clearTimeout(ioDebounceTimerRef.current);
+    };
+  }, [pages.length]);
+
+  // Clear guide lines when changing pages
+  useEffect(() => {
+    setGuideLines({ vertical: [], horizontal: [] });
+  }, [currentIndex]);
 
   const goToPage = useCallback((index: number) => {
-    setCurrentIndex(() => Math.max(0, Math.min(index, pages.length - 1)));
+    const i = Math.max(0, Math.min(index, pages.length - 1));
+
+    // Don't do anything if already on this page
+    if (i === currentIndex) return;
+
+    skipIoSyncRef.current = true;
+    if (programmaticScrollClearTimerRef.current) {
+      clearTimeout(programmaticScrollClearTimerRef.current);
+      programmaticScrollClearTimerRef.current = null;
+    }
+
+    // Clear selection first
     setSelectedIds([]);
-  }, [pages.length]);
+
+    // Use requestAnimationFrame for smooth scroll
+    requestAnimationFrame(() => {
+      const targetEl = pageSlotRefs.current[i];
+      if (targetEl) {
+        // Use native scrollIntoView with 'nearest' for smoother snap
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }
+
+      // Update index after scroll starts
+      setCurrentIndex(i);
+    });
+
+    // Clear skip flag after animation completes
+    programmaticScrollClearTimerRef.current = setTimeout(() => {
+      skipIoSyncRef.current = false;
+      programmaticScrollClearTimerRef.current = null;
+    }, 400);
+  }, [pages.length, currentIndex]);
 
   const addPage = useCallback(() => {
     pushHistory();
@@ -930,7 +1023,7 @@ const KonvaEditorCoreInner = (
   }, [pages.length, currentIndex, pushHistory]);
 
   const addShape = useCallback(
-    (type: 'Rect' | 'Text' | 'Image' | 'Circle' | 'Ellipse' | 'Line' | 'Arrow' | 'Star' | 'RegularPolygon' | 'Icon' | 'Video', defaultAttrs: Record<string, unknown> = {}) => {
+    (type: 'Rect' | 'Text' | 'Image' | 'Circle' | 'Ellipse' | 'Line' | 'Arrow' | 'Star' | 'RegularPolygon' | 'Icon' | 'Video' | 'Chart', defaultAttrs: Record<string, unknown> = {}) => {
       const id = generateShapeId();
       const base = { x: 50, y: 50, id, ...defaultAttrs };
       let attrs: Record<string, unknown>;
@@ -982,6 +1075,22 @@ const KonvaEditorCoreInner = (
           break;
         case 'Video':
           attrs = { ...base, src: (defaultAttrs.src as string) ?? '', width: 320, height: 180 };
+          break;
+        case 'Chart':
+          attrs = {
+            ...base,
+            width: 300,
+            height: 200,
+            chartType: (defaultAttrs.chartType as string) ?? 'bar',
+            data: (defaultAttrs.data as Array<{label: string; value: number}>) ?? [
+              { label: 'A', value: 30 },
+              { label: 'B', value: 50 },
+              { label: 'C', value: 40 },
+            ],
+            colors: (defaultAttrs.colors as string[]) ?? ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'],
+            showLegend: true,
+            showLabels: true,
+          };
           break;
         default:
           attrs = { ...base, width: 200, height: 100, fill: '#e5e5e5' };
@@ -1098,17 +1207,38 @@ const KonvaEditorCoreInner = (
     const a = s.attrs as Record<string, unknown>;
     const x = (a.x as number) ?? 0;
     const y = (a.y as number) ?? 0;
-    const w = (a.width as number) ?? (a.radius as number) ?? 50;
-    const h = (a.height as number) ?? (a.radius as number) ?? 50;
-    const radiusX = a.radiusX as number | undefined;
-    const radiusY = a.radiusY as number | undefined;
-    let shapeW = w;
-    let shapeH = h;
-    if (s.className === 'Circle' || s.className === 'Ellipse') {
-      shapeW = ((radiusX ?? w) as number) * 2;
-      shapeH = ((radiusY ?? h) as number) * 2;
+
+    // Handle Circle - x,y is center, convert to top-left for bounds
+    if (s.className === 'Circle') {
+      const radius = (a.radius as number) ?? 50;
+      return {
+        x: x - radius,
+        y: y - radius,
+        w: radius * 2,
+        h: radius * 2,
+        cx: x,
+        cy: y,
+      };
     }
-    return { x, y, w: shapeW, h: shapeH, cx: x + shapeW / 2, cy: y + shapeH / 2 };
+
+    // Handle Ellipse - x,y is center, convert to top-left for bounds
+    if (s.className === 'Ellipse') {
+      const radiusX = (a.radiusX as number) ?? 60;
+      const radiusY = (a.radiusY as number) ?? 40;
+      return {
+        x: x - radiusX,
+        y: y - radiusY,
+        w: radiusX * 2,
+        h: radiusY * 2,
+        cx: x,
+        cy: y,
+      };
+    }
+
+    // All other shapes use top-left positioning
+    const w = (a.width as number) ?? 100;
+    const h = (a.height as number) ?? 100;
+    return { x, y, w, h, cx: x + w / 2, cy: y + h / 2 };
   }, []);
 
   // Keep marquee finish logic in a ref so handleCanvasMouseUp (defined earlier) can use it
@@ -1623,6 +1753,16 @@ const KonvaEditorCoreInner = (
         }
         return;
       }
+      if (e.key === 'PageDown') {
+        e.preventDefault();
+        goToPage(currentIndex + 1);
+        return;
+      }
+      if (e.key === 'PageUp') {
+        e.preventDefault();
+        goToPage(currentIndex - 1);
+        return;
+      }
       const step = e.shiftKey ? 10 : 1;
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
@@ -1640,7 +1780,7 @@ const KonvaEditorCoreInner = (
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [readOnly, deleteSelected, undo, redo, copySelected, paste, nudge, duplicateSelected, shapes]);
+  }, [readOnly, deleteSelected, undo, redo, copySelected, paste, nudge, duplicateSelected, shapes, goToPage, currentIndex]);
 
   const handleTextDblClick = useCallback((shapeId: string) => {
     setEditingTextId(shapeId);
@@ -1926,17 +2066,17 @@ const KonvaEditorCoreInner = (
         )}
         <div
           ref={canvasContainerRef}
-          className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#e5e5e5]"
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#e5e5e5]"
           style={{
-            cursor: viewAllPages ? 'default' : commentPlacementMode ? 'copy' : isPanning ? 'grabbing' : canvasCursor,
+            cursor: commentPlacementMode ? 'copy' : isPanning ? 'grabbing' : canvasCursor,
           }}
-          onMouseDown={viewAllPages ? undefined : (e) => {
+          onMouseDown={(e) => {
             focusEditor();
             handleCanvasMouseDown(e);
           }}
-          onMouseMove={viewAllPages ? undefined : handleCanvasMouseMove}
-          onMouseUp={viewAllPages ? undefined : handleCanvasMouseUp}
-          onMouseLeave={viewAllPages ? undefined : handleCanvasMouseLeave}
+          onMouseMove={handleCanvasMouseMove}
+          onMouseUp={handleCanvasMouseUp}
+          onMouseLeave={handleCanvasMouseLeave}
           role="application"
           aria-label="Canvas viewport"
         >
@@ -2024,72 +2164,91 @@ const KonvaEditorCoreInner = (
               </div>
             </div>
           )}
-          {unifiedCommentsEnabled && !viewAllPages && markerThreads.length > 0 && (
-            <div className="pointer-events-none absolute inset-0 z-30">
-              {markerThreads.map((thread) => {
-                const anchor = thread.anchor as Record<string, unknown>;
-                const x = Number(anchor.x ?? 0);
-                const y = Number(anchor.y ?? 0);
-                const left = canvasSize.width / 2 + pan.x + (x - width / 2) * zoom;
-                const top = canvasSize.height / 2 + pan.y + (y - height / 2) * zoom;
-                const isActive = comments.activeThreadId === thread.id;
-                const author = comments.users[thread.createdBy];
-                return (
-                  <button
-                    key={thread.id}
-                    type="button"
-                    className={`group pointer-events-auto absolute -translate-x-1/2 -translate-y-[calc(100%+8px)] cursor-pointer transition-transform hover:scale-105 ${isActive ? 'scale-105' : ''}`}
-                    style={{ left, top }}
-                    onClick={() => {
-                      comments.setActiveThreadId(thread.id);
-                      setCommentsOpen(true);
-                    }}
-                  >
-                    <div className={`relative rounded-full border bg-background p-0.5 ${isActive ? 'border-foreground' : 'border-border'}`}>
-                      <Avatar size="sm">
-                        <AvatarImage src={author?.avatarUrl ?? undefined} />
-                        <AvatarFallback>{getInitials(author?.name)}</AvatarFallback>
-                      </Avatar>
-                    </div>
-                    <div className={`mx-auto h-2.5 w-2.5 rotate-45 border-r border-b bg-background ${isActive ? 'border-foreground' : 'border-border'}`} />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {viewAllPages ? (
-            <div
-              ref={viewAllScrollRef}
-              className="flex min-h-0 flex-1 overflow-auto p-6"
-              style={{ cursor: viewAllPanStart ? 'grabbing' : 'grab' }}
-              onMouseDown={(e) => {
-                const el = viewAllScrollRef.current;
-                const target = e.target as HTMLElement;
-                if (el && el.contains(target) && !target.closest('button')) {
-                  setViewAllPanStart({
-                    scrollLeft: el.scrollLeft,
-                    scrollTop: el.scrollTop,
-                    clientX: e.clientX,
-                    clientY: e.clientY,
-                  });
-                }
-              }}
-            >
-              <ViewAllPagesVirtualList
-                pages={pages}
-                width={width}
-                height={height}
-                mode={mode}
-                currentIndex={currentIndex}
-                getChildren={getChildren}
-                goToPage={goToPage}
-                setViewAllPages={setViewAllPages}
-                scrollRef={viewAllScrollRef}
-              />
-            </div>
-          ) : (
           <div
-            className="absolute flex shrink-0 items-center justify-center"
+            ref={pagesScrollRef}
+            className="min-h-0 flex-1 touch-pan-y snap-y snap-mandatory overflow-y-auto overscroll-y-contain scroll-smooth"
+          >
+            {pages.map((_, pageIndex) => {
+              const previewUrl = pageThumbnailUrls[pageIndex] ?? slotPreviewUrls[pageIndex];
+              const isActiveSlot = pageIndex === currentIndex;
+              return (
+                <div
+                  key={pageIndex}
+                  ref={(el) => {
+                    pageSlotRefs.current[pageIndex] = el;
+                  }}
+                  data-page-index={pageIndex}
+                  className="relative box-border flex h-[calc(100%-2rem)] min-h-0 w-full shrink-0 snap-center snap-always flex-col items-center justify-center py-4"
+                  onPointerDownCapture={(e) => {
+                    if (readOnly || isActiveSlot) return;
+                    // Only trigger if it's a clear click (not part of a scroll/swipe)
+                    if (e.isPrimary && e.pointerType === 'mouse') {
+                      // Small delay to distinguish from scroll
+                      setTimeout(() => {
+                        const root = pagesScrollRef.current;
+                        if (root && !root.matches(':active')) {
+                          goToPage(pageIndex);
+                        }
+                      }, 50);
+                    }
+                    e.stopPropagation();
+                  }}
+                  aria-label={mode === 'report' ? `Page ${pageIndex + 1}` : `Slide ${pageIndex + 1}`}
+                >
+                  {!isActiveSlot && (
+                    <div className="flex h-full w-full items-center justify-center p-4">
+                      {previewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={previewUrl}
+                          alt=""
+                          className="max-h-full max-w-full border border-zinc-300 object-contain"
+                          draggable={false}
+                        />
+                      ) : (
+                        <div className="flex min-h-[10rem] min-w-[8rem] items-center justify-center border border-dashed border-zinc-400 bg-white text-xs text-zinc-500">
+                          {mode === 'report' ? 'Page' : 'Slide'} {pageIndex + 1}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {isActiveSlot && (
+                    <div className="relative flex h-full w-full flex-col items-center justify-center">
+                      {unifiedCommentsEnabled && markerThreads.length > 0 && (
+                        <div className="pointer-events-none absolute inset-0 z-30">
+                          {markerThreads.map((thread) => {
+                            const anchor = thread.anchor as Record<string, unknown>;
+                            const x = Number(anchor.x ?? 0);
+                            const y = Number(anchor.y ?? 0);
+                            const left = canvasSize.width / 2 + pan.x + (x - width / 2) * zoom;
+                            const top = canvasSize.height / 2 + pan.y + (y - height / 2) * zoom;
+                            const isActive = comments.activeThreadId === thread.id;
+                            const author = comments.users[thread.createdBy];
+                            return (
+                              <button
+                                key={thread.id}
+                                type="button"
+                                className={`group pointer-events-auto absolute -translate-x-1/2 -translate-y-[calc(100%+8px)] cursor-pointer transition-transform duration-150 hover:scale-105 ${isActive ? 'scale-105' : ''}`}
+                                style={{ left, top }}
+                                onClick={() => {
+                                  comments.setActiveThreadId(thread.id);
+                                  setCommentsOpen(true);
+                                }}
+                              >
+                                <div className={`relative rounded-full border bg-background p-0.5 ${isActive ? 'border-foreground' : 'border-border'}`}>
+                                  <Avatar size="sm">
+                                    <AvatarImage src={author?.avatarUrl ?? undefined} />
+                                    <AvatarFallback>{getInitials(author?.name)}</AvatarFallback>
+                                  </Avatar>
+                                </div>
+                                <div className={`mx-auto h-2.5 w-2.5 rotate-45 border-r border-b bg-background ${isActive ? 'border-foreground' : 'border-border'}`} />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+          <div
+            className="absolute flex shrink-0 items-center justify-center transition-transform duration-150 ease-out"
             style={{
               left: '50%',
               top: '50%',
@@ -2101,6 +2260,13 @@ const KonvaEditorCoreInner = (
             onDragOver={(e) => e.preventDefault()}
             onDragEnter={(e) => e.preventDefault()}
             onDrop={handleStageDrop}
+            onWheel={(e) => {
+              // Forward wheel events to scroll container when at fit zoom
+              if (!isZoomedInRef.current && !(e.ctrlKey || e.metaKey)) {
+                e.stopPropagation();
+                pagesScrollRef.current?.scrollBy({ top: e.deltaY, behavior: 'auto' });
+              }
+            }}
           >
             <ContextMenu>
             <ContextMenuTrigger asChild>
@@ -2112,7 +2278,10 @@ const KonvaEditorCoreInner = (
                 }}
               >
                 <Stage
-                    ref={stageRef}
+                    ref={(node) => {
+                      if (node) stageRefsMapRef.current[pageIndex] = node;
+                      else delete stageRefsMapRef.current[pageIndex];
+                    }}
                     width={width}
                     height={height}
                     style={{ border: '1px solid #d4d4d4' }}
@@ -2326,7 +2495,12 @@ const KonvaEditorCoreInner = (
             </ContextMenuContent>
           </ContextMenu>
         </div>
-        )}
+        </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
         {!readOnly && (
           <KonvaBottomBar
@@ -2336,10 +2510,12 @@ const KonvaEditorCoreInner = (
             currentIndex={currentIndex}
             onGoToPage={goToPage}
             zoom={zoom}
-            onZoomChange={setZoom}
+            fitZoom={fitZoom}
+            onZoomChange={applyZoomChange}
             onFitToScreen={fitToScreen}
-            viewAllPages={viewAllPages}
-            onViewAllPagesToggle={() => setViewAllPages((v) => !v)}
+            thumbnailStripOpen={thumbnailStripOpen}
+            onThumbnailStripToggle={() => setThumbnailStripOpen((v) => !v)}
+            pageThumbnailUrls={pageThumbnailUrls}
           />
         )}
       </div>

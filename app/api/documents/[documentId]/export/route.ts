@@ -119,12 +119,12 @@ export async function POST(
     }
 
     // Create signed URL with 1-hour expiry
-    const {
-      data: { signedUrl },
-      error: signedUrlError,
-    } = await supabase.storage
-      .from("document-exports")
-      .createSignedUrl(storagePath, 60 * 60);
+    const { data: signedUrlData, error: signedUrlError } =
+      await supabase.storage
+        .from("document-exports")
+        .createSignedUrl(storagePath, 60 * 60);
+
+    const signedUrl = signedUrlData?.signedUrl;
 
     if (signedUrlError || !signedUrl) {
       return NextResponse.json(
@@ -219,10 +219,10 @@ function generateExportContent(
 
 function generateHtmlExport(title: string, content: Record<string, unknown>): string {
   const pages = (content as { pages?: Array<{ nodes: unknown[] }> }).pages ?? [];
-  const nodes = pages[0]?.nodes ?? [];
+  const nodes = (pages[0]?.nodes ?? []) as Record<string, unknown>[];
 
   let htmlContent = nodes
-    .map((node: Record<string, unknown>) => {
+    .map((node) => {
       const type = node.type as string;
       const children = (node.children as Array<{ text?: string }>) ?? [];
       const text = children.map((c) => c.text ?? "").join("");

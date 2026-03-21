@@ -113,7 +113,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
               </div>
             </div>
           </header>
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">{children}</div>
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">{children}</div>
           </AiAssistantProvider>
           </GlobalAiProvider>
           </PlateAiProvider>

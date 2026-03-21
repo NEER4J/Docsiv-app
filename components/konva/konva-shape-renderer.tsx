@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Rect, Text, Image, Circle, Ellipse, Line, Arrow, Star, RegularPolygon, Path, Group } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaShapeDesc } from '@/lib/konva-content';
+import { KonvaChartRenderer } from './konva-chart-renderer';
 
 export type KonvaShapeRendererProps = {
   shape: KonvaShapeDesc;
@@ -26,6 +27,16 @@ function useStableId(shapeId: string, setNodeRef: (id: string, node: Konva.Node 
     if (node) setNodeRef(shapeId, node);
     return () => setNodeRef(shapeId, null);
   }, [shapeId, setNodeRef]);
+  return ref;
+}
+
+function useChartNodeRef(setNodeRef: (id: string, node: Konva.Node | null) => void, shapeId: string) {
+  const ref = useRef<Konva.Group>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (node) setNodeRef(shapeId, node);
+    return () => setNodeRef(shapeId, null);
+  }, [setNodeRef, shapeId]);
   return ref;
 }
 
@@ -135,6 +146,9 @@ export function KonvaShapeRenderer({
     if (readOnly || locked) return;
     onTransformEnd(e);
   };
+
+  // Chart ref - always called to maintain hook order
+  const chartNodeRef = useChartNodeRef(setNodeRef, shapeId);
 
   if (shape.className === 'Rect') {
     const ref = useStableId(shapeId, setNodeRef);
@@ -468,6 +482,46 @@ export function KonvaShapeRenderer({
         isSelected={isSelected}
         visible={visible}
       />
+    );
+  }
+
+  if (shape.className === 'Chart') {
+    const x = (attrs.x as number) ?? 0;
+    const y = (attrs.y as number) ?? 0;
+    const w = (attrs.width as number) ?? 300;
+    const h = (attrs.height as number) ?? 200;
+    const chartType = (attrs.chartType as string) ?? 'bar';
+    const data = (attrs.data as Array<{ label: string; value: number; color?: string }>) ?? [];
+    const colors = (attrs.colors as string[]) ?? ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+    const showLegend = (attrs.showLegend as boolean) ?? true;
+    const showLabels = (attrs.showLabels as boolean) ?? true;
+
+    return (
+      <Group
+        ref={chartNodeRef}
+        x={x}
+        y={y}
+        listening={!readOnly && !locked}
+        visible={visible}
+        draggable={!readOnly && !locked}
+        onClick={onSelect}
+        onTap={onSelect}
+        onDragMove={handleDragMove}
+        onDragEnd={handleDragEnd}
+        onTransformEnd={handleTransformEnd}
+      >
+        <KonvaChartRenderer
+          x={0}
+          y={0}
+          width={w}
+          height={h}
+          chartType={chartType as 'bar' | 'line' | 'pie' | 'area'}
+          data={data}
+          colors={colors}
+          showLegend={showLegend}
+          showLabels={showLabels}
+        />
+      </Group>
     );
   }
 
