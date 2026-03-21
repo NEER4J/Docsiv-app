@@ -11,6 +11,17 @@ import {
   instantiateDocumentTemplate,
   listDocumentTemplates,
 } from '@/lib/actions/templates';
+import {
+  createEditDocumentPlateTool,
+  createEditDocumentKonvaTool,
+  createEditDocumentUniverTool,
+} from './edit-tools';
+import { createExportDocumentTool } from './export-tools';
+import {
+  createManageCollaboratorsTool,
+  createCreateShareLinkTool,
+  createManageShareLinksTool,
+} from './permission-tools';
 
 /**
  * Experimental tool set for Main AI agent.
@@ -180,6 +191,41 @@ export function getMainAiTools(workspaceId: string) {
       },
     }),
 
+    process_documents: tool({
+      description:
+        'Normalize and summarize already-processed document snippets before generation. Use when many attachments are present and you need compact context.',
+      parameters: z.object({
+        documents: z.array(
+          z.object({
+            name: z.string(),
+            mimeType: z.string(),
+            status: z.enum(['ready', 'error']),
+            extractedText: z.string().optional(),
+            summary: z.string().optional(),
+          })
+        ),
+      }),
+      // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
+      execute: async ({ documents }) => {
+        const ready = documents.filter((d) => d.status === 'ready');
+        const failed = documents.filter((d) => d.status === 'error');
+        const compact = ready.slice(0, 25).map((d) => {
+          const text = (d.extractedText ?? '').trim().slice(0, 800);
+          const preview = text.length > 0 ? text : d.summary ?? 'No text extracted';
+          return {
+            name: d.name,
+            mimeType: d.mimeType,
+            preview,
+          };
+        });
+        return {
+          success: true as const,
+          totals: { ready: ready.length, failed: failed.length, all: documents.length },
+          documents: compact,
+        };
+      },
+    }),
+
     recommend_template: tool({
       description:
         'Recommend the most relevant templates for a user request and optional base type.',
@@ -273,6 +319,75 @@ export function getMainAiTools(workspaceId: string) {
         };
       },
     }),
+
+    analyze_layout_image: tool({
+      description:
+        'Analyze a layout/design image uploaded by the user to extract structure, styling, and layout information. Use when user uploads a layout image and wants to create a document matching that design. Returns layout_type, sections, color_scheme, typography, and suggested document type.',
+      parameters: z.object({
+        image_data_url: z.string().describe('The base64 data URL of the uploaded layout image (e.g., data:image/png;base64,...)'),
+      }),
+      // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
+      execute: async ({ image_data_url }) => {
+        const res = await fetch('http://localhost:3000/api/ai/analyze-layout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_data_url }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          return {
+            success: false as const,
+            error: err.error ?? `Layout analysis failed (${res.status})`,
+          };
+        }
+
+        const data = await res.json();
+        return {
+          success: true as const,
+          cached: data.cached ?? false,
+          layout_type: data.analysis.layout_type as
+            | 'report'
+            | 'presentation'
+            | 'spreadsheet'
+            | 'proposal'
+            | 'doc'
+            | 'contract',
+          sections: data.analysis.sections as Array<{
+            type: string;
+            position?: string;
+            height_percent?: number;
+            width_percent?: number;
+            style?: Record<string, unknown>;
+            content?: string;
+          }>,
+          color_scheme: data.analysis.color_scheme as
+            | { primary: string; secondary: string; accent?: string; background?: string; text?: string }
+            | undefined,
+          typography: data.analysis.typography as
+            | { heading_font?: string; body_font?: string; heading_size?: string; body_size?: string }
+            | undefined,
+          suggested_base_type: data.analysis.suggested_base_type as
+            | 'doc'
+            | 'sheet'
+            | 'presentation'
+            | 'contract',
+        };
+      },
+    }),
+
+    // Editor-specific edit tools
+    edit_document_plate: createEditDocumentPlateTool(workspaceId, localCache, withCache),
+    edit_document_konva: createEditDocumentKonvaTool(workspaceId, localCache, withCache),
+    edit_document_univer: createEditDocumentUniverTool(workspaceId, localCache, withCache),
+
+    // Export tool
+    export_document: createExportDocumentTool(workspaceId, localCache, withCache),
+
+    // Permission management tools
+    manage_collaborators: createManageCollaboratorsTool(workspaceId, localCache, withCache),
+    create_share_link: createCreateShareLinkTool(workspaceId, localCache, withCache),
+    manage_share_links: createManageShareLinksTool(workspaceId, localCache, withCache),
   };
 }
 

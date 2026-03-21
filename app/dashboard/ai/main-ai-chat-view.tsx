@@ -22,8 +22,8 @@ import { inferClientResolutionFromUserText } from "@/lib/main-ai-client-resoluti
 import { BASE_TYPE_FALLBACK } from "@/app/dashboard/documents/document-types";
 import type { DocumentBaseType, DocumentListItem } from "@/types/database";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-
-const MAX_IMAGES = 4;
+import { DocumentArtifact } from "@/components/chat/document-artifact";
+const MAX_IMAGES = 25;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 type ChatMessage = {
@@ -33,18 +33,20 @@ type ChatMessage = {
   files?: Array<{ name: string; mimeType: string }>;
   documentLink?: { documentId: string; title: string; phase?: "opening" | "opened" };
   handoffTrace?: MainAiHandoffStep[];
+  documentArtifact?: {
+    documentId: string;
+    title: string;
+    baseType: string;
+    thumbnailUrl?: string | null;
+    permission: "owner" | "edit" | "view" | "comment" | "shared";
+    collaboratorsCount?: number;
+    shareToken?: string | null;
+  };
 };
 
 type HandoffState = "idle" | "creating_document" | "seeding_editor" | "opening_editor";
 
 type HandoffStep = MainAiHandoffStep;
-
-function navigateToDocumentEditor(documentId: string): void {
-  const url = `/d/${documentId}?aiOpen=1&aiAutoSend=1`;
-  if (typeof window !== "undefined") {
-    window.location.assign(url);
-  }
-}
 
 /** Stored sessions may omit `phase`; treat as completed so we never show a stale spinner. */
 function normalizeChatMessagesFromSession(raw: MainAiSessionItem["messages"]): ChatMessage[] {
@@ -108,9 +110,31 @@ function applyOpenedEditorToMessages(
 type MainAiDraftSnapshot = {
   input: string;
   attachedImages: Array<{ dataUrl: string; name: string }>;
-  attachedFiles: Array<{ dataUrl: string; name: string; mimeType: string; extractedText?: string }>;
+  attachedFiles: ProcessedAttachment[];
   selectedDocumentId: string | null;
   selectedDocTypeId: string | null;
+};
+
+type ProcessedAttachmentStatus = "processing" | "ready" | "error";
+
+type ProcessedAttachment = {
+  id: string;
+  dataUrl: string;
+  name: string;
+  mimeType: string;
+  extractedText?: string;
+  summary?: string;
+  status: ProcessedAttachmentStatus;
+  error?: string;
+};
+
+type ProcessDocumentsApiItem = {
+  id: string;
+  status: "done" | "error";
+  mimeType?: string;
+  extractedText?: string;
+  summary?: string;
+  error?: string;
 };
 
 type InlineRetry = {
@@ -239,8 +263,9 @@ export function MainAiChatView({
     Array<{ dataUrl: string; name: string }>
   >([]);
   const [attachedFiles, setAttachedFiles] = React.useState<
-    Array<{ dataUrl: string; name: string; mimeType: string; extractedText?: string }>
+    ProcessedAttachment[]
   >([]);
+  const [isProcessingFiles, setIsProcessingFiles] = React.useState(false);
   const [docSearch, setDocSearch] = React.useState("");
   const [sessionSearch, setSessionSearch] = React.useState("");
   const [sessionsCollapsed, setSessionsCollapsed] = React.useState(false);
@@ -263,6 +288,9 @@ export function MainAiChatView({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const draftSnapshotRef = React.useRef<MainAiDraftSnapshot | null>(null);
+  const processingTotal = attachedFiles.length;
+  const processingReady = attachedFiles.filter((f) => f.status === "ready").length;
+  const hasPendingAttachments = attachedFiles.some((f) => f.status === "processing");
   /** When user must pick a client before we seed + open editor (ambiguous match). */
   const pendingOpenEditorRef = React.useRef<{
     documentId: string;
@@ -272,6 +300,14 @@ export function MainAiChatView({
     attachmentNames?: string[];
   } | null>(null);
   const prevActiveSessionIdRef = React.useRef<string | null>(null);
+  /** Prevents URL->state sync from overriding a user-initiated session change (race condition fix). */
+  const skipNextUrlSyncRef = React.useRef(false);
+  
+  /** Set active session from user interaction (prevents URL sync race). */
+  const setActiveSessionFromUser = React.useCallback((sessionId: string | null) => {
+    skipNextUrlSyncRef.current = true;
+    setActiveSessionId(sessionId);
+  }, []);
   const forcedNewSessionRef = React.useRef(false);
 
   const filteredDocuments = React.useMemo(() => {
@@ -415,24 +451,16 @@ export function MainAiChatView({
         setHandoffState("opening_editor");
         trackAiEvent("handoff_open_editor_success", { documentId });
 
-        const finalTrace: HandoffStep[] = [
-          {
-            id: "assign_doc",
-            label: `Assigned "${docTitle}" to ${clientName}`,
-            status: "done",
-          },
-          {
-            id: "seed",
-            label: `Prepared AI context for "${docTitle}"`,
-            status: "done",
-          },
-          { id: "open", label: "Opened document editor", status: "done" },
-        ];
         const completion: ChatMessage = {
           role: "assistant",
-          content: `Ready — opening **${docTitle}** in the editor.`,
-          documentLink: { documentId, title: docTitle, phase: "opened" },
-          handoffTrace: finalTrace,
+          content: `Ready — **${docTitle}** is prepared and assigned to ${clientName}.`,
+          documentArtifact: {
+            documentId,
+            title: docTitle,
+            baseType: documents.find((d) => d.id === documentId)?.base_type ?? "doc",
+            thumbnailUrl: documents.find((d) => d.id === documentId)?.thumbnail_url,
+            permission: "edit",
+          },
         };
         setMessages((prev) => [...prev, completion]);
         if (activeSessionId) {
@@ -444,7 +472,6 @@ export function MainAiChatView({
         }
         setHandoffState("idle");
         setHandoffSteps([]);
-        navigateToDocumentEditor(documentId);
       } finally {
         setLoading(false);
       }
@@ -530,7 +557,18 @@ export function MainAiChatView({
   const handleImageAttach = React.useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
-      for (const file of files) {
+      const slotsLeft = MAX_IMAGES - (attachedImages.length + attachedFiles.length);
+      if (slotsLeft <= 0) {
+        toast.error(`Maximum ${MAX_IMAGES} attachments allowed.`);
+        e.target.value = "";
+        return;
+      }
+
+      const accepted = files.slice(0, slotsLeft);
+      const imageAdds: Array<{ dataUrl: string; name: string }> = [];
+      const docsToProcess: ProcessedAttachment[] = [];
+
+      for (const file of accepted) {
         const isImage = file.type.startsWith("image/");
         const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
         const isTextLike =
@@ -547,50 +585,135 @@ export function MainAiChatView({
           toast.error(`File "${file.name}" exceeds 10MB limit.`);
           continue;
         }
-        if (attachedImages.length + attachedFiles.length >= MAX_IMAGES) {
-          toast.error(`Maximum ${MAX_IMAGES} attachments allowed.`);
-          break;
-        }
+
         const dataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result as string);
           reader.readAsDataURL(file);
         });
+
         if (isImage) {
           const resized = await resizeImageDataUrl(dataUrl);
-          setAttachedImages((prev) =>
-            prev.length >= MAX_IMAGES ? prev : [...prev, { dataUrl: resized, name: file.name }]
-          );
-          continue;
+          imageAdds.push({ dataUrl: resized, name: file.name });
+        } else {
+          docsToProcess.push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            dataUrl,
+            name: file.name,
+            mimeType: file.type || (isPdf ? "application/pdf" : "text/plain"),
+            status: "processing",
+          });
         }
+      }
 
-        let extractedText: string | undefined;
-        if (isTextLike) {
+      if (imageAdds.length > 0) {
+        setAttachedImages((prev) => [...prev, ...imageAdds].slice(0, MAX_IMAGES));
+      }
+
+      if (docsToProcess.length > 0) {
+        setAttachedFiles((prev) => [...prev, ...docsToProcess].slice(0, MAX_IMAGES));
+        setIsProcessingFiles(true);
+        const batchSize = 3;
+        for (let i = 0; i < docsToProcess.length; i += batchSize) {
+          const batch = docsToProcess.slice(i, i + batchSize);
           try {
-            extractedText = (await file.text()).slice(0, 12000);
+            const res = await fetch("/api/ai/process-documents", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                files: batch.map((f) => ({
+                  id: f.id,
+                  name: f.name,
+                  mimeType: f.mimeType,
+                  dataUrl: f.dataUrl,
+                })),
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            const processed = Array.isArray(data?.processed)
+              ? (data.processed as ProcessDocumentsApiItem[])
+              : [];
+            const byId = new Map<string, ProcessDocumentsApiItem>(
+              processed.map((item) => [item.id, item])
+            );
+            setAttachedFiles((prev) =>
+              prev.map((file) => {
+                const found = byId.get(file.id);
+                if (!found) return file;
+                if (found.status === "done") {
+                  return {
+                    ...file,
+                    mimeType: found.mimeType ?? file.mimeType,
+                    extractedText: found.extractedText ?? file.extractedText,
+                    summary: found.summary ?? file.summary,
+                    status: "ready",
+                    error: undefined,
+                  };
+                }
+                return { ...file, status: "error", error: found.error ?? "Processing failed" };
+              })
+            );
           } catch {
-            // ignore extraction failures
+            setAttachedFiles((prev) =>
+              prev.map((file) =>
+                batch.some((b) => b.id === file.id)
+                  ? { ...file, status: "error", error: "Processing failed" }
+                  : file
+              )
+            );
           }
         }
-
-        setAttachedFiles((prev) =>
-          prev.length >= MAX_IMAGES
-            ? prev
-            : [
-                ...prev,
-                {
-                  dataUrl,
-                  name: file.name,
-                  mimeType: file.type || (isPdf ? "application/pdf" : "text/plain"),
-                  extractedText,
-                },
-              ]
-        );
+        setIsProcessingFiles(false);
       }
+
       e.target.value = "";
     },
     [attachedImages.length, attachedFiles.length]
   );
+
+  const retryAttachmentProcessing = React.useCallback(async (id: string) => {
+    const file = attachedFiles.find((f) => f.id === id);
+    if (!file) return;
+    setAttachedFiles((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, status: "processing", error: undefined } : f))
+    );
+    setIsProcessingFiles(true);
+    try {
+      const res = await fetch("/api/ai/process-documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files: [{ id: file.id, name: file.name, mimeType: file.mimeType, dataUrl: file.dataUrl }],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const out = Array.isArray(data?.processed)
+        ? ((data.processed[0] as ProcessDocumentsApiItem | undefined) ?? null)
+        : null;
+      setAttachedFiles((prev) =>
+        prev.map((f) =>
+          f.id !== id
+            ? f
+            : out?.status === "done"
+              ? {
+                  ...f,
+                  mimeType: out.mimeType ?? f.mimeType,
+                  extractedText: out.extractedText ?? f.extractedText,
+                  summary: out.summary ?? f.summary,
+                  status: "ready",
+                  error: undefined,
+                }
+              : { ...f, status: "error", error: out?.error ?? "Processing failed" }
+        )
+      );
+    } catch {
+      setAttachedFiles((prev) =>
+        prev.map((f) => (f.id === id ? { ...f, status: "error", error: "Processing failed" } : f))
+      );
+    } finally {
+      setIsProcessingFiles(false);
+    }
+  }, [attachedFiles]);
 
   const createNewSession = React.useCallback(async () => {
     if (!workspaceId) return;
@@ -614,7 +737,7 @@ export function MainAiChatView({
       last_message_at: new Date().toISOString(),
     };
     setSessions((prev) => [fresh, ...prev]);
-    setActiveSessionId(sessionId);
+    setActiveSessionFromUser(sessionId);
     setMessages([]);
     setInput("");
     return true;
@@ -679,6 +802,11 @@ export function MainAiChatView({
   }, [pathname]);
 
   React.useEffect(() => {
+    // Skip if this was a user-initiated change (syncing state->URL, not URL->state)
+    if (skipNextUrlSyncRef.current) {
+      skipNextUrlSyncRef.current = false;
+      return;
+    }
     const sessionIdFromUrl = searchParams.get("session");
     if (!sessionIdFromUrl) return;
     if (activeSessionId === sessionIdFromUrl) return;
@@ -711,7 +839,12 @@ export function MainAiChatView({
       let navigating = false;
       const trimmed = input.trim();
       const seedPrompt = trimmed;
+      const readyFiles = attachedFiles.filter((f) => f.status === "ready");
       if (!trimmed && attachedImages.length === 0 && attachedFiles.length === 0) return;
+      if (hasPendingAttachments || isProcessingFiles) {
+        toast.error("Please wait until attachment processing is complete.");
+        return;
+      }
       if (!workspaceId) {
         toast.error("No workspace selected.");
         return;
@@ -729,7 +862,7 @@ export function MainAiChatView({
           return;
         }
         currentSessionId = sessionId;
-        setActiveSessionId(sessionId);
+        setActiveSessionFromUser(sessionId);
         setSessions((prev) => [
           {
             id: sessionId,
@@ -756,22 +889,22 @@ export function MainAiChatView({
 
       setInput("");
       const textAttachmentContext =
-        attachedFiles
+        readyFiles
           .filter((f) => f.extractedText && f.extractedText.trim().length > 0)
           .map((f) => `File: ${f.name}\n${f.extractedText}`)
           .join("\n\n---\n\n") || "";
-      const attachmentDigest = buildAttachmentDigest(attachedFiles);
-      const attachmentNames = attachedFiles.map((f) => f.name);
+      const attachmentDigest = buildAttachmentDigest(readyFiles);
+      const attachmentNames = readyFiles.map((f) => f.name);
       const userMessage: ChatMessage = {
         role: "user",
         content:
           trimmed ||
-          (attachedFiles.length > 0 ? "See attached file(s)" : "See attached image(s)"),
+          (readyFiles.length > 0 ? "See attached file(s)" : "See attached image(s)"),
         images:
           attachedImages.length > 0 ? attachedImages.map((img) => img.dataUrl) : undefined,
         files:
-          attachedFiles.length > 0
-            ? attachedFiles.map((f) => ({ name: f.name, mimeType: f.mimeType }))
+          readyFiles.length > 0
+            ? readyFiles.map((f) => ({ name: f.name, mimeType: f.mimeType }))
             : undefined,
       };
       setAttachedImages([]);
@@ -785,34 +918,10 @@ export function MainAiChatView({
         )
       );
       setLoading(true);
-      setHandoffState("creating_document");
-      setHandoffSteps([
-        { id: "create_doc", label: "Understanding your request", status: "running" },
-        { id: "seed", label: "Executing AI tools", status: "pending" },
-        { id: "open", label: "Preparing editor handoff", status: "pending" },
-      ]);
-      const stepTimer1 = setTimeout(() => {
-        setHandoffSteps((prev) =>
-          prev.map((s) =>
-            s.id === "create_doc"
-              ? { ...s, status: "done" }
-              : s.id === "seed"
-                ? { ...s, status: "running" }
-                : s
-          )
-        );
-      }, 500);
-      const stepTimer2 = setTimeout(() => {
-        setHandoffSteps((prev) =>
-          prev.map((s) =>
-            s.id === "seed"
-              ? { ...s, status: "done" }
-              : s.id === "open"
-                ? { ...s, status: "running" }
-                : s
-          )
-        );
-      }, 1300);
+      // Only show document-specific handoff steps if we're actually creating/editing a document
+      // For now, start with generic loading - steps will be shown when AI confirms document creation
+      setHandoffState("idle");
+      setHandoffSteps([]);
 
       const historyWithCurrent = [...messages, userMessage];
       const rollingSummary = buildRollingSummary(historyWithCurrent);
@@ -826,7 +935,7 @@ export function MainAiChatView({
         images: m.images,
         files:
           m === userMessage
-            ? attachedFiles.map((f) => ({
+            ? readyFiles.map((f) => ({
                 name: f.name,
                 mimeType: f.mimeType,
                 dataUrl: f.dataUrl,
@@ -915,18 +1024,21 @@ export function MainAiChatView({
         }
 
         // Server-authoritative handoff: server has already created/seeded the document.
-        // Frontend should only reflect state and navigate, avoiding duplicate mutations.
+        // Show document artifact in chat instead of navigating to editor.
         if (data._meta?.serverAuthoritativeHandoff && data.openDocumentForEditor?.documentId) {
           const { documentId, editorPrompt } = data.openDocumentForEditor;
-          const docTitle = documents.find((d) => d.id === documentId)?.title ?? "this document";
+          const doc = documents.find((d) => d.id === documentId);
+          const docTitle = doc?.title ?? "this document";
           const assistantMsg: ChatMessage = {
             role: "assistant",
             content: replyMessage,
-            documentLink: { documentId, title: docTitle, phase: "opened" },
-            handoffTrace: [
-              { id: "seed", label: "Prepared AI context", status: "done" },
-              { id: "open", label: "Opened document editor", status: "done" },
-            ],
+            documentArtifact: {
+              documentId,
+              title: docTitle,
+              baseType: doc?.base_type ?? "doc",
+              thumbnailUrl: doc?.thumbnail_url,
+              permission: "edit",
+            },
           };
           setMessages((prev) => [...prev, assistantMsg]);
           setSessions((prev) =>
@@ -950,8 +1062,6 @@ export function MainAiChatView({
             toolTraceCount: data._meta?.toolTraceCount ?? 0,
             hasEditorPrompt: Boolean(editorPrompt),
           });
-          navigating = true;
-          navigateToDocumentEditor(documentId);
           return;
         }
         if (data.requireClientChoice?.options?.length) {
@@ -980,17 +1090,21 @@ export function MainAiChatView({
           return;
         }
 
+        // Document created - show artifact in chat instead of navigating to editor
         if (data.openDocumentForEditor) {
           const { documentId } = data.openDocumentForEditor;
-          const docTitle = documents.find((d) => d.id === documentId)?.title ?? "this document";
+          const doc = documents.find((d) => d.id === documentId);
+          const docTitle = doc?.title ?? "this document";
           const assistantMsg: ChatMessage = {
             role: "assistant",
             content: replyMessage,
-            documentLink: { documentId, title: docTitle, phase: "opened" },
-            handoffTrace: [
-              { id: "seed", label: "Prepared AI context", status: "done" },
-              { id: "open", label: "Opened document editor", status: "done" },
-            ],
+            documentArtifact: {
+              documentId,
+              title: docTitle,
+              baseType: doc?.base_type ?? "doc",
+              thumbnailUrl: doc?.thumbnail_url,
+              permission: "edit",
+            },
           };
           setMessages((prev) => [...prev, assistantMsg]);
           setSessions((prev) =>
@@ -1009,9 +1123,7 @@ export function MainAiChatView({
           );
           setHandoffState("idle");
           setHandoffSteps([]);
-          trackAiEvent("handoff_open_editor_server", { documentId });
-          navigating = true;
-          navigateToDocumentEditor(documentId);
+          trackAiEvent("handoff_document_created", { documentId });
           return;
         } else if (createDoc) {
           // Legacy fallback guard: server should already convert create -> open.
@@ -1055,8 +1167,6 @@ export function MainAiChatView({
         ]);
         trackAiEvent("main_request_failed", { message: msg });
       } finally {
-        clearTimeout(stepTimer1);
-        clearTimeout(stepTimer2);
         setLoading(false);
         if (!navigating) {
           setHandoffState("idle");
@@ -1078,6 +1188,8 @@ export function MainAiChatView({
       documents,
       activeSessionId,
       templatesIndex,
+      hasPendingAttachments,
+      isProcessingFiles,
     ]
   );
 
@@ -1117,9 +1229,14 @@ export function MainAiChatView({
         ];
         const retryOpenMsg: ChatMessage = {
           role: "assistant",
-          content: `Ready — opening **${docTitle}** in the editor.`,
-          documentLink: { documentId: docId, title: docTitle, phase: "opened" },
-          handoffTrace: retryOpenTrace,
+          content: `Ready — **${docTitle}** is prepared and ready to use.`,
+          documentArtifact: {
+            documentId: docId,
+            title: docTitle,
+            baseType: documents.find((d) => d.id === docId)?.base_type ?? "doc",
+            thumbnailUrl: documents.find((d) => d.id === docId)?.thumbnail_url,
+            permission: "edit",
+          },
         };
         setMessages((prev) => [...prev, retryOpenMsg]);
         if (activeSessionId) {
@@ -1131,7 +1248,6 @@ export function MainAiChatView({
         }
         setHandoffSteps([]);
         setHandoffState("idle");
-        navigateToDocumentEditor(docId);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Retry failed";
@@ -1198,11 +1314,11 @@ export function MainAiChatView({
             >
               <Plus className="size-4" />
             </Button>
-            {filteredSessions.slice(0, 16).map((s) => (
+              {filteredSessions.slice(0, 16).map((s) => (
               <button
                 key={s.id}
                 type="button"
-                onClick={() => setActiveSessionId(s.id)}
+                onClick={() => setActiveSessionFromUser(s.id)}
                 className={cn(
                   "grid size-8 shrink-0 place-items-center rounded text-[10px] font-semibold transition-colors",
                   activeSessionId === s.id
@@ -1248,11 +1364,11 @@ export function MainAiChatView({
                   <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => setActiveSessionId(s.id)}
+                    onClick={() => setActiveSessionFromUser(s.id)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        setActiveSessionId(s.id);
+                        setActiveSessionFromUser(s.id);
                       }
                     }}
                     className={cn(
@@ -1442,6 +1558,23 @@ export function MainAiChatView({
                             </ul>
                           </div>
                         )}
+                        {m.documentArtifact && (
+                          <div className="mt-4">
+                            <DocumentArtifact
+                              documentId={m.documentArtifact.documentId}
+                              title={m.documentArtifact.title}
+                              baseType={m.documentArtifact.baseType}
+                              thumbnailUrl={m.documentArtifact.thumbnailUrl}
+                              permission={m.documentArtifact.permission}
+                              collaboratorsCount={m.documentArtifact.collaboratorsCount}
+                              shareToken={m.documentArtifact.shareToken}
+                              onEdit={(docId) => {
+                                const url = `/d/${docId}?aiOpen=1`;
+                                window.location.assign(url);
+                              }}
+                            />
+                          </div>
+                        )}
                       </>
                     ) : (
                       <>
@@ -1545,20 +1678,37 @@ export function MainAiChatView({
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   {attachedFiles.map((file, i) => (
                     <span
-                      key={`${file.name}-${i}`}
+                      key={`${file.id}-${i}`}
                       className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-foreground"
                     >
                       <span className="max-w-[180px] truncate">{file.name}</span>
+                      {file.status === "processing" && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+                      {file.status === "ready" && <Check className="size-3 text-muted-foreground" />}
+                      {file.status === "error" && (
+                        <button
+                          type="button"
+                          className="text-[10px] text-destructive hover:underline"
+                          onClick={() => retryAttachmentProcessing(file.id)}
+                        >
+                          retry
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="text-muted-foreground hover:text-foreground"
-                        onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
+                        onClick={() => setAttachedFiles((prev) => prev.filter((f) => f.id !== file.id))}
                         aria-label={`Remove ${file.name}`}
                       >
                         <X className="size-3" />
                       </button>
                     </span>
                   ))}
+                </div>
+              )}
+              {(processingTotal > 0 || isProcessingFiles) && (
+                <div className="mb-2 inline-flex items-center gap-2 rounded border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+                  {(isProcessingFiles || hasPendingAttachments) && <Loader2 className="size-3 animate-spin" />}
+                  <span>Processing files: {processingReady}/{processingTotal} ready</span>
                 </div>
               )}
               <form className="flex gap-2" onSubmit={handleSubmit}>
@@ -1577,7 +1727,7 @@ export function MainAiChatView({
                     size="icon"
                     className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={loading || attachedImages.length + attachedFiles.length >= MAX_IMAGES}
+                    disabled={loading || isProcessingFiles || attachedImages.length + attachedFiles.length >= MAX_IMAGES}
                     aria-label="Attach image"
                   >
                     <Paperclip className="size-3.5" />
@@ -1627,7 +1777,8 @@ export function MainAiChatView({
                   className="shrink-0 self-end rounded-full"
                   disabled={
                     loading ||
-                    (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0)
+                    (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0) ||
+                    hasPendingAttachments
                   }
                 >
                   {loading ? <Loader2 className="size-4 animate-spin" /> : "Send"}
@@ -1705,20 +1856,37 @@ export function MainAiChatView({
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   {attachedFiles.map((file, i) => (
                     <span
-                      key={`${file.name}-${i}`}
+                      key={`${file.id}-${i}`}
                       className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-foreground"
                     >
                       <span className="max-w-[180px] truncate">{file.name}</span>
+                      {file.status === "processing" && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+                      {file.status === "ready" && <Check className="size-3 text-muted-foreground" />}
+                      {file.status === "error" && (
+                        <button
+                          type="button"
+                          className="text-[10px] text-destructive hover:underline"
+                          onClick={() => retryAttachmentProcessing(file.id)}
+                        >
+                          retry
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="text-muted-foreground hover:text-foreground"
-                        onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
+                        onClick={() => setAttachedFiles((prev) => prev.filter((f) => f.id !== file.id))}
                         aria-label={`Remove ${file.name}`}
                       >
                         <X className="size-3" />
                       </button>
                     </span>
                   ))}
+                </div>
+              )}
+              {(processingTotal > 0 || isProcessingFiles) && (
+                <div className="mb-2 inline-flex items-center gap-2 rounded border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+                  {(isProcessingFiles || hasPendingAttachments) && <Loader2 className="size-3 animate-spin" />}
+                  <span>Processing files: {processingReady}/{processingTotal} ready</span>
                 </div>
               )}
               <div className="rounded-3xl border border-input bg-muted/60 focus-within:bg-muted/80 transition-colors duration-200 ease-out">
@@ -1747,7 +1915,7 @@ export function MainAiChatView({
                       size="icon"
                       className="size-8 shrink-0 rounded-full text-foreground hover:text-foreground hover:bg-muted/90"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={loading || attachedImages.length + attachedFiles.length >= MAX_IMAGES}
+                      disabled={loading || isProcessingFiles || attachedImages.length + attachedFiles.length >= MAX_IMAGES}
                       aria-label="Attach image"
                     >
                       <Plus className="size-4" />
@@ -1760,7 +1928,8 @@ export function MainAiChatView({
                       className="size-8 rounded-full"
                       disabled={
                         loading ||
-                        (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0)
+                        (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0) ||
+                        hasPendingAttachments
                       }
                     >
                       {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}

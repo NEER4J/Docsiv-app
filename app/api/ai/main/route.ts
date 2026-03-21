@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { generateText, type CoreMessage } from 'ai';
+import { generateText, type CoreMessage, stepCountIs } from 'ai';
 import { NextResponse } from 'next/server';
 import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
 import { getMainAiSystemPrompt } from './prompt';
@@ -59,6 +59,93 @@ function tryRecoverTruncatedJson(text: string): string | null {
     braceCount--;
   }
   return result;
+}
+
+/** Strip markdown fences and isolate `{...}` for JSON parse attempts. */
+function tryParseMainAiJsonFromModelText(text: string): unknown | null {
+  let stripped = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  if (!stripped.startsWith('{')) {
+    const jsonStart = stripped.indexOf('{');
+    if (jsonStart >= 0) stripped = stripped.slice(jsonStart);
+  }
+  if (!stripped.startsWith('{')) return null;
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    const recovered = tryRecoverTruncatedJson(stripped);
+    if (!recovered) return null;
+    try {
+      return JSON.parse(recovered);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function collectTextCandidatesFromGenerateTextResult(result: {
+  text?: string;
+  steps?: Array<{ text?: string }>;
+}): string[] {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string) => {
+    const t = raw.trim();
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    ordered.push(t);
+  };
+  push(result.text ?? '');
+  const steps = result.steps ?? [];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    push(steps[i]?.text ?? '');
+  }
+  return ordered;
+}
+
+const MAIN_AI_JSON_REPAIR_SYSTEM = `You are fixing the Docsiv main assistant reply.
+
+Output ONLY one JSON object. No markdown fences. No commentary. Do NOT call tools.
+
+Use the same shapes as the main assistant:
+- Q&A only: {"message":"string","sessionTitle":"optional short title"}
+- New document: include "createDocument" with title, base_type (doc|sheet|presentation|contract), client_id (uuid or null), document_type_id (uuid or null), optional template_id
+- Ambiguous clients: {"message":"string","requireClientChoice":{"prompt":"string","options":[{"id":"uuid","name":"string"}]}}
+- Open existing doc: {"message":"string","openDocumentForEditor":{"documentId":"uuid","editorPrompt":"string","seedMessage":"optional"}}
+
+Include "clientResolution" when the user names a client/company for a new doc (mode: existing | create_new | ambiguous).
+
+Mirror the user's intent from the conversation; keep "message" short and helpful.`;
+
+function trySynthesizeParsedFromToolTrace(
+  toolTrace: Array<{ name: string; output?: unknown }>,
+  lastUserPlain: string
+): Record<string, unknown> | null {
+  for (let i = toolTrace.length - 1; i >= 0; i--) {
+    const t = toolTrace[i];
+    if (t.name !== 'create_document' && t.name !== 'create_document_from_template') continue;
+    const output = t.output;
+    if (!output || typeof output !== 'object' || Array.isArray(output)) continue;
+    const o = output as Record<string, unknown>;
+    if (o.success !== true || typeof o.documentId !== 'string') continue;
+    const title = typeof o.title === 'string' ? o.title : 'Your document';
+    const editorPrompt =
+      lastUserPlain.trim() ||
+      `Continue based on the user's request and any uploaded materials.`;
+    return {
+      message: `I've set up "${title}". Opening the editor next.`,
+      sessionTitle: title.slice(0, 80),
+      openDocumentForEditor: {
+        documentId: o.documentId,
+        editorPrompt,
+        seedMessage: `Let's work on "${title}".`,
+      },
+    };
+  }
+  return null;
 }
 
 export async function POST(req: NextRequest) {
@@ -202,6 +289,8 @@ export async function POST(req: NextRequest) {
       system: systemPrompt,
       temperature: 0.3,
       tools,
+      // Default is stepCountIs(1): if the model calls tools first, generation stops with empty text and JSON parse fails.
+      stopWhen: stepCountIs(12),
     });
     const resultAny = result as unknown as {
       toolCalls?: Array<{ toolName?: string; input?: unknown }>;
@@ -237,33 +326,57 @@ export async function POST(req: NextRequest) {
       metadata: { idempotencyKey, toolTraceCount: toolTrace.length, toolTrace: toolTrace.slice(0, 30) },
     });
 
-    const text = (result.text ?? '').trim();
-    let stripped = text
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```\s*$/i, '')
-      .trim();
-    if (!stripped.startsWith('{')) {
-      const jsonStart = stripped.indexOf('{');
-      if (jsonStart >= 0) stripped = stripped.slice(jsonStart);
+    const primaryCandidates = collectTextCandidatesFromGenerateTextResult(result);
+    let parsed: unknown | null = null;
+    for (const candidate of primaryCandidates) {
+      const next = tryParseMainAiJsonFromModelText(candidate);
+      if (next && typeof next === 'object' && !Array.isArray(next)) {
+        parsed = next;
+        break;
+      }
     }
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(stripped);
-    } catch {
-      const recovered = tryRecoverTruncatedJson(stripped);
-      if (recovered) {
-        try {
-          parsed = JSON.parse(recovered);
-        } catch {
-          // fall through
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      const synthesized = trySynthesizeParsedFromToolTrace(toolTrace, lastUserPlain);
+      if (synthesized) parsed = synthesized;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      const repairMessages: CoreMessage[] = messages
+        .slice(-6)
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content:
+            typeof m.content === 'string'
+              ? m.content
+              : 'Attachment context omitted for JSON repair pass.',
+        }));
+      const repair = await generateText({
+        abortSignal: req.signal,
+        maxOutputTokens: 4096,
+        model: google(modelId),
+        messages: repairMessages,
+        system: MAIN_AI_JSON_REPAIR_SYSTEM,
+        temperature: 0.1,
+        toolChoice: 'none',
+        stopWhen: stepCountIs(1),
+      });
+      const repairCandidates = collectTextCandidatesFromGenerateTextResult(repair);
+      for (const candidate of repairCandidates) {
+        const next = tryParseMainAiJsonFromModelText(candidate);
+        if (next && typeof next === 'object' && !Array.isArray(next)) {
+          parsed = next;
+          break;
         }
       }
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return NextResponse.json({
-          message: text || "I couldn't format that as a structured response. Please try again.",
-        });
-      }
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return NextResponse.json({
+        message:
+          "We couldn't finish this reply in the structured format. If you used many attachments, try again — the assistant should now complete after running tools. You can also shorten the request.",
+      });
     }
 
     const obj = parsed as Record<string, unknown>;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, startTransition } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Globe, Eye, MessageSquare, Lock, Save, ChevronDown, Tag, Pencil, Plus, Loader2, LayoutTemplate } from 'lucide-react';
@@ -243,7 +243,7 @@ export function DocumentEditorView({
   const globalAi = useOptionalGlobalAi();
 
   // Register current document editor type with global AI so the assistant knows context
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!globalAi) return;
     let subType: DocumentEditorSubType = null;
     if (isReportKonva) subType = 'konva-report';
@@ -259,7 +259,7 @@ export function DocumentEditorView({
     };
   }, [globalAi, isReportKonva, isPresentation, isDocOrContract, isSheet, isReportGrapes, document.id]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const api = konvaAiRef.current;
     if (!api) return;
     if (grapesReadOnly) {
@@ -321,7 +321,7 @@ export function DocumentEditorView({
   const univerAi = useOptionalUniverAi();
   const univerAiRef = useRef(univerAi);
   univerAiRef.current = univerAi;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const api = univerAiRef.current;
     if (!api) return;
     if (isSheet && !effectiveReadOnly) {
@@ -511,8 +511,8 @@ export function DocumentEditorView({
   const handleChangeRef = useRef(handleChange);
   handleChangeRef.current = handleChange;
 
-  // Plate AI registration effect (must be after handleChangeRef is defined)
-  useEffect(() => {
+  // Plate AI registration: useLayoutEffect so provider state flushes before sibling AI panel useEffect (auto-send).
+  useLayoutEffect(() => {
     const api = plateAiRef.current;
     if (!api) return;
     if (isDocOrContract && !effectiveReadOnly) {

@@ -177,3 +177,60 @@ export interface DocumentTemplateDetail extends DocumentTemplateListItem {
   /** Present on full template fetch; marketplace admins may see inactive rows. */
   is_active?: boolean;
 }
+
+// ── Layout Analysis Cache ────────────────────────────────────────────────────
+
+export interface LayoutSection {
+  type: "header" | "content" | "footer" | "sidebar" | "title" | "image" | "table" | "chart";
+  position?: "top" | "bottom" | "left" | "right" | "center";
+  height_percent?: number;
+  width_percent?: number;
+  style?: {
+    background_color?: string;
+    text_color?: string;
+    border_radius?: number;
+    padding?: number;
+  };
+  content?: string;
+}
+
+export interface LayoutColorScheme {
+  primary: string;
+  secondary: string;
+  accent?: string;
+  background?: string;
+  text?: string;
+}
+
+export interface LayoutTypography {
+  heading_font?: string;
+  body_font?: string;
+  heading_size?: string;
+  body_size?: string;
+}
+
+export interface LayoutAnalysisResult {
+  id: string;
+  image_hash: string;
+  layout_type: "report" | "presentation" | "spreadsheet" | "proposal" | "doc" | "contract";
+  sections: LayoutSection[];
+  color_scheme?: LayoutColorScheme;
+  typography?: LayoutTypography;
+  suggested_base_type: "doc" | "sheet" | "presentation" | "contract";
+  raw_analysis: Record<string, unknown>;
+  created_at: string;
+  expires_at: string | null;
+}
+
+export interface LayoutAnalysisCacheRow {
+  id: string;
+  image_hash: string;
+  layout_type: string;
+  sections: LayoutSection[];
+  color_scheme?: LayoutColorScheme;
+  typography?: LayoutTypography;
+  suggested_base_type: string;
+  raw_analysis: Record<string, unknown>;
+  created_at: string;
+  expires_at: string | null;
+}

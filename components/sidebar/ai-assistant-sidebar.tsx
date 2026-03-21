@@ -261,6 +261,11 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   const aiAutoSend = searchParams.get("aiAutoSend") === "1";
   const sessionLoadedRef = React.useRef(false);
   const autoSendTriggeredRef = React.useRef(false);
+  /** Re-runs auto-send effect while waiting for Plate/Konva/Univer to register (async setState in providers). */
+  const [autoSendEditorPoll, setAutoSendEditorPoll] = React.useState(0);
+  const autoSendEditorWaitStartRef = React.useRef<number | null>(null);
+  /** Drives status copy while we poll for editor registration (not derivable from refs in useMemo). */
+  const [autoSendWaitingForEditor, setAutoSendWaitingForEditor] = React.useState(false);
 
   React.useEffect(() => {
     if (autoSendStatus === "idle") {
@@ -279,6 +284,12 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
 
   const autoSendStatusLabel = React.useMemo(() => {
     if (autoSendStatus === "preparing") {
+      if (autoSendWaitingForEditor) {
+        if (autoSendElapsedSec >= 6) {
+          return "Connecting to editor... still waiting. You can press Send below if this continues.";
+        }
+        return "Connecting to editor...";
+      }
       if (autoSendElapsedSec >= 8) {
         return "Preparing AI context... this is taking longer than usual.";
       }
@@ -290,11 +301,14 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
         : "Running your prompt...";
     }
     return "";
-  }, [autoSendElapsedSec, autoSendStatus]);
+  }, [autoSendElapsedSec, autoSendStatus, autoSendWaitingForEditor]);
 
   // New document → allow auto-send again for that doc
   React.useEffect(() => {
     autoSendTriggeredRef.current = false;
+    autoSendEditorWaitStartRef.current = null;
+    setAutoSendEditorPoll(0);
+    setAutoSendWaitingForEditor(false);
   }, [documentId]);
 
   // Load persisted AI chat session for this document (DB first, then localStorage fallback)
@@ -742,16 +756,21 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
   React.useEffect(() => {
     if (!aiAutoSend || !documentId) {
       setAutoSendStatus("idle");
+      setAutoSendWaitingForEditor(false);
+      autoSendEditorWaitStartRef.current = null;
       if (!aiAutoSend) autoSendTriggeredRef.current = false;
       return;
     }
     if (autoSendTriggeredRef.current) return;
     if (!sessionLoadedRef.current) {
+      setAutoSendWaitingForEditor(false);
       if (sessionLoading) setAutoSendStatus("preparing");
       return; // wait for DB/localStorage seed to load into `input`
     }
     if (!input.trim()) {
       setAutoSendStatus("idle");
+      setAutoSendWaitingForEditor(false);
+      autoSendEditorWaitStartRef.current = null;
       const p = new URLSearchParams(searchParams.toString());
       if (p.get("aiAutoSend") === "1") {
         p.delete("aiAutoSend");
@@ -766,6 +785,8 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
     try {
       if (typeof window !== "undefined" && localStorage.getItem(storageKey) === signature) {
         setAutoSendStatus("idle");
+        setAutoSendWaitingForEditor(false);
+        autoSendEditorWaitStartRef.current = null;
         autoSendTriggeredRef.current = true;
         const p = new URLSearchParams(searchParams.toString());
         p.delete("aiAutoSend");
@@ -778,15 +799,36 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
     }
 
     if (!isAnyEditorActive) {
+      // Plate/Konva/Univer register in a child effect + provider setState; first tick often sees no editor.
+      const EDITOR_CONNECT_MAX_MS = 10000;
+      if (!isOtherEditor) {
+        if (autoSendEditorWaitStartRef.current === null) {
+          autoSendEditorWaitStartRef.current = Date.now();
+        }
+        const elapsed = Date.now() - autoSendEditorWaitStartRef.current;
+        if (elapsed < EDITOR_CONNECT_MAX_MS) {
+          setAutoSendWaitingForEditor(true);
+          setAutoSendStatus("preparing");
+          const t = window.setTimeout(() => setAutoSendEditorPoll((n) => n + 1), 120);
+          return () => clearTimeout(t);
+        }
+      }
+      const waitedMs =
+        autoSendEditorWaitStartRef.current != null
+          ? Date.now() - autoSendEditorWaitStartRef.current
+          : null;
+      autoSendEditorWaitStartRef.current = null;
+      setAutoSendWaitingForEditor(false);
       const reason = isOtherEditor
         ? "AI auto-run is not available for this editor type yet."
-        : "AI auto-run is unavailable in the current editor state.";
+        : "The editor did not connect in time for auto-run.";
       console.warn("[AI Assistant] Auto-send unavailable", {
         documentId,
         documentEditorSubType: globalAi?.documentEditorSubType ?? null,
         isKonvaActive,
         isPlateActive,
         isUniverActive,
+        waitedMs,
       });
       setAutoSendStatus("idle");
       autoSendTriggeredRef.current = true;
@@ -794,17 +836,22 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
         ...prev,
         {
           role: "assistant",
-          content: `${reason} You can still use manual chat once the editor is ready.`,
+          content: isOtherEditor
+            ? `${reason} You can still use manual chat once the editor is ready.`
+            : `${reason} Your prompt is still in the box — press Send to run it.`,
           action: "chat",
         },
       ]);
-      toast.info(reason);
+      toast.info(isOtherEditor ? reason : "Press Send in the AI panel to run your prompt.");
       const p = new URLSearchParams(searchParams.toString());
       p.delete("aiAutoSend");
       const q = p.toString();
       router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
       return;
     }
+
+    autoSendEditorWaitStartRef.current = null;
+    setAutoSendWaitingForEditor(false);
 
     try {
       autoSendTriggeredRef.current = true;
@@ -836,6 +883,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
     pathname,
     router,
     searchParams,
+    autoSendEditorPoll,
   ]);
 
   React.useEffect(() => {
