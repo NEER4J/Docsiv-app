@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Eye, FileInput, Sparkles, Loader2 } from "lucide-react";
+import { Eye, FileInput, FolderOpen, LoaderIcon, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,14 @@ import {
 } from "@/components/ui/dialog";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { DocumentTemplateListItem, DocumentType } from "@/types/database";
 import {
@@ -55,6 +63,7 @@ export function TemplatesHub({
   const [loading, setLoading] = useState(true);
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [typeSlug, setTypeSlug] = useState<string | "all">("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewDetail, setPreviewDetail] = useState<Awaited<
@@ -81,8 +90,22 @@ export function TemplatesHub({
     if (typeSlug !== "all") {
       rows = rows.filter((t) => t.document_types.some((dt) => dt.slug === typeSlug));
     }
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(
+        (t) =>
+          t.title.toLowerCase().includes(q) ||
+          (t.description ?? "").toLowerCase().includes(q),
+      );
+    }
     return rows;
-  }, [templates, scope, typeSlug]);
+  }, [templates, scope, typeSlug, searchQuery]);
+
+  const clearFilters = () => {
+    setScope("all");
+    setTypeSlug("all");
+    setSearchQuery("");
+  };
 
   const openPreview = async (id: string) => {
     setPreviewId(id);
@@ -134,9 +157,9 @@ export function TemplatesHub({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in-0 space-y-6 duration-300">
       <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <h1 className="font-ui text-2xl font-bold tracking-[-0.02em]">Templates</h1>
+        <h1 className="font-ui text-2xl font-semibold tracking-[-0.02em]">Templates</h1>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-border">
             {(
@@ -152,8 +175,8 @@ export function TemplatesHub({
                 variant="ghost"
                 size="sm"
                 className={cn(
-                  "rounded-none border-0 first:rounded-l-lg last:rounded-r-lg",
-                  scope === k && "bg-muted"
+                  "rounded-none border-0 transition-colors duration-200 first:rounded-l-lg last:rounded-r-lg",
+                  scope === k && "bg-muted",
                 )}
                 onClick={() => setScope(k)}
               >
@@ -161,30 +184,70 @@ export function TemplatesHub({
               </Button>
             ))}
           </div>
-          <select
-            className="font-body h-9 rounded-lg border border-border bg-background px-3 text-sm"
+          <Select
             value={typeSlug}
-            onChange={(e) => setTypeSlug(e.target.value as typeof typeSlug)}
-            aria-label="Filter by document type"
+            onValueChange={(v) => setTypeSlug(v as typeof typeSlug)}
           >
-            <option value="all">All types</option>
-            {documentTypes.map((dt) => (
-              <option key={dt.id} value={dt.slug}>
-                {dt.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              size="sm"
+              className="font-body h-9 w-full min-w-[10rem] shadow-none sm:w-[11rem]"
+              aria-label="Filter by document type"
+            >
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              {documentTypes.map((dt) => (
+                <SelectItem key={dt.id} value={dt.slug}>
+                  {dt.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="w-full max-w-md">
+        <div className="relative min-w-0">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            placeholder="Search templates..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="font-body h-9 pl-9"
+            aria-label="Search templates"
+          />
         </div>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-16 text-muted-foreground">
-          <Loader2 className="size-8 animate-spin" aria-label="Loading" />
+        <div className="flex justify-center py-16 text-muted-foreground" role="status" aria-label="Loading">
+          <LoaderIcon className="size-8 shrink-0 animate-spin" />
+        </div>
+      ) : templates.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-border bg-muted/40 px-6 py-16 text-center">
+          <FolderOpen className="size-10 text-muted-foreground/50" aria-hidden />
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">No templates yet</p>
+            <p className="max-w-sm text-xs text-muted-foreground">
+              Workspace and marketplace templates will appear here when available.
+            </p>
+          </div>
         </div>
       ) : filtered.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
-          No templates match this filter.
-        </p>
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-muted/40 px-6 py-12 text-center">
+          <p className="text-sm font-medium text-foreground">No matching templates</p>
+          <p className="max-w-sm text-xs text-muted-foreground">
+            Try a different search or filter.
+          </p>
+          <Button type="button" variant="outline" size="sm" className="mt-1" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((t) => (
@@ -253,7 +316,7 @@ export function TemplatesHub({
                   onClick={() => void handleImport(t.id)}
                 >
                   {actingId === t.id ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <LoaderIcon className="size-3.5 shrink-0 animate-spin" />
                   ) : (
                     <FileInput className="size-3.5" />
                   )}
@@ -266,7 +329,11 @@ export function TemplatesHub({
                   disabled={actingId === t.id}
                   onClick={() => void handleStartAi(t.id)}
                 >
-                  <Sparkles className="size-3.5" />
+                  {actingId === t.id ? (
+                    <LoaderIcon className="size-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-3.5" />
+                  )}
                   Start with AI
                 </Button>
               </CardFooter>
@@ -281,8 +348,8 @@ export function TemplatesHub({
             <DialogTitle>{previewDetail?.title ?? "Template"}</DialogTitle>
           </DialogHeader>
           {previewLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            <div className="flex justify-center py-8" role="status" aria-label="Loading">
+              <LoaderIcon className="size-6 shrink-0 animate-spin text-muted-foreground" />
             </div>
           ) : previewDetail ? (
             <div className="space-y-3 text-sm">
