@@ -50,6 +50,7 @@ import { isUnifiedCommentsEnabledForEditor } from '@/lib/comments/flags';
 import { renderPageToPngDataURL } from '@/lib/konva-export-pdf';
 import { updateDocumentContent, createDocumentVersion, uploadDocumentThumbnail } from '@/lib/actions/documents';
 import { computeSnap, type Bounds } from '@/lib/konva-snap';
+import { chartSheetToDataPoints, legacyDataToChartSheet } from '@/lib/konva-chart-sheet';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -101,6 +102,8 @@ function getInitials(name?: string | null): string {
 }
 
 const PREVIEW_ROW_HEIGHT_EXTRA = 60;
+const PREVIEW_ZOOM_MIN = 0.35;
+const PREVIEW_ZOOM_MAX = 2.5;
 
 const ZOOM_MAX = 2;
 const ZOOM_ABS_MIN = 0.12;
@@ -339,9 +342,9 @@ const KonvaEditorCoreInner = (
   const [slotPreviewUrls, setSlotPreviewUrls] = useState<(string | null)[]>([]);
   const pagesScrollRef = useRef<HTMLDivElement>(null);
   const pageSlotRefs = useRef<(HTMLDivElement | null)[]>([]);
-  /** Skip IntersectionObserver-driven index updates while programmatically scrolling (avoids flicker). */
-  const skipIoSyncRef = useRef(false);
-  const programmaticScrollClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const accumulatedDeltaRef = useRef(0);
+  const scrollCooldownRef = useRef(false);
+  const deltaResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const [canvasCursor, setCanvasCursor] = useState<'grab' | 'default' | 'move' | 'grabbing' | string>('default');
   const [guideLines, setGuideLines] = useState<{ vertical: number[]; horizontal: number[] }>({ vertical: [], horizontal: [] });
@@ -404,17 +407,15 @@ const KonvaEditorCoreInner = (
     setPan({ x: 0, y: 0 });
   }, []);
 
-  // Fit to screen on initial load
+  // Fit to screen on initial load (edit and view-only)
   useEffect(() => {
-    if (readOnly) return;
     if (canvasSize.width > 0 && canvasSize.height > 0 && pages.length > 0) {
-      // Small delay to ensure container is fully rendered
       const timer = setTimeout(() => {
         fitToScreen();
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [readOnly, canvasSize.width, canvasSize.height, pages.length, fitToScreen]);
+  }, [canvasSize.width, canvasSize.height, pages.length, fitToScreen]);
 
   /** Resolve cursor when over stage: default (page), move (shape), or resize (transformer anchor) */
   const getCursorForStagePoint = useCallback(
@@ -464,6 +465,7 @@ const KonvaEditorCoreInner = (
   const handlePagesScrollWheel = useCallback(
     (e: WheelEvent) => {
       if (readOnly) return;
+      e.preventDefault();
       const fz = fitZoomRef.current;
       const z = zoomRef.current;
       const isZoomedIn = z > fz + 1e-4;
@@ -472,7 +474,6 @@ const KonvaEditorCoreInner = (
       const slotH = canvasContainerRef.current?.clientHeight ?? 0;
       const { dx, dy } = normalizeWheelDelta(e);
       if (isZoom) {
-        e.preventDefault();
         const raw = dy !== 0 ? dy : dx;
         if (raw === 0) return;
         const delta = raw > 0 ? -0.1 : 0.1;
@@ -483,37 +484,45 @@ const KonvaEditorCoreInner = (
         return;
       }
       if (isZoomedIn) {
-        e.preventDefault();
         setPan((p) => {
           const np = { x: p.x - dx, y: p.y - dy };
           return clampPanForZoom(np, z, width, height, slotW, slotH);
         });
         return;
       }
-      // At fit zoom - let native scroll handle it for smooth snap behavior
-      // Don't call preventDefault, allow browser to handle wheel naturally
+      // Page navigation at fit zoom — accumulate delta and switch only on deliberate gesture
+      if (scrollCooldownRef.current) return;
+      const scrollDelta = e.shiftKey ? dx : dy;
+      accumulatedDeltaRef.current += scrollDelta;
+      if (deltaResetTimerRef.current) clearTimeout(deltaResetTimerRef.current);
+      deltaResetTimerRef.current = setTimeout(() => { accumulatedDeltaRef.current = 0; }, 200);
+
+      const THRESHOLD = 60;
+      if (Math.abs(accumulatedDeltaRef.current) >= THRESHOLD) {
+        const direction = accumulatedDeltaRef.current > 0 ? 1 : -1;
+        accumulatedDeltaRef.current = 0;
+        setCurrentIndex((prev) => {
+          const next = prev + direction;
+          if (next < 0 || next >= pages.length) return prev;
+          return next;
+        });
+        setSelectedIds([]);
+        setZoom(fz);
+        setPan({ x: 0, y: 0 });
+        scrollCooldownRef.current = true;
+        setTimeout(() => { scrollCooldownRef.current = false; accumulatedDeltaRef.current = 0; }, 500);
+      }
     },
-    [readOnly, width, height]
+    [readOnly, width, height, pages.length]
   );
 
   useEffect(() => {
     const el = pagesScrollRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => handlePagesScrollWheel(e);
-    const clearSkip = () => {
-      skipIoSyncRef.current = false;
-      if (programmaticScrollClearTimerRef.current) {
-        clearTimeout(programmaticScrollClearTimerRef.current);
-        programmaticScrollClearTimerRef.current = null;
-      }
-    };
     el.addEventListener('wheel', onWheel, { passive: false, capture: true });
-    el.addEventListener('scrollend', clearSkip);
-    return () => {
-      el.removeEventListener('wheel', onWheel, { capture: true });
-      el.removeEventListener('scrollend', clearSkip);
-    };
-  }, [handlePagesScrollWheel, pages.length]);
+    return () => { el.removeEventListener('wheel', onWheel, { capture: true }); };
+  }, [handlePagesScrollWheel]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -886,78 +895,6 @@ const KonvaEditorCoreInner = (
     });
   }, [pageThumbnailUrls, pages.length]);
 
-  // Track scroll momentum for smoother page detection
-  const scrollMomentumRef = useRef(0);
-  const lastScrollTimeRef = useRef(0);
-  const ioDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const root = pagesScrollRef.current;
-    if (!root || pages.length === 0) return;
-
-    // Track scroll velocity for better snap prediction
-    const handleScroll = () => {
-      const now = Date.now();
-      const delta = now - lastScrollTimeRef.current;
-      lastScrollTimeRef.current = now;
-      // Simple velocity tracking
-      scrollMomentumRef.current = delta;
-    };
-    root.addEventListener('scroll', handleScroll, { passive: true });
-
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (skipIoSyncRef.current) return;
-
-        // Clear any pending debounce
-        if (ioDebounceTimerRef.current) {
-          clearTimeout(ioDebounceTimerRef.current);
-        }
-
-        let bestIdx = -1;
-        let bestRatio = 0;
-        for (const entry of entries) {
-          const idx = Number((entry.target as HTMLElement).dataset.pageIndex);
-          if (!Number.isFinite(idx)) continue;
-          if (entry.intersectionRatio > bestRatio) {
-            bestRatio = entry.intersectionRatio;
-            bestIdx = idx;
-          }
-        }
-
-        // Only switch if we have a clear winner (>60% visible) and no momentum
-        if (bestIdx >= 0 && bestRatio >= 0.6) {
-          // Small debounce to let snap finish naturally
-          ioDebounceTimerRef.current = setTimeout(() => {
-            setCurrentIndex((prev) => {
-              // Don't switch if already on this page
-              if (prev === bestIdx) return prev;
-
-              // Check distance - don't jump more than 1 page at a time during scroll
-              const distance = Math.abs(prev - bestIdx);
-              if (distance > 1 && scrollMomentumRef.current < 50) {
-                // Momentum scroll - let it settle before switching
-                return prev;
-              }
-              return bestIdx;
-            });
-          }, 50);
-        }
-      },
-      { root, threshold: [0, 0.25, 0.5, 0.6, 0.75, 0.9, 1] }
-    );
-
-    pageSlotRefs.current.forEach((el) => {
-      if (el) obs.observe(el);
-    });
-
-    return () => {
-      obs.disconnect();
-      root.removeEventListener('scroll', handleScroll);
-      if (ioDebounceTimerRef.current) clearTimeout(ioDebounceTimerRef.current);
-    };
-  }, [pages.length]);
-
   // Clear guide lines when changing pages
   useEffect(() => {
     setGuideLines({ vertical: [], horizontal: [] });
@@ -965,36 +902,11 @@ const KonvaEditorCoreInner = (
 
   const goToPage = useCallback((index: number) => {
     const i = Math.max(0, Math.min(index, pages.length - 1));
-
-    // Don't do anything if already on this page
     if (i === currentIndex) return;
-
-    skipIoSyncRef.current = true;
-    if (programmaticScrollClearTimerRef.current) {
-      clearTimeout(programmaticScrollClearTimerRef.current);
-      programmaticScrollClearTimerRef.current = null;
-    }
-
-    // Clear selection first
     setSelectedIds([]);
-
-    // Use requestAnimationFrame for smooth scroll
-    requestAnimationFrame(() => {
-      const targetEl = pageSlotRefs.current[i];
-      if (targetEl) {
-        // Use native scrollIntoView with 'nearest' for smoother snap
-        targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-      }
-
-      // Update index after scroll starts
-      setCurrentIndex(i);
-    });
-
-    // Clear skip flag after animation completes
-    programmaticScrollClearTimerRef.current = setTimeout(() => {
-      skipIoSyncRef.current = false;
-      programmaticScrollClearTimerRef.current = null;
-    }, 400);
+    setZoom(fitZoomRef.current);
+    setPan({ x: 0, y: 0 });
+    setCurrentIndex(i);
   }, [pages.length, currentIndex]);
 
   const addPage = useCallback(() => {
@@ -1076,22 +988,27 @@ const KonvaEditorCoreInner = (
         case 'Video':
           attrs = { ...base, src: (defaultAttrs.src as string) ?? '', width: 320, height: 180 };
           break;
-        case 'Chart':
+        case 'Chart': {
+          const defaultData =
+            (defaultAttrs.data as Array<{ label: string; value: number }>) ?? [
+              { label: 'A', value: 30 },
+              { label: 'B', value: 50 },
+              { label: 'C', value: 40 },
+            ];
+          const chartSheet = legacyDataToChartSheet(defaultData);
           attrs = {
             ...base,
             width: 300,
             height: 200,
             chartType: (defaultAttrs.chartType as string) ?? 'bar',
-            data: (defaultAttrs.data as Array<{label: string; value: number}>) ?? [
-              { label: 'A', value: 30 },
-              { label: 'B', value: 50 },
-              { label: 'C', value: 40 },
-            ],
+            chartSheet,
+            data: chartSheetToDataPoints(chartSheet),
             colors: (defaultAttrs.colors as string[]) ?? ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'],
             showLegend: true,
             showLabels: true,
           };
           break;
+        }
         default:
           attrs = { ...base, width: 200, height: 100, fill: '#e5e5e5' };
       }
@@ -1917,10 +1834,58 @@ const KonvaEditorCoreInner = (
     editorRootRef.current?.focus({ preventScroll: true });
   }, []);
 
-  const previewScaleBase = Math.min(420 / width, 520 / height, 0.85);
+  const previewScaleBase = useMemo(
+    () => Math.min(420 / width, 520 / height, 0.85),
+    [width, height]
+  );
   const previewScale = previewScaleBase * previewZoom;
-  const PREVIEW_ZOOM_MIN = 0.5;
-  const PREVIEW_ZOOM_MAX = 2;
+
+  const fitReportPreviewZoom = useCallback(() => {
+    const el = previewScrollRef.current;
+    if (!el || width <= 0 || height <= 0) return;
+    const pad = 48;
+    const availW = el.clientWidth - pad;
+    const availH = el.clientHeight - pad;
+    if (availW < 80 || availH < 80) return;
+    const base = previewScaleBase;
+    if (base < 1e-6) return;
+    const maxZw = availW / (width * base);
+    const maxZh = (availH - PREVIEW_ROW_HEIGHT_EXTRA) / (height * base);
+    const z = Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, Math.min(maxZw, maxZh)));
+    setPreviewZoom(z);
+  }, [width, height, previewScaleBase]);
+
+  useEffect(() => {
+    if (!previewOpen || mode !== 'report') return;
+    let ro: ResizeObserver | null = null;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const run = () => fitReportPreviewZoom();
+    const scheduleRun = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(run, 0);
+    };
+    const t0 = window.setTimeout(run, 0);
+    const t1 = window.setTimeout(run, 80);
+    const t2 = window.setTimeout(run, 200);
+    const t3 = window.setTimeout(run, 400);
+    const tryObserve = () => {
+      const node = previewScrollRef.current;
+      if (!node || ro) return;
+      ro = new ResizeObserver(scheduleRun);
+      ro.observe(node);
+    };
+    const to = window.setTimeout(tryObserve, 50);
+    return () => {
+      clearTimeout(t0);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(to);
+      if (debounce) clearTimeout(debounce);
+      ro?.disconnect();
+    };
+  }, [previewOpen, mode, fitReportPreviewZoom, pages.length]);
+
   const previewPresentationContent: KonvaStoredContent = {
     editor: 'konva',
     presentation: {
@@ -1939,9 +1904,11 @@ const KonvaEditorCoreInner = (
     >
       <Dialog open={previewOpen} onOpenChange={(open) => { setPreviewOpen(open); if (!open) setPreviewZoom(1); }}>
         <DialogContent
-          className={mode === 'presentation'
-            ? 'max-h-[92vh] max-w-[96vw] overflow-hidden flex flex-col'
-            : 'max-h-[90vh] max-w-[95vw] overflow-hidden flex flex-col border border-zinc-700 bg-zinc-900 text-zinc-100'}
+          className={
+            mode === 'presentation'
+              ? 'flex h-[min(96vh,100dvh)] max-h-[min(96vh,100dvh)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-3 overflow-hidden p-3 sm:max-w-[calc(100vw-1rem)] sm:p-4'
+              : 'flex h-[min(96vh,100dvh)] max-h-[min(96vh,100dvh)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-3 overflow-hidden border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 sm:max-w-[calc(100vw-1rem)] sm:p-4'
+          }
           onPointerDownCapture={(e) => e.target === e.currentTarget && e.preventDefault()}
           onContextMenu={(e) => e.preventDefault()}
           style={{ userSelect: 'none' }}
@@ -1952,47 +1919,55 @@ const KonvaEditorCoreInner = (
             </DialogTitle>
           </DialogHeader>
           {mode === 'presentation' ? (
-            <div className="min-h-0 flex-1 overflow-auto px-1 pb-1">
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden px-0 pb-0 sm:px-1 sm:pb-1">
               <RevealPresentationViewer
                 content={previewPresentationContent}
                 initialSlideIndex={currentIndex}
                 onSlideChange={setCurrentIndex}
+                className="h-full min-h-0 w-full flex-1"
               />
             </div>
           ) : (
-            <div
-              ref={previewScrollRef}
-              className="flex min-h-0 flex-1 flex-col overflow-auto rounded border border-zinc-700 bg-zinc-800 p-4"
-              onContextMenu={(e) => e.preventDefault()}
-            >
-              <PreviewDialogVirtualList
-                pages={pages}
-                width={width}
-                height={height}
-                previewScale={previewScale}
-                getChildren={getChildren}
-                scrollRef={previewScrollRef}
-              />
-              <div className="sticky bottom-0 left-0 right-0 flex justify-center border-t border-zinc-700 bg-zinc-900/95 py-2 backdrop-blur">
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded border border-zinc-700 bg-zinc-800">
+              <div
+                ref={previewScrollRef}
+                className="min-h-0 flex-1 overflow-auto p-4"
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                <PreviewDialogVirtualList
+                  pages={pages}
+                  width={width}
+                  height={height}
+                  previewScale={previewScale}
+                  getChildren={getChildren}
+                  scrollRef={previewScrollRef}
+                />
+              </div>
+              <div className="flex shrink-0 justify-center border-t border-zinc-700 bg-zinc-900 py-2">
                 <div className="flex items-center gap-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 w-8 p-0 border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                    className="h-8 w-8 border-zinc-600 bg-zinc-800 p-0 text-zinc-200 hover:bg-zinc-700"
                     onClick={() => setPreviewZoom((z) => Math.max(PREVIEW_ZOOM_MIN, z - 0.25))}
                     aria-label="Zoom out"
                   >
                     -
                   </Button>
-                  <span className="min-w-[3rem] text-center text-xs text-zinc-400">
+                  <button
+                    type="button"
+                    className="min-w-[3.5rem] text-center text-xs text-zinc-400 transition-colors hover:text-zinc-200"
+                    onClick={fitReportPreviewZoom}
+                    title="Fit to screen"
+                  >
                     {Math.round(previewZoom * 100)}%
-                  </span>
+                  </button>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 w-8 p-0 border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                    className="h-8 w-8 border-zinc-600 bg-zinc-800 p-0 text-zinc-200 hover:bg-zinc-700"
                     onClick={() => setPreviewZoom((z) => Math.min(PREVIEW_ZOOM_MAX, z + 0.25))}
                     aria-label="Zoom in"
                   >
@@ -2166,11 +2141,13 @@ const KonvaEditorCoreInner = (
           )}
           <div
             ref={pagesScrollRef}
-            className="min-h-0 flex-1 touch-pan-y snap-y snap-mandatory overflow-y-auto overscroll-y-contain scroll-smooth"
+            className="relative min-h-0 flex-1 overflow-hidden"
           >
             {pages.map((_, pageIndex) => {
               const previewUrl = pageThumbnailUrls[pageIndex] ?? slotPreviewUrls[pageIndex];
               const isActiveSlot = pageIndex === currentIndex;
+              const offset = pageIndex - currentIndex;
+              if (Math.abs(offset) > 1) return null;
               return (
                 <div
                   key={pageIndex}
@@ -2178,40 +2155,28 @@ const KonvaEditorCoreInner = (
                     pageSlotRefs.current[pageIndex] = el;
                   }}
                   data-page-index={pageIndex}
-                  className="relative box-border flex h-[calc(100%-2rem)] min-h-0 w-full shrink-0 snap-center snap-always flex-col items-center justify-center py-4"
-                  onPointerDownCapture={(e) => {
-                    if (readOnly || isActiveSlot) return;
-                    // Only trigger if it's a clear click (not part of a scroll/swipe)
-                    if (e.isPrimary && e.pointerType === 'mouse') {
-                      // Small delay to distinguish from scroll
-                      setTimeout(() => {
-                        const root = pagesScrollRef.current;
-                        if (root && !root.matches(':active')) {
-                          goToPage(pageIndex);
-                        }
-                      }, 50);
-                    }
-                    e.stopPropagation();
-                  }}
+                  className="absolute inset-0 flex flex-col items-center justify-center transition-transform duration-300 ease-out"
+                  style={{ transform: `translateY(${offset * 100}%)` }}
                   aria-label={mode === 'report' ? `Page ${pageIndex + 1}` : `Slide ${pageIndex + 1}`}
                 >
-                  {!isActiveSlot && (
-                    <div className="flex h-full w-full items-center justify-center p-4">
-                      {previewUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={previewUrl}
-                          alt=""
-                          className="max-h-full max-w-full border border-zinc-300 object-contain"
-                          draggable={false}
-                        />
-                      ) : (
-                        <div className="flex min-h-[10rem] min-w-[8rem] items-center justify-center border border-dashed border-zinc-400 bg-white text-xs text-zinc-500">
-                          {mode === 'report' ? 'Page' : 'Slide'} {pageIndex + 1}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div
+                    className="pointer-events-none absolute"
+                    style={{
+                      left: '50%',
+                      top: '50%',
+                      width,
+                      height,
+                      transform: `translate(-50%, -50%) scale(${fitZoom})`,
+                      transformOrigin: 'center center',
+                    }}
+                  >
+                    {previewUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={previewUrl} alt="" className="h-full w-full" draggable={false} />
+                    ) : (
+                      <div className="h-full w-full border border-zinc-300 bg-white" />
+                    )}
+                  </div>
                   {isActiveSlot && (
                     <div className="relative flex h-full w-full flex-col items-center justify-center">
                       {unifiedCommentsEnabled && markerThreads.length > 0 && (
@@ -2260,13 +2225,6 @@ const KonvaEditorCoreInner = (
             onDragOver={(e) => e.preventDefault()}
             onDragEnter={(e) => e.preventDefault()}
             onDrop={handleStageDrop}
-            onWheel={(e) => {
-              // Forward wheel events to scroll container when at fit zoom
-              if (!isZoomedInRef.current && !(e.ctrlKey || e.metaKey)) {
-                e.stopPropagation();
-                pagesScrollRef.current?.scrollBy({ top: e.deltaY, behavior: 'auto' });
-              }
-            }}
           >
             <ContextMenu>
             <ContextMenuTrigger asChild>

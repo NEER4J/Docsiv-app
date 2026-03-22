@@ -34,9 +34,9 @@ function clampIndex(index: number, total: number): number {
   return Math.max(0, Math.min(index, total - 1));
 }
 
-const ZOOM_MIN = 0.5;
-const ZOOM_MAX = 2;
-const ZOOM_STEP = 0.25;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 2.5;
+const ZOOM_STEP = 0.15;
 
 export function RevealPresentationViewer({
   content,
@@ -62,37 +62,93 @@ export function RevealPresentationViewer({
   const [slideDirection, setSlideDirection] = useState<'next' | 'prev'>('next');
   const [showThumbnails, setShowThumbnails] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const PREVIEW_PIXEL_RATIO = 2;
+
+  /** Fit 16:9 slide entirely inside the viewport (width + height), letterboxing as needed */
+  const fitToContainer = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el || SLIDE_WIDTH_PX <= 0) return;
+    const padX = 28;
+    const padY = 24;
+    let availW = el.clientWidth - padX;
+    let availH = el.clientHeight - padY;
+    if (showThumbnails && showControls) {
+      availH -= 92;
+    }
+    if (availW <= 8 || availH <= 8) return;
+    const scaleW = availW / SLIDE_WIDTH_PX;
+    const scaleH = availH / SLIDE_HEIGHT_PX;
+    const fitZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.min(scaleW, scaleH)));
+    setZoom(fitZoom);
+  }, [showThumbnails, showControls]);
+
+  const fitToContainerRef = useRef(fitToContainer);
+  fitToContainerRef.current = fitToContainer;
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const ro = new ResizeObserver(() => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => fitToContainer(), 100);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      if (t) clearTimeout(t);
+    };
+  }, [fitToContainer]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => fitToContainer());
+  }, [showThumbnails, fitToContainer]);
 
   useEffect(() => {
     let cancelled = false;
     setIsRenderingSlides(true);
     setRenderFailed(false);
-    setSlideUrls([]);
+    const n = slides.length;
+    if (n === 0) {
+      setSlideUrls([]);
+      setIsRenderingSlides(false);
+      return;
+    }
+    setSlideUrls(Array(n).fill(null));
 
     const run = async () => {
       try {
-        const urls: (string | null)[] = [];
-        for (const slide of slides) {
+        let firstShown = false;
+        for (let i = 0; i < n; i++) {
+          if (cancelled) return;
+          const slide = slides[i];
           const shapes = getChildrenFromSlide(slide);
           const background = (slide as { background?: PageBackground }).background;
+          let dataUrl: string | null = null;
           try {
-            const dataUrl = await renderPageToPngDataURL(
+            dataUrl = await renderPageToPngDataURL(
               shapes,
               SLIDE_WIDTH_PX,
               SLIDE_HEIGHT_PX,
               PREVIEW_PIXEL_RATIO,
               background ?? undefined
             );
-            urls.push(dataUrl);
           } catch {
-            urls.push(null);
+            dataUrl = null;
           }
-        }
-
-        if (!cancelled) {
-          setSlideUrls(urls);
-          setCurrentSlide(clampIndex(initialSlideIndex, urls.length));
+          if (cancelled) return;
+          setSlideUrls((prev) => {
+            const next = prev.length === n ? [...prev] : Array(n).fill(null);
+            next[i] = dataUrl;
+            return next;
+          });
+          if (!firstShown) {
+            firstShown = true;
+            setIsRenderingSlides(false);
+            setCurrentSlide(clampIndex(initialSlideIndex, n));
+            requestAnimationFrame(() => fitToContainerRef.current());
+          }
         }
       } catch {
         if (!cancelled) setRenderFailed(true);
@@ -101,7 +157,7 @@ export function RevealPresentationViewer({
       }
     };
 
-    run();
+    void run();
     return () => {
       cancelled = true;
     };
@@ -179,6 +235,7 @@ export function RevealPresentationViewer({
     >
       {/* Full viewport: one slide image, scaled to fit and centered */}
       <div
+        ref={viewportRef}
         className={cn(
           styles.viewport,
           showControls && styles.viewportWithBar
@@ -200,16 +257,23 @@ export function RevealPresentationViewer({
             >
               {(() => {
                 const url = slideUrls[currentSlide];
-                return url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={url}
-                    alt={`Slide ${currentSlide + 1}`}
-                    className={styles.slideImageFullViewport}
-                    draggable={false}
-                  />
-                ) : (
-                  <div className={styles.fallbackSlide}>Slide {currentSlide + 1}</div>
+                if (url) {
+                  return (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={url}
+                      alt={`Slide ${currentSlide + 1}`}
+                      className={styles.slideImageFullViewport}
+                      draggable={false}
+                    />
+                  );
+                }
+                return (
+                  <div className={styles.fallbackSlide}>
+                    <span className="text-center">
+                      Preparing slide {currentSlide + 1}…
+                    </span>
+                  </div>
                 );
               })()}
             </div>
@@ -331,9 +395,14 @@ export function RevealPresentationViewer({
             >
               <Minus className="h-4 w-4" />
             </Button>
-            <span className="min-w-[2.5rem] text-center text-xs text-white/70">
+            <button
+              type="button"
+              className="min-w-[2.5rem] text-center text-xs text-white/70 hover:text-white transition-colors cursor-pointer"
+              onClick={() => fitToContainer()}
+              title="Fit slide to view"
+            >
               {Math.round(zoom * 100)}%
-            </span>
+            </button>
             <Button
               type="button"
               variant="ghost"

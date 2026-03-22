@@ -7,9 +7,26 @@ import { getMainAiSystemPrompt } from './prompt';
 import { logAiUsage } from '@/lib/ai-usage';
 import { getMainAiTools } from '@/lib/ai/main/tools';
 import { buildWorkspaceMemoryHints } from '@/lib/ai/workspace-memory';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function POST(req: NextRequest) {
   const startedAt = Date.now();
+
+  // Capture user auth BEFORE streaming starts (cookies are available here).
+  // Keep a reference to the authenticated client — tools will use it for DB
+  // writes since auth.uid() is still valid through this client's session.
+  let userId: string | null = null;
+  let authedSupabase: Awaited<ReturnType<typeof createClient>> | undefined;
+  try {
+    authedSupabase = await createClient();
+    const { data } = await authedSupabase.auth.getSession();
+    userId = data.session?.user?.id ?? null;
+  } catch {
+    // If cookies fail, we'll proceed without user ID
+  }
+  if (!userId) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
   let body: {
     messages?: unknown[];
     workspaceContext?: {
@@ -71,7 +88,18 @@ export async function POST(req: NextRequest) {
   if (isUIMessageFormat) {
     // Messages come from useChat's DefaultChatTransport as UIMessages
     const uiMessages = rawMessages as UIMessage[];
-    conversationMessages = convertToModelMessages(uiMessages);
+    try {
+      conversationMessages = convertToModelMessages(uiMessages);
+    } catch (conversionError) {
+      // Restored sessions may have tool parts with incompatible format (missing toolCallId, etc.)
+      // Fallback: strip non-text parts — the AI's text responses already contain tool context
+      console.warn('[api/ai/main] convertToModelMessages failed, stripping tool parts:', conversionError);
+      const sanitized = uiMessages.map(msg => ({
+        ...msg,
+        parts: (msg.parts ?? []).filter((p: Record<string, unknown>) => p.type === 'text'),
+      }));
+      conversationMessages = convertToModelMessages(sanitized as UIMessage[]);
+    }
   } else {
     // Legacy format: simple { role, content } messages
     const legacyMessages = rawMessages as Array<{
@@ -208,7 +236,7 @@ export async function POST(req: NextRequest) {
       : DEFAULT_AI_MODEL;
 
   try {
-    const tools = getMainAiTools(workspaceContext.workspaceId);
+    const tools = getMainAiTools(workspaceContext.workspaceId, userId, authedSupabase);
 
     const result = streamText({
       abortSignal: req.signal,
@@ -219,6 +247,48 @@ export async function POST(req: NextRequest) {
       temperature: 0.3,
       tools,
       stopWhen: stepCountIs(12),
+      onStepFinish: ({ toolCalls, toolResults }) => {
+        // Log each tool call/result in real-time for debugging
+        for (const tc of toolCalls ?? []) {
+          console.log(`[ai/main] tool-call: ${tc.toolName}`, JSON.stringify(tc.input).slice(0, 200));
+        }
+        for (const tr of toolResults ?? []) {
+          const output = tr.output as Record<string, unknown> | undefined;
+          const success = output?.success;
+          const error = output?.error;
+          if (success) {
+            console.log(`[ai/main] tool-result: ${tr.toolName} ✓`, JSON.stringify(output).slice(0, 300));
+          } else {
+            console.error(`[ai/main] tool-result: ${tr.toolName} ✗`, error ?? JSON.stringify(output).slice(0, 300));
+          }
+        }
+
+        // Persist tool call logs to database (fire-and-forget)
+        const sb = createServiceRoleClient();
+        for (const tc of toolCalls ?? []) {
+          const matchingResult = (toolResults ?? []).find(
+            (tr) => tr.toolName === tc.toolName
+          );
+          const output = matchingResult?.output as Record<string, unknown> | undefined;
+          sb.from('ai_tool_call_logs')
+            .insert({
+              workspace_id: workspaceContext!.workspaceId,
+              user_id: userId,
+              tool_name: tc.toolName,
+              tool_input: tc.input ?? {},
+              tool_output: output ? JSON.parse(JSON.stringify(output, (_k, v) => {
+                // Truncate large content values to avoid bloating the log
+                if (typeof v === 'string' && v.length > 2000) return v.slice(0, 2000) + '…';
+                return v;
+              })) : null,
+              success: output?.success === true ? true : output?.success === false ? false : null,
+              error_message: output?.success === false && output?.error ? String(output.error) : null,
+            })
+            .then(({ error: logErr }) => {
+              if (logErr) console.warn('[ai/main] Failed to log tool call:', logErr.message);
+            });
+        }
+      },
       onFinish: async ({ steps, usage }) => {
         const toolCalls = steps.flatMap((s) =>
           (s.toolCalls ?? []).map((tc) => ({ name: tc.toolName, input: tc.input }))

@@ -132,16 +132,25 @@ IMPORTANT:
 
 // ── Konva shape generation ──────────────────────────────────────────────────
 
+/** A single page/slide with its shapes and optional background */
+export type KonvaGeneratedPage = {
+  shapes: Array<Record<string, unknown>>;
+  background?: Record<string, unknown>;
+};
+
 export type KonvaGenerationResult = {
   success: true;
-  shapes: Array<Record<string, unknown>>;
+  /** Array of pages/slides, each with its own shapes array */
+  pages: KonvaGeneratedPage[];
 } | {
   success: false;
   error: string;
 };
 
 /**
- * Generate Konva shapes for a report page or presentation slide.
+ * Generate Konva content for a report or presentation.
+ * Returns an array of pages/slides, each with shapes.
+ * For presentations, generates multiple slides. For reports, generates multiple pages.
  */
 export async function generateKonvaShapes(
   prompt: string,
@@ -162,43 +171,82 @@ export async function generateKonvaShapes(
   const mode = context?.mode ?? 'report';
   const pageW = context?.pageWidth ?? (mode === 'presentation' ? 960 : 794);
   const pageH = context?.pageHeight ?? (mode === 'presentation' ? 540 : 1123);
+  const unit = mode === 'report' ? 'page' : 'slide';
 
   const systemPrompt = `You are a professional visual document designer for Docsiv.
-Your task: generate an array of Konva shape objects for a ${mode} page (${pageW}×${pageH}px).
+Your task: generate a multi-${unit} ${mode} with Konva shape objects. Each ${unit} is ${pageW}×${pageH}px.
 
 ${KONVA_SHAPE_FORMAT_GUIDE}
 
 ${CONTENT_QUALITY_GUIDELINES}
 
+CRITICAL OUTPUT FORMAT:
+Return a JSON array of ${unit} objects. Each ${unit} has a "shapes" array and optional "background":
+
+[
+  {
+    "shapes": [
+      { "className": "Rect", "attrs": { "id": "bg-1", "x": 0, "y": 0, "width": ${pageW}, "height": ${pageH}, "fill": "#1e3a5f" } },
+      { "className": "Text", "attrs": { "id": "title-1", "x": 60, "y": 200, "text": "Title", "fontSize": 44, "fontFamily": "Inter", "fontStyle": "bold", "fill": "#ffffff", "width": ${pageW - 120} } }
+    ],
+    "background": { "type": "solid", "color": "#f5f5f5" }
+  },
+  {
+    "shapes": [ ... more shapes for ${unit} 2 ... ]
+  }
+]
+
+Shape format — each shape in a ${unit}'s "shapes" array:
+{ "className": "Text"|"Rect"|"Circle"|"Ellipse"|"Line"|"Arrow"|"Star"|"RegularPolygon"|"Image"|"Icon"|"Video",
+  "attrs": { "id": "unique-id", ...shape-specific properties } }
+
 IMPORTANT:
-- Return ONLY a JSON array of shape objects. No wrapper, no markdown fences.
+- Return ONLY the JSON array of ${unit} objects. No wrapper object, no markdown fences.
+- For presentations, create 4-8 slides with full content on each.
+- For reports, create 1-3 pages with full content on each.
 - Design professional, visually polished layouts.
 - Use consistent margins, typography hierarchy, and color palette.
 - Never overlap text elements.
-- Include background shapes, section dividers, and decorative elements for visual appeal.`;
+- Include background shapes, section dividers, and decorative elements for visual appeal.
+- Use the user's specific details (names, numbers, scope) — do not output generic placeholders.`;
 
   const layoutContext = context?.layoutData
     ? `\nLayout analysis data to match: ${JSON.stringify(context.layoutData).slice(0, 10000)}\nReproduce this layout as closely as possible using the shape format above.`
     : '';
 
-  const userMessage = `Page size: ${pageW}×${pageH}px, Mode: ${mode}${layoutContext}\n\nUser request: ${prompt}\n\nGenerate the shapes as a JSON array.`;
+  const userMessage = `${unit.charAt(0).toUpperCase() + unit.slice(1)} size: ${pageW}×${pageH}px, Mode: ${mode}${layoutContext}\n\nUser request: ${prompt}\n\nGenerate the full ${mode} as a JSON array of ${unit} objects.`;
 
   try {
     const result = await generateText({
       model: google(DEFAULT_AI_MODEL),
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
-      maxOutputTokens: 16384,
+      maxOutputTokens: 32768,
       temperature: 0.3,
     });
 
-    const parsed = tryParseJson(result.text ?? '');
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return { success: false, error: 'Generator returned invalid shape format' };
+    const rawText = result.text ?? '';
+    console.log('[generateKonvaShapes] Response length:', rawText.length, 'chars');
+    const parsed = tryParseJson(rawText);
+
+    // Handle array of page objects: [{ shapes: [...] }, ...]
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      // Check if it's an array of page objects (each has shapes[])
+      const firstItem = parsed[0] as Record<string, unknown>;
+      if (firstItem && Array.isArray(firstItem.shapes)) {
+        const pages: KonvaGeneratedPage[] = parsed.map((p: Record<string, unknown>) => ({
+          shapes: Array.isArray(p.shapes) ? p.shapes as Array<Record<string, unknown>> : [],
+          background: p.background as Record<string, unknown> | undefined,
+        }));
+        return { success: true, pages };
+      }
+      // Fallback: flat array of shapes (single page)
+      return { success: true, pages: [{ shapes: parsed as Array<Record<string, unknown>> }] };
     }
 
-    return { success: true, shapes: parsed as Array<Record<string, unknown>> };
+    return { success: false, error: 'Generator returned invalid shape format' };
   } catch (err) {
+    console.error('[generateKonvaShapes] Error:', err);
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Shape generation failed',
@@ -284,12 +332,15 @@ IMPORTANT:
       }
     }
 
+    // Use generous defaults matching Univer's default grid (manual creation leaves
+    // these undefined so Univer shows ~1000 rows / 26 cols). We use at least 200 rows
+    // and 26 columns so AI-created sheets look the same as manually created ones.
     console.log('[generateUniverCells] Success: rows=', maxRow, 'cols=', maxCol + 1);
     return {
       success: true,
       cellData,
-      rowCount: typeof obj.rowCount === 'number' ? obj.rowCount : Math.max(maxRow, 20),
-      columnCount: typeof obj.columnCount === 'number' ? obj.columnCount : Math.max(maxCol + 1, 10),
+      rowCount: Math.max(maxRow + 1, 200),
+      columnCount: Math.max(maxCol + 1, 26),
     };
   } catch (err) {
     console.error('[generateUniverCells] Error during generation:', err);

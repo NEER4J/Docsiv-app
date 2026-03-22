@@ -29,6 +29,7 @@ export function KonvaChartRenderer({
   chartType,
   data,
   colors,
+  showLegend,
   showLabels,
 }: KonvaChartRendererProps) {
   const padding = 32;
@@ -37,8 +38,8 @@ export function KonvaChartRenderer({
 
   if (data.length === 0 || chartWidth <= 0 || chartHeight <= 0) {
     return (
-      <Group x={x} y={y}>
-        <Rect width={width} height={height} fill="#f8fafc" stroke="#e5e7eb" strokeWidth={1} />
+      <Group x={x} y={y} listening={false}>
+        <Rect width={width} height={height} fill="#f8fafc" stroke="#e5e7eb" strokeWidth={1} listening={false} />
         <Text
           x={0}
           y={height / 2 - 10}
@@ -47,6 +48,7 @@ export function KonvaChartRenderer({
           fontSize={14}
           fill="#9ca3af"
           align="center"
+          listening={false}
         />
       </Group>
     );
@@ -59,12 +61,12 @@ export function KonvaChartRenderer({
     const spacing = data.length > 0 ? (chartWidth / data.length) * 0.4 : 0;
 
     return (
-      <Group x={x} y={y}>
+      <Group x={x} y={y} listening={false}>
         {/* Background */}
-        <Rect width={width} height={height} fill="#f8fafc" stroke="#e5e7eb" strokeWidth={1} />
+        <Rect width={width} height={height} fill="#f8fafc" stroke="#e5e7eb" strokeWidth={1} listening={false} />
 
         {/* Chart area background */}
-        <Rect x={padding} y={padding} width={chartWidth} height={chartHeight} fill="white" />
+        <Rect x={padding} y={padding} width={chartWidth} height={chartHeight} fill="white" listening={false} />
 
         {/* Grid lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
@@ -78,6 +80,7 @@ export function KonvaChartRenderer({
             ]}
             stroke="#e5e7eb"
             strokeWidth={1}
+            listening={false}
           />
         ))}
 
@@ -97,6 +100,7 @@ export function KonvaChartRenderer({
                 height={Math.max(2, barHeight)}
                 fill={barColor}
                 cornerRadius={2}
+                listening={false}
               />
               {showLabels && barHeight > 20 && (
                 <Text
@@ -107,6 +111,7 @@ export function KonvaChartRenderer({
                   fontSize={10}
                   fill="#374151"
                   align="center"
+                  listening={false}
                 />
               )}
             </React.Fragment>
@@ -127,6 +132,7 @@ export function KonvaChartRenderer({
                 fontSize={9}
                 fill="#6b7280"
                 align="center"
+                listening={false}
               />
             );
           })}
@@ -153,9 +159,9 @@ export function KonvaChartRenderer({
     }
 
     return (
-      <Group x={x} y={y}>
+      <Group x={x} y={y} listening={false}>
         {/* Background */}
-        <Rect width={width} height={height} fill="#f8fafc" stroke="#e5e7eb" strokeWidth={1} />
+        <Rect width={width} height={height} fill="#f8fafc" stroke="#e5e7eb" strokeWidth={1} listening={false} />
 
         {/* Grid lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
@@ -169,6 +175,7 @@ export function KonvaChartRenderer({
             ]}
             stroke="#e5e7eb"
             strokeWidth={1}
+            listening={false}
           />
         ))}
 
@@ -194,6 +201,7 @@ export function KonvaChartRenderer({
             strokeWidth={3}
             lineCap="round"
             lineJoin="round"
+            listening={false}
           />
         )}
 
@@ -205,7 +213,15 @@ export function KonvaChartRenderer({
 
           return (
             <React.Fragment key={i}>
-              <Circle x={px} y={py} radius={5} fill="white" stroke={pointColor} strokeWidth={2} />
+              <Circle
+                x={px}
+                y={py}
+                radius={5}
+                fill="white"
+                stroke={pointColor}
+                strokeWidth={2}
+                listening={false}
+              />
               {showLabels && (
                 <Text
                   x={px - 15}
@@ -215,6 +231,7 @@ export function KonvaChartRenderer({
                   fontSize={9}
                   fill="#374151"
                   align="center"
+                  listening={false}
                 />
               )}
             </React.Fragment>
@@ -235,6 +252,7 @@ export function KonvaChartRenderer({
                 fontSize={9}
                 fill="#6b7280"
                 align="center"
+                listening={false}
               />
             );
           })}
@@ -251,9 +269,9 @@ export function KonvaChartRenderer({
     let currentAngle = -Math.PI / 2; // Start at top
 
     return (
-      <Group x={x} y={y}>
+      <Group x={x} y={y} listening={false}>
         {/* Background */}
-        <Rect width={width} height={height} fill="#f8fafc" stroke="#e5e7eb" strokeWidth={1} />
+        <Rect width={width} height={height} fill="#f8fafc" stroke="#e5e7eb" strokeWidth={1} listening={false} />
 
         {/* Pie slices */}
         {data.map((item, i) => {
@@ -281,6 +299,7 @@ export function KonvaChartRenderer({
                 fill={sliceColor}
                 stroke="white"
                 strokeWidth={2}
+                listening={false}
               />
 
               {/* Label line and text for larger slices */}
@@ -296,6 +315,7 @@ export function KonvaChartRenderer({
                     fill="white"
                     fontStyle="bold"
                     align="center"
+                    listening={false}
                   />
                 </>
               )}
@@ -304,8 +324,8 @@ export function KonvaChartRenderer({
         })}
 
         {/* Legend */}
-        {showLabels && (
-          <Group>
+        {showLegend && (
+          <Group listening={false}>
             {data.map((item, i) => {
               const legendY = padding + i * 16;
               const legendColor = item.color || colors[i % colors.length];
@@ -318,6 +338,7 @@ export function KonvaChartRenderer({
                     height={10}
                     fill={legendColor}
                     cornerRadius={2}
+                    listening={false}
                   />
                   <Text
                     x={padding + 14}
@@ -325,6 +346,7 @@ export function KonvaChartRenderer({
                     text={`${item.label}: ${item.value}`}
                     fontSize={9}
                     fill="#374151"
+                    listening={false}
                   />
                 </React.Fragment>
               );

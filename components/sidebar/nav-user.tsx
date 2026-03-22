@@ -37,7 +37,7 @@ export function NavUser({
     readonly avatar: string;
   };
 }) {
-  const { isMobile, state, hoverOpen } = useSidebar();
+  const { isMobile, state, hoverOpen, lockHover, unlockHover } = useSidebar();
   const isCollapsed = state === "collapsed" && !hoverOpen;
   const { signOut } = useAuth();
   const router = useRouter();
@@ -151,7 +151,7 @@ export function NavUser({
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => (open ? lockHover() : unlockHover())}>
           {isCollapsed ? (
             <TooltipProvider delayDuration={0}>
               <Tooltip>

@@ -23,6 +23,9 @@ const DOCUMENT_TOOL_NAMES = new Set([
   'edit_document_plate',
   'edit_document_konva',
   'edit_document_univer',
+  'seed_editor_ai',
+  'export_document',
+  'rename_document',
 ]);
 
 /**

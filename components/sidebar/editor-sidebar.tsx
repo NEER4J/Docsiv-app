@@ -66,7 +66,7 @@ export function EditorSidebar({
   readonly workspaces?: readonly WorkspaceOption[];
   readonly currentWorkspaceId?: string | null;
 }) {
-  const { state, hoverOpen } = useSidebar();
+  const { state, hoverOpen, lockHover, unlockHover } = useSidebar();
   const isCollapsed = state === "collapsed" && !hoverOpen;
   const pathname = usePathname();
   const currentDocId = pathname.startsWith("/d/") ? pathname.split("/d/")[1]?.split("?")[0]?.split("/")[0] : null;
@@ -191,7 +191,10 @@ export function EditorSidebar({
                     workspaceId={currentWorkspaceId}
                     clients={clients}
                     open={newDocOpen}
-                    onOpenChange={setNewDocOpen}
+                    onOpenChange={(open) => {
+                      setNewDocOpen(open);
+                      open ? lockHover() : unlockHover();
+                    }}
                     trigger={
                       <SidebarMenuButton
                         tooltip="Create new document"
@@ -261,6 +264,7 @@ export function EditorSidebar({
                   <Select
                     value={clientFilter}
                     onValueChange={setClientFilter}
+                    onOpenChange={(open) => (open ? lockHover() : unlockHover())}
                   >
                     <SelectTrigger className="h-8 w-full text-[0.8125rem] rounded-md border border-border bg-background">
                       <SelectValue placeholder="Filter by client" />

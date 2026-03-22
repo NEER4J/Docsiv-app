@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { setWorkspaceCookie } from "@/lib/actions/onboarding";
+import { useSidebar } from "@/components/ui/sidebar";
 import type { WorkspaceOption } from "./app-sidebar";
 
 export function WorkspaceSwitcher({
@@ -25,6 +26,7 @@ export function WorkspaceSwitcher({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { lockHover, unlockHover } = useSidebar();
   const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState<string | null>(null);
   const current = workspaces.find((w) => w.id === currentWorkspaceId) ?? workspaces[0];
   const displayName = current?.name ?? "Select workspace";
@@ -45,7 +47,7 @@ export function WorkspaceSwitcher({
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => (open ? lockHover() : unlockHover())}>
       <DropdownMenuTrigger
         disabled={isSwitching}
         className={cn(

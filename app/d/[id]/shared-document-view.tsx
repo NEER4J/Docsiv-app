@@ -381,7 +381,7 @@ export function SharedDocumentView({
               ) : (
                 <RevealPresentationViewer
                   content={document.content as KonvaStoredContent}
-                  className="min-h-0 w-full flex-1"
+                  className="h-full min-h-0 w-full flex-1"
                 />
               )}
             </div>

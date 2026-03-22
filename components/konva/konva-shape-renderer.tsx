@@ -5,6 +5,7 @@ import { Rect, Text, Image, Circle, Ellipse, Line, Arrow, Star, RegularPolygon, 
 import type Konva from 'konva';
 import type { KonvaShapeDesc } from '@/lib/konva-content';
 import { KonvaChartRenderer } from './konva-chart-renderer';
+import { getChartDataPointsFromAttrs } from '@/lib/konva-chart-sheet';
 
 export type KonvaShapeRendererProps = {
   shape: KonvaShapeDesc;
@@ -491,7 +492,7 @@ export function KonvaShapeRenderer({
     const w = (attrs.width as number) ?? 300;
     const h = (attrs.height as number) ?? 200;
     const chartType = (attrs.chartType as string) ?? 'bar';
-    const data = (attrs.data as Array<{ label: string; value: number; color?: string }>) ?? [];
+    const data = getChartDataPointsFromAttrs(attrs);
     const colors = (attrs.colors as string[]) ?? ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
     const showLegend = (attrs.showLegend as boolean) ?? true;
     const showLabels = (attrs.showLabels as boolean) ?? true;
@@ -521,6 +522,17 @@ export function KonvaShapeRenderer({
           showLegend={showLegend}
           showLabels={showLabels}
         />
+        {!readOnly && !locked && (
+          <Rect
+            x={0}
+            y={0}
+            width={w}
+            height={h}
+            fill="rgba(0,0,0,0.01)"
+            listening
+            perfectDrawEnabled={false}
+          />
+        )}
       </Group>
     );
   }

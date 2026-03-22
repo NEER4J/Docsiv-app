@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   ArrowUp,
   Check,
@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DocumentArtifact } from "@/components/chat/document-artifact";
 import { DocumentPreviewPanel } from "@/components/chat/document-preview-panel";
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 import {
   useMainAiChat,
   getMessageText,
@@ -63,14 +64,18 @@ import {
   type DocumentToolResult,
 } from "./use-main-ai-chat";
 import type { UIMessage } from "ai";
+import { Separator } from "@/components/ui/separator";
 
-// Re-export the set for use in rendering
+// Tools whose result should render a DocumentArtifact card
 const DOCUMENT_TOOL_NAMES_SET = new Set([
   "create_document",
   "create_document_from_template",
   "edit_document_plate",
   "edit_document_konva",
   "edit_document_univer",
+  "seed_editor_ai",
+  "export_document",
+  "rename_document",
 ]);
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -109,10 +114,11 @@ type ActivePreview = {
   content?: unknown;
 } | null;
 
-/** Metadata stored alongside user messages for display (images, files). */
+/** Metadata stored alongside user messages for display (images, files, selected doc). */
 type UserMessageMeta = {
   images?: string[];
   files?: Array<{ name: string; mimeType: string }>;
+  selectedDoc?: { id: string; title: string; thumbnailUrl?: string | null };
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -218,6 +224,8 @@ function getToolLabel(toolName: string): string {
       return "Assigning client";
     case "seed_editor_ai":
       return "Preparing editor";
+    case "rename_document":
+      return "Renaming document";
     case "proposal_quality_check":
       return "Running quality check";
     case "sheet_anomaly_insights":
@@ -229,27 +237,103 @@ function getToolLabel(toolName: string): string {
 
 /** Convert stored session messages to UIMessage format for useChat */
 function sessionMessagesToUIMessages(
-  sessionMessages: Array<{ role: string; content: string }>
-): UIMessage[] {
-  return sessionMessages
+  sessionMessages: Array<{
+    role: string;
+    content: string;
+    parts?: Array<Record<string, unknown>>;
+    images?: string[];
+    files?: Array<{ name: string; mimeType: string }>;
+    selectedDoc?: { id: string; title: string; thumbnailUrl?: string | null };
+  }>
+): { messages: UIMessage[]; metaMap: Map<string, UserMessageMeta> } {
+  const metaMap = new Map<string, UserMessageMeta>();
+  const messages = sessionMessages
     .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m, i) => ({
-      id: `session-${i}-${Date.now()}`,
-      role: m.role as "user" | "assistant",
-      parts: [{ type: "text" as const, text: m.content ?? "" }],
-    }));
+    .map((m, i) => {
+      const id = `session-${i}-${Date.now()}`;
+
+      // Restore full parts if available, otherwise fall back to text-only
+      // For tool parts, ensure toolCallId exists (required by convertToModelMessages)
+      const parts: UIMessage["parts"] =
+        m.parts && m.parts.length > 0
+          ? (m.parts.map((p, pi) => {
+              if (
+                typeof p.type === "string" &&
+                (p.type.startsWith("tool-") || p.type === "dynamic-tool") &&
+                !p.toolCallId
+              ) {
+                return { ...p, toolCallId: `restored-${i}-${pi}` };
+              }
+              return p;
+            }) as UIMessage["parts"])
+          : [{ type: "text" as const, text: m.content ?? "" }];
+
+      // Restore user attachment metadata (images, files, selected doc)
+      if (m.role === "user" && (m.images?.length || m.files?.length || m.selectedDoc)) {
+        metaMap.set(id, {
+          images: m.images,
+          files: m.files,
+          selectedDoc: m.selectedDoc,
+        });
+      }
+
+      return { id, role: m.role as "user" | "assistant", parts };
+    });
+  return { messages, metaMap };
 }
 
-/** Extract simple role+content from UIMessages for session storage */
+/** Extract messages with full parts from UIMessages for session storage */
 function uiMessagesToSessionFormat(
-  messages: UIMessage[]
-): Array<{ role: "user" | "assistant"; content: string }> {
+  messages: UIMessage[],
+  metaMap?: Map<string, UserMessageMeta>
+): Array<{
+  role: "user" | "assistant";
+  content: string;
+  parts?: Array<Record<string, unknown>>;
+  files?: Array<{ name: string; mimeType: string }>;
+  selectedDoc?: { id: string; title: string; thumbnailUrl?: string | null };
+}> {
   return messages
     .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: getMessageText(m),
-    }));
+    .map((m) => {
+      const meta = metaMap?.get(m.id);
+      // Serialize parts — keep text and completed tool parts
+      const serializableParts = m.parts
+        .map((part) => {
+          if (part.type === "text") {
+            return { type: "text", text: (part as { text: string }).text };
+          }
+          // Keep completed tool parts (they contain document_id, title, etc.)
+          const p = part as Record<string, unknown>;
+          if (
+            typeof p.type === "string" &&
+            (p.type.startsWith("tool-") || p.type === "dynamic-tool") &&
+            (p.state === "output-available" || p.state === "error")
+          ) {
+            return {
+              type: p.type,
+              toolCallId: p.toolCallId,
+              toolName: p.toolName,
+              state: p.state,
+              input: p.input,
+              output: p.output,
+            };
+          }
+          // Skip in-progress tool parts
+          return null;
+        })
+        .filter(Boolean) as Array<Record<string, unknown>>;
+
+      return {
+        role: m.role as "user" | "assistant",
+        content: getMessageText(m),
+        parts: serializableParts.length > 0 ? serializableParts : undefined,
+        // Don't persist full image data URLs (too large for JSONB)
+        // but keep file metadata and selected doc for display
+        files: meta?.files,
+        selectedDoc: meta?.selectedDoc,
+      };
+    });
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -281,7 +365,6 @@ export function MainAiChatView({
   documents,
   initialSessions,
 }: MainAiChatViewProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -297,7 +380,7 @@ export function MainAiChatView({
 
   // ─── UI state ────────────────────────────────────────────────────────────
   const [sessionsCollapsed, setSessionsCollapsed] = React.useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false);
+
   const [sessionSearch, setSessionSearch] = React.useState("");
   const [docSearch, setDocSearch] = React.useState("");
   const [showAllRecentDocs, setShowAllRecentDocs] = React.useState(false);
@@ -325,6 +408,12 @@ export function MainAiChatView({
 
   // ─── Preview panel state ─────────────────────────────────────────────────
   const [activePreview, setActivePreview] = React.useState<ActivePreview>(null);
+  // Increment to force preview refresh even when clicking the same document
+  const [previewKey, setPreviewKey] = React.useState(0);
+  const openPreview = React.useCallback((doc: ActivePreview) => {
+    setActivePreview(doc);
+    setPreviewKey((k) => k + 1);
+  }, []);
 
   // ─── User message attachment metadata (for display in chat) ──────────────
   const userMessageMetaRef = React.useRef<Map<string, UserMessageMeta>>(
@@ -406,6 +495,11 @@ export function MainAiChatView({
     ? `Hello ${greetingName.trim()}`
     : "Hello";
 
+  // ─── Stable refs for use in callbacks (avoid stale closures) ─────────────
+  const chatRef = React.useRef<ReturnType<typeof useMainAiChat>>(null!);
+  const activeSessionIdRef = React.useRef<string | null>(null);
+  activeSessionIdRef.current = activeSessionId;
+
   // ─── Chat hook ───────────────────────────────────────────────────────────
   const chat = useMainAiChat({
     chatId: activeSessionId ?? undefined,
@@ -422,13 +516,15 @@ export function MainAiChatView({
     pendingImagesRef,
     pendingFilesRef,
     onDocumentUpdate: (doc) => {
-      setActivePreview(doc);
+      openPreview(doc);
     },
     onFinish: (_message) => {
+      const currentChat = chatRef.current;
+      const currentSessionId = activeSessionIdRef.current;
+
       // Store attachment meta for the user message that triggered this
       if (pendingAttachmentMetaRef.current) {
-        // Find the last user message and store its meta
-        const lastUserMsg = chat.messages
+        const lastUserMsg = currentChat.messages
           .filter((m) => m.role === "user")
           .at(-1);
         if (lastUserMsg) {
@@ -444,9 +540,9 @@ export function MainAiChatView({
       pendingFilesRef.current = [];
 
       // Persist to session
-      if (activeSessionId) {
-        const allMessages = uiMessagesToSessionFormat(chat.messages);
-        void updateMainAiSession(activeSessionId, {
+      if (currentSessionId) {
+        const allMessages = uiMessagesToSessionFormat(currentChat.messages, userMessageMetaRef.current);
+        void updateMainAiSession(currentSessionId, {
           messages: allMessages,
         });
       }
@@ -458,6 +554,7 @@ export function MainAiChatView({
       pendingAttachmentMetaRef.current = null;
     },
   });
+  chatRef.current = chat;
 
   const hasChatStarted = chat.messages.length > 0;
   const isLoading = chat.status === "streaming" || chat.status === "submitted";
@@ -505,8 +602,12 @@ export function MainAiChatView({
     if (!activeSessionId) return;
     const session = sessions.find((s) => s.id === activeSessionId);
     if (!session) return;
-    const uiMessages = sessionMessagesToUIMessages(session.messages ?? []);
-    chat.setMessages(uiMessages);
+    const { messages: uiMessages, metaMap } = sessionMessagesToUIMessages(session.messages ?? []);
+    // Restore attachment metadata for user messages
+    for (const [id, meta] of metaMap) {
+      userMessageMetaRef.current.set(id, meta);
+    }
+    chatRef.current.setMessages(uiMessages);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId]);
 
@@ -522,9 +623,11 @@ export function MainAiChatView({
   // Debounced session persistence
   React.useEffect(() => {
     if (activeSessionId && chat.messages.length > 0) {
+      const msgs = chat.messages;
+      const sid = activeSessionId;
       const t = setTimeout(() => {
-        void updateMainAiSession(activeSessionId, {
-          messages: uiMessagesToSessionFormat(chat.messages),
+        void updateMainAiSession(sid, {
+          messages: uiMessagesToSessionFormat(msgs, userMessageMetaRef.current),
         });
       }, 1000);
       return () => clearTimeout(t);
@@ -561,7 +664,7 @@ export function MainAiChatView({
     }
   }, [searchParams, sessions, activeSessionId]);
 
-  // URL sync: state → session param
+  // URL sync: state → session param (use history.replaceState to avoid server re-render loop)
   React.useEffect(() => {
     const currentInUrl = searchParams.get("session");
     if (!activeSessionId) {
@@ -571,7 +674,7 @@ export function MainAiChatView({
       const nextUrl = nextParams.toString()
         ? `${pathname}?${nextParams.toString()}`
         : pathname;
-      router.replace(nextUrl, { scroll: false });
+      window.history.replaceState(null, "", nextUrl);
       return;
     }
     if (currentInUrl === activeSessionId) return;
@@ -579,8 +682,8 @@ export function MainAiChatView({
     nextParams.set("session", activeSessionId);
     nextParams.delete("newSession");
     const nextUrl = `${pathname}?${nextParams.toString()}`;
-    router.replace(nextUrl, { scroll: false });
-  }, [activeSessionId, searchParams, pathname, router]);
+    window.history.replaceState(null, "", nextUrl);
+  }, [activeSessionId, searchParams, pathname]);
 
   // ─── Session CRUD ────────────────────────────────────────────────────────
 
@@ -615,11 +718,11 @@ export function MainAiChatView({
     };
     setSessions((prev) => [fresh, ...prev]);
     setActiveSessionFromUser(sessionId);
-    chat.setMessages([]);
+    chatRef.current.setMessages([]);
     setInput("");
     setActivePreview(null);
     return true;
-  }, [workspaceId, setActiveSessionFromUser, chat]);
+  }, [workspaceId, setActiveSessionFromUser]);
 
   // Force new session from URL param
   React.useEffect(() => {
@@ -638,9 +741,9 @@ export function MainAiChatView({
       const nextUrl = nextParams.toString()
         ? `${pathname}?${nextParams.toString()}`
         : pathname;
-      router.replace(nextUrl, { scroll: false });
+      window.history.replaceState(null, "", nextUrl);
     })();
-  }, [workspaceId, searchParams, createNewSession, pathname, router]);
+  }, [workspaceId, searchParams, createNewSession, pathname]);
 
   const archiveSession = React.useCallback(
     async (sessionId: string) => {
@@ -654,12 +757,12 @@ export function MainAiChatView({
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
-        chat.setMessages([]);
+        chatRef.current.setMessages([]);
         setInput("");
         setActivePreview(null);
       }
     },
-    [activeSessionId, chat]
+    [activeSessionId]
   );
 
   const renameSession = React.useCallback(
@@ -678,21 +781,6 @@ export function MainAiChatView({
       );
     },
     [sessions]
-  );
-
-  const copySessionLink = React.useCallback(
-    async (sessionId: string) => {
-      if (typeof window === "undefined") return;
-      const url = new URL(`${window.location.origin}${pathname}`);
-      url.searchParams.set("session", sessionId);
-      try {
-        await navigator.clipboard.writeText(url.toString());
-        toast.success("Session link copied");
-      } catch {
-        toast.error("Could not copy session link");
-      }
-    },
-    [pathname]
   );
 
   // ─── Attachment handlers ─────────────────────────────────────────────────
@@ -1050,18 +1138,20 @@ export function MainAiChatView({
   const pendingSendRef = React.useRef<string | null>(null);
 
   // When activeSessionId changes and we have a pending message, send it
+  // Uses chatRef to avoid depending on `chat` (which changes every render and would cancel the timer)
   React.useEffect(() => {
     if (activeSessionId && pendingSendRef.current !== null) {
       const text = pendingSendRef.current;
       pendingSendRef.current = null;
       // Small delay to let useChat reinitialize with new chatId
       const timer = setTimeout(() => {
-        void chat.sendMessage({ text });
+        void chatRef.current.sendMessage({ text });
         setIsSending(false);
-      }, 100);
+      }, 150);
       return () => clearTimeout(timer);
     }
-  }, [activeSessionId, chat]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]);
 
   const handleSubmit = React.useCallback(
     async (e: React.FormEvent) => {
@@ -1096,8 +1186,9 @@ export function MainAiChatView({
         dataUrl: f.dataUrl,
       }));
 
-      // Store attachment meta for display
-      if (attachedImages.length > 0 || readyFiles.length > 0) {
+      // Store attachment meta for display (images, files, selected doc)
+      const hasAttachments = attachedImages.length > 0 || readyFiles.length > 0;
+      if (hasAttachments || selectedDocument) {
         pendingAttachmentMetaRef.current = {
           images:
             attachedImages.length > 0
@@ -1107,6 +1198,13 @@ export function MainAiChatView({
             readyFiles.length > 0
               ? readyFiles.map((f) => ({ name: f.name, mimeType: f.mimeType }))
               : undefined,
+          selectedDoc: selectedDocument
+            ? {
+                id: selectedDocument.id,
+                title: selectedDocument.title,
+                thumbnailUrl: selectedDocument.thumbnail_url,
+              }
+            : undefined,
         };
       }
 
@@ -1152,7 +1250,7 @@ export function MainAiChatView({
       }
 
       // Session already exists — update title if first message
-      if (chat.messages.length === 0 && trimmed) {
+      if (chatRef.current.messages.length === 0 && trimmed) {
         const title = trimmed.slice(0, 56);
         void updateMainAiSession(activeSessionId, { title });
         setSessions((prev) =>
@@ -1163,11 +1261,10 @@ export function MainAiChatView({
       }
 
       // Send directly
-      void chat.sendMessage({ text: messageText });
+      void chatRef.current.sendMessage({ text: messageText });
       setIsSending(false);
     },
     [
-      chat,
       input,
       attachedImages,
       attachedFiles,
@@ -1178,14 +1275,15 @@ export function MainAiChatView({
       hasPendingAttachments,
       isProcessingFiles,
       setActiveSessionFromUser,
+      selectedDocument,
     ]
   );
 
   const handleResetChat = React.useCallback(() => {
-    chat.setMessages([]);
+    chatRef.current.setMessages([]);
     setInput("");
     setActivePreview(null);
-  }, [chat]);
+  }, []);
 
   // ─── No workspace guard ──────────────────────────────────────────────────
 
@@ -1206,7 +1304,7 @@ export function MainAiChatView({
   // ─── Render ──────────────────────────────────────────────────────────────
 
   const sidebarContent = (
-    <div className="flex h-full w-full flex-col bg-neutral-50 dark:bg-zinc-900">
+    <div className="flex h-full w-full flex-col bg-neutral-100 dark:bg-zinc-900">
       <div
         className={cn(
           "flex shrink-0 items-center px-3 py-4",
@@ -1221,10 +1319,7 @@ export function MainAiChatView({
           variant="ghost"
           size="icon"
           className="size-7 shrink-0"
-          onClick={() => {
-            setSessionsCollapsed(true);
-            setMobileSidebarOpen(false);
-          }}
+          onClick={() => setSessionsCollapsed(true)}
           aria-label="Collapse chat sessions"
         >
           <PanelLeftClose className="size-4" />
@@ -1234,11 +1329,8 @@ export function MainAiChatView({
       <div className="shrink-0 px-3 pt-3">
         <button
           type="button"
-          onClick={() => {
-            createNewSession();
-            setMobileSidebarOpen(false);
-          }}
-          className="flex w-full items-center gap-2 rounded-lg bg-white px-3 py-2.5 text-sm text-foreground shadow-sm transition-all duration-200 hover:shadow dark:bg-zinc-800"
+          onClick={() => createNewSession()}
+          className="flex w-full items-center gap-2 rounded-lg bg-white px-3 py-2.5 text-sm text-foreground transition-all duration-200 hover:shadow dark:bg-zinc-800 border border-gray-200 dark:border-gray-800"
         >
           <Plus className="size-3.5 shrink-0" />
           New chat
@@ -1249,34 +1341,38 @@ export function MainAiChatView({
           value={sessionSearch}
           onChange={(e) => setSessionSearch(e.target.value)}
           placeholder="Search..."
-          className="h-8 rounded-lg border-0 bg-white text-xs shadow-sm dark:bg-zinc-800"
+          className="h-8 rounded-lg border-0 text-xs shadow-none"
         />
+
+      </div>
+      <div className="shrink-0 px-3 py-2 pt-4">
+        <Separator className="bg-gray-200 dark:bg-zinc-800" />
       </div>
       <div className="min-h-0 flex-1 overflow-auto py-2">
         {filteredSessions.map((s) => (
           <div
             key={s.id}
-            className="group relative flex w-full items-center px-2 py-0.5"
+            className="group relative flex w-full items-center px-3 py-0.5"
           >
             <div
               role="button"
               tabIndex={0}
               onClick={() => {
                 setActiveSessionFromUser(s.id);
-                setMobileSidebarOpen(false);
+                if (window.innerWidth < 1024) setSessionsCollapsed(true);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   setActiveSessionFromUser(s.id);
-                  setMobileSidebarOpen(false);
+                  if (window.innerWidth < 1024) setSessionsCollapsed(true);
                 }
               }}
               className={cn(
-                "flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 outline-none transition-all duration-200",
+                "flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 outline-none transition-all duration-200 hover:bg-white/80 hover:text-foreground dark:hover:bg-zinc-800/60",
                 activeSessionId === s.id
-                  ? "bg-white text-foreground shadow-sm dark:bg-zinc-800"
-                  : "text-foreground/70 hover:bg-white/80 hover:text-foreground dark:hover:bg-zinc-800/60"
+                  ? "bg-white text-foreground dark:bg-zinc-800"
+                  : "text-foreground/70 hover:bg-white hover:text-foreground dark:hover:bg-zinc-800/60"
               )}
             >
               <div className="min-w-0 flex-1">
@@ -1308,9 +1404,6 @@ export function MainAiChatView({
                   <DropdownMenuItem onClick={() => void renameSession(s.id)}>
                     Rename
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void copySessionLink(s.id)}>
-                    Copy link
-                  </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onClick={() => void archiveSession(s.id)}
@@ -1333,28 +1426,30 @@ export function MainAiChatView({
 
   return (
     <div className="relative flex h-full w-full overflow-hidden [&_button]:cursor-pointer [&_a]:cursor-pointer">
-      {/* ─── Sessions sidebar (Desktop) ─── */}
+      {/* ─── Sessions sidebar ─── */}
+      {/* Backdrop overlay on mobile */}
+      <div
+        className={cn(
+          "fixed inset-0 z-30 bg-black/20 transition-opacity duration-300 lg:hidden",
+          sessionsCollapsed ? "pointer-events-none opacity-0" : "opacity-100"
+        )}
+        onClick={() => setSessionsCollapsed(true)}
+      />
       <aside
         className={cn(
-          "hidden h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200/70 bg-neutral-50 transition-all duration-300 dark:border-zinc-800 dark:bg-zinc-900 lg:sticky lg:top-0 lg:flex",
-          sessionsCollapsed ? "w-0 overflow-hidden border-0 p-0" : "w-[260px]"
+          "absolute inset-y-0 left-0 z-40 flex h-full w-[280px] shrink-0 flex-col overflow-hidden border-r border-neutral-200/70 bg-neutral-50 shadow-xl transition-all duration-300 ease-in-out dark:border-zinc-800 dark:bg-zinc-900 lg:relative lg:z-auto lg:shadow-none",
+          sessionsCollapsed
+            ? "-translate-x-full border-0 lg:w-0 lg:translate-x-0"
+            : "translate-x-0 lg:w-[260px]"
         )}
       >
         {sidebarContent}
       </aside>
 
-      {/* ─── Sessions sidebar (Mobile) ─── */}
-      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-        <SheetContent side="left" className="w-[280px] p-0 sm:w-[320px]">
-          {sidebarContent}
-        </SheetContent>
-      </Sheet>
+      {/* Floating pill when sidebar is collapsed */}
+      {sessionsCollapsed && (
+      <div className="absolute left-3 top-3 z-30 flex animate-in fade-in-0 slide-in-from-left-2 items-center gap-1 rounded-lg bg-white p-1 shadow-md ring-1 ring-neutral-200/60 duration-200 dark:bg-zinc-900 dark:ring-zinc-700">
 
-      {/* Floating pill when sidebar is collapsed (or on mobile) */}
-      <div className={cn(
-        "absolute left-3 top-3 z-30 flex animate-in fade-in-0 slide-in-from-left-2 items-center gap-1 rounded-full bg-white p-1 shadow-md ring-1 ring-neutral-200/60 duration-200 dark:bg-zinc-900 dark:ring-zinc-700",
-        sessionsCollapsed ? "flex" : "flex lg:hidden"
-      )}>
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1363,10 +1458,7 @@ export function MainAiChatView({
                 variant="ghost"
                 size="icon"
                 className="size-8 rounded-full text-muted-foreground hover:text-foreground"
-                onClick={() => {
-                  setSessionsCollapsed(false);
-                  setMobileSidebarOpen(true);
-                }}
+                onClick={() => setSessionsCollapsed(false)}
                 aria-label="Open chat sessions"
               >
                 <PanelLeftOpen className="size-4" />
@@ -1383,10 +1475,7 @@ export function MainAiChatView({
                 variant="ghost"
                 size="icon"
                 className="size-8 rounded-full text-muted-foreground hover:text-foreground"
-                onClick={() => {
-                  createNewSession();
-                  setMobileSidebarOpen(false);
-                }}
+                onClick={() => createNewSession()}
                 aria-label="New chat"
               >
                 <Plus className="size-4" />
@@ -1398,23 +1487,20 @@ export function MainAiChatView({
           </Tooltip>
         </TooltipProvider>
       </div>
+      )}
 
       {/* ─── Main chat area ─── */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-neutral-100/70 dark:bg-zinc-950">
-        <div className="flex h-full w-full max-w-3xl mx-auto">
+        <PanelGroup direction="horizontal" className="h-full w-full">
           {/* Chat column */}
-          <div
-            className={cn(
-              "flex min-w-0 flex-col",
-              activePreview ? "flex-1" : "flex-1"
-            )}
-          >
+          <Panel defaultSize={activePreview ? 50 : 100} minSize={30}>
+          <div className="flex min-w-0 flex-1 flex-col h-full">
             <div className="relative flex h-full min-h-0 w-full flex-col">
               {hasChatStarted ? (
                 <>
                   {/* Scrollable messages — scrollbar sits at the far left edge */}
                   <div className="flex-1 overflow-y-auto">
-                    <div className="mx-auto w-full max-w-3xl px-4 md:px-8">
+                    <div className="mx-auto w-full max-w-4xl px-4 md:px-8">
                       <div className="flex flex-col gap-6 pb-40 pt-6 text-[0.9rem] leading-relaxed">
                         {chat.messages.map((m) => (
                           <div
@@ -1431,7 +1517,7 @@ export function MainAiChatView({
                                 <AssistantMessageContent
                                   message={m}
                                   onPreviewDocument={(doc) =>
-                                    setActivePreview(doc)
+                                    openPreview(doc)
                                   }
                                 />
                               </div>
@@ -1464,7 +1550,7 @@ export function MainAiChatView({
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
                     <div className="h-8 " />
                     <div className="pointer-events-auto pb-4">
-                      <div className="mx-auto w-full max-w-3xl px-4 md:px-8">
+                      <div className="mx-auto w-full max-w-4xl px-4 md:px-8">
                         <AttachmentPreview
                           images={attachedImages}
                           files={attachedFiles}
@@ -1486,7 +1572,7 @@ export function MainAiChatView({
                           }
                           onRetryFile={retryAttachmentProcessing}
                         />
-                        <form className="flex gap-2" onSubmit={handleSubmit}>
+                        <form onSubmit={handleSubmit}>
                           <input
                             ref={fileInputRef}
                             type="file"
@@ -1495,71 +1581,86 @@ export function MainAiChatView({
                             className="hidden"
                             onChange={handleImageAttach}
                           />
-                          <div className="flex min-w-0 flex-1 items-end gap-1 rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-neutral-200/50 transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/20 dark:bg-zinc-900 dark:ring-zinc-700/50">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-                              onClick={() => fileInputRef.current?.click()}
-                              disabled={
-                                isLoading ||
-                                isProcessingFiles ||
-                                attachedImages.length + attachedFiles.length >=
-                                MAX_IMAGES
-                              }
-                              aria-label="Attach file"
-                            >
-                              <Paperclip className="size-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-                              onClick={() => setShowAllRecentDocs(true)}
-                              aria-label="Search recent documents"
-                            >
-                              <Search className="size-3.5" />
-                            </Button>
-
-                            <textarea
-                              ref={textareaRef}
-                              placeholder="Ask to create a document or edit selected..."
-                              className="min-h-[24px] max-h-36 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
-                              rows={1}
-                              value={input}
-                              onChange={(e) => setInput(e.target.value)}
-                              onPaste={handlePaste}
-                              disabled={isLoading}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
-                                  e.preventDefault();
-                                  handleSubmit(
-                                    e as unknown as React.FormEvent
-                                  );
+                          <div className="rounded-2xl border border-border/60 bg-background shadow-sm transition-all duration-200 focus-within:border-border focus-within:shadow-md dark:bg-zinc-900 dark:border-zinc-700/60 dark:focus-within:border-zinc-600">
+                            <div className="px-4 pt-3 pb-1">
+                              <textarea
+                                ref={textareaRef}
+                                placeholder="Reply..."
+                                className="w-full min-h-[28px] max-h-40 resize-none bg-transparent text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/50 disabled:opacity-50"
+                                rows={1}
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onPaste={handlePaste}
+                                disabled={isLoading}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSubmit(
+                                      e as unknown as React.FormEvent
+                                    );
+                                  }
+                                }}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
+                              <div className="flex items-center gap-0.5">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                    className="size-8 shrink-0 rounded-lg bg-gray-100 text-muted-foreground/60 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 hover:text-foreground disabled:opacity-100"
+                                    onClick={() => fileInputRef.current?.click()}
+                                  disabled={
+                                    isLoading ||
+                                    isProcessingFiles ||
+                                    attachedImages.length + attachedFiles.length >=
+                                    MAX_IMAGES
+                                  }
+                                  aria-label="Attach file"
+                                >
+                                  <Paperclip className="size-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  className="size-8 shrink-0 rounded-lg bg-gray-100 text-muted-foreground/60 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 hover:text-foreground disabled:opacity-100"
+                                  onClick={() => setShowAllRecentDocs(true)}
+                                  aria-label="Search recent documents"
+                                >
+                                  <Search className="size-4" />
+                                </Button>
+                              </div>
+                              <Button
+                                type="submit"
+                                size="icon"
+                                className={cn(
+                                  "size-8 shrink-0 rounded-lg bg-gray-100 text-muted-foreground/60 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 hover:text-foreground disabled:opacity-100",
+                                  isLoading ||
+                                  (!input.trim() &&
+                                    attachedImages.length === 0 &&
+                                    attachedFiles.length === 0) ||
+                                  hasPendingAttachments
+                                    ? "bg-muted text-muted-foreground/40 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-400"
+                                    : "bg-gray-700 text-white hover:bg-gray-900 hover:text-white dark:bg-gray-300 dark:hover:bg-white dark:text-gray-900 dark:hover:text-gray-900"
+                                )}
+                                disabled={
+                                  isLoading ||
+                                  (!input.trim() &&
+                                    attachedImages.length === 0 &&
+                                    attachedFiles.length === 0) ||
+                                  hasPendingAttachments
                                 }
-                              }}
-                            />
+                              >
+                                {isLoading ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <ArrowUp className="size-4" />
+                                )}
+                              </Button>
+                            </div>
                           </div>
-                          <Button
-                            type="submit"
-                            size="icon"
-                            className="size-9 shrink-0 self-end rounded-full shadow-sm transition-all duration-200 hover:shadow-md"
-                            disabled={
-                              isLoading ||
-                              (!input.trim() &&
-                                attachedImages.length === 0 &&
-                                attachedFiles.length === 0) ||
-                              hasPendingAttachments
-                            }
-                          >
-                            {isLoading ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <ArrowUp className="size-4" />
-                            )}
-                          </Button>
+                          <p className="mt-2 text-center text-xs text-muted-foreground/60">
+                            Docsiv AI can make mistakes. Please double-check responses.
+                          </p>
                         </form>
                       </div>
                     </div>
@@ -1603,12 +1704,12 @@ export function MainAiChatView({
                           }
                           onRetryFile={retryAttachmentProcessing}
                         />
-                        <div className="rounded-2xl bg-white shadow-sm transition-all duration-300 ease-out focus-within:shadow-md dark:bg-zinc-900">
-                          <div className="px-2 pt-1">
+                        <div className="rounded-2xl border border-border/60 bg-background shadow-sm transition-all duration-200 focus-within:border-border focus-within:shadow-md dark:bg-zinc-900 dark:border-zinc-700/60 dark:focus-within:border-zinc-600">
+                          <div className="px-4 pt-3 pb-1">
                             <textarea
                               ref={textareaRef}
                               placeholder="What do you want to create?"
-                              className="w-full resize-none bg-transparent p-3 text-base outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
+                              className="w-full min-h-[52px] max-h-40 resize-none bg-transparent text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/50 disabled:opacity-50"
                               rows={2}
                               value={input}
                               onChange={(e) => setInput(e.target.value)}
@@ -1624,13 +1725,12 @@ export function MainAiChatView({
                               }}
                             />
                           </div>
-                          <div className="flex items-center justify-between p-3">
-                            <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+                          <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
+                            <div className="flex items-center gap-0.5">
                               <Button
                                 type="button"
-                                variant="ghost"
                                 size="icon"
-                                className="size-8 shrink-0 rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:text-muted-foreground/60 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                                className="size-8 shrink-0 rounded-lg bg-muted/70 text-muted-foreground/60 hover:bg-muted dark:bg-zinc-800 dark:hover:bg-zinc-700 hover:text-foreground disabled:opacity-100"
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={
                                   isLoading ||
@@ -1643,28 +1743,38 @@ export function MainAiChatView({
                                 <Plus className="size-4" />
                               </Button>
                             </div>
-                            <div className="ml-3 flex items-center gap-2">
-                              <Button
-                                type="submit"
-                                size="icon"
-                                className="size-8 rounded-full transition-colors hover:bg-primary hover:text-primary-foreground dark:text-muted-foreground/60 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-                                disabled={
-                                  isLoading ||
-                                  (!input.trim() &&
-                                    attachedImages.length === 0 &&
-                                    attachedFiles.length === 0) ||
-                                  hasPendingAttachments
-                                }
-                              >
-                                {isLoading ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : (
-                                  <ArrowUp className="size-4" />
-                                )}
-                              </Button>
-                            </div>
+                            <Button
+                              type="submit"
+                              size="icon"
+                              className={cn(
+                                "size-8 shrink-0 rounded-full transition-all duration-200 disabled:opacity-100",
+                                isLoading ||
+                                (!input.trim() &&
+                                  attachedImages.length === 0 &&
+                                  attachedFiles.length === 0) ||
+                                hasPendingAttachments
+                                  ? "bg-muted text-muted-foreground/40 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-400"
+                                  : "bg-foreground text-background hover:bg-foreground/90 shadow-sm"
+                              )}
+                              disabled={
+                                isLoading ||
+                                (!input.trim() &&
+                                  attachedImages.length === 0 &&
+                                  attachedFiles.length === 0) ||
+                                hasPendingAttachments
+                              }
+                            >
+                              {isLoading ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <ArrowUp className="size-4" />
+                              )}
+                            </Button>
                           </div>
                         </div>
+                        <p className="mt-2 text-center text-xs text-muted-foreground/60">
+                          Docsiv AI can make mistakes. Please double-check responses.
+                        </p>
                       </form>
                       {documentTypeChips.length > 0 && (
                         <div className="mt-5 flex flex-wrap justify-center gap-2">
@@ -1734,7 +1844,7 @@ export function MainAiChatView({
                   open={showAllRecentDocs}
                   onOpenChange={setShowAllRecentDocs}
                 >
-                  <SheetContent side="bottom" className="h-[85vh] max-h-[85vh] w-full max-w-5xl mx-auto rounded-t-2xl px-6 md:px-8 py-6 flex flex-col gap-0 border-x border-t border-border">
+                  <SheetContent side="bottom" className="h-[85vh] max-h-[85vh] w-full max-w-5xl mx-auto rounded-t-2xl px-6 md:px-8 py-6 flex flex-col gap-0 border-x border-t border-border bg-gray-50 dark:bg-zinc-900">
                     <SheetHeader className="px-0 pb-4 text-left">
                       <SheetTitle>Select a document</SheetTitle>
                     </SheetHeader>
@@ -1746,7 +1856,7 @@ export function MainAiChatView({
                         className="h-10 text-base md:text-sm"
                       />
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 overflow-y-auto pb-8 pr-1">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 overflow-y-auto pb-8 pr-1">
                       {filteredDocuments.slice(0, 24).map((doc) => {
                         const typeConfig = doc.document_type
                           ? getDisplayForDocumentType(doc.document_type)
@@ -1824,24 +1934,29 @@ export function MainAiChatView({
               </Dialog>
             </div>
           </div>
+          </Panel>
 
-          {/* ─── Document preview panel ─── */}
+          {/* ─── Resize handle + Document preview panel ─── */}
           {activePreview && (
-            <div className="hidden w-[50%] shrink-0 border-l border-border/30 md:flex">
-              <DocumentPreviewPanel
-                documentId={activePreview.documentId}
-                title={activePreview.title}
-                baseType={activePreview.baseType}
-                content={activePreview.content}
-                className="w-full"
-                onClose={() => setActivePreview(null)}
-                onOpenInEditor={(docId) => {
-                  window.location.assign(`/d/${docId}?aiOpen=1`);
-                }}
-              />
-            </div>
+            <>
+              <PanelResizeHandle className="hidden w-1.5 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-border/50 active:bg-border md:flex" />
+              <Panel defaultSize={50} minSize={25} className="hidden md:flex">
+                <DocumentPreviewPanel
+                  key={previewKey}
+                  documentId={activePreview.documentId}
+                  title={activePreview.title}
+                  baseType={activePreview.baseType}
+                  content={activePreview.content}
+                  className="w-full"
+                  onClose={() => setActivePreview(null)}
+                  onOpenInEditor={(docId) => {
+                    window.location.assign(`/d/${docId}?aiOpen=1`);
+                  }}
+                />
+              </Panel>
+            </>
           )}
-        </div>
+        </PanelGroup>
       </div>
     </div>
   );
@@ -1864,6 +1979,19 @@ function AssistantMessageContent({
       </div>
     );
   }
+
+  // Deduplicate document artifact cards: only show the card for the LAST
+  // tool result with each document_id. Earlier tool results (create, edit,
+  // seed) just show the status pill instead of repeating the card.
+  const lastCardIndexByDocId = new Map<string, number>();
+  message.parts.forEach((part, i) => {
+    const toolInfo = getToolInfo(part);
+    if (!toolInfo || toolInfo.state !== "output-available") return;
+    const result = toolInfo.output as DocumentToolResult | undefined;
+    if (!result?.success) return;
+    const docId = result?.document_id ?? result?.documentId;
+    if (docId) lastCardIndexByDocId.set(docId, i);
+  });
 
   return (
     <>
@@ -1900,14 +2028,53 @@ function AssistantMessageContent({
             const result = toolInfo.output as DocumentToolResult | undefined;
             const isDocTool = DOCUMENT_TOOL_NAMES_SET.has(toolName);
 
-            if (isDocTool && result?.success) {
-              const documentId =
-                result.document_id ?? result.documentId;
-              if (documentId) {
-                return (
+            // Skip rendering for wrong-type tool calls (silently handled)
+            const resultObj = result as Record<string, unknown> | undefined;
+            if (resultObj?.skipped) return null;
+
+            // Build status pill (always shown for all tool results)
+            const isSuccess = result?.success === true;
+            const errorMsg = !isSuccess && result && "error" in result
+              ? String((result as Record<string, unknown>).error)
+              : null;
+            const warningMsg = isSuccess && result && "warning" in result
+              ? String((result as Record<string, unknown>).warning)
+              : null;
+
+            const statusPill = (
+              <div
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs",
+                  isSuccess
+                    ? "bg-neutral-100 text-muted-foreground dark:bg-zinc-800"
+                    : "bg-red-50 text-destructive dark:bg-red-950/40"
+                )}
+              >
+                {isSuccess ? (
+                  <Check className="size-3 text-emerald-500" />
+                ) : (
+                  <X className="size-3 text-destructive" />
+                )}
+                <span>
+                  {getToolLabel(toolName)}{" "}
+                  {isSuccess ? "done" : "failed"}
+                  {errorMsg && <span className="ml-1 opacity-70">— {errorMsg}</span>}
+                  {warningMsg && <span className="ml-1 opacity-70">— {warningMsg}</span>}
+                </span>
+              </div>
+            );
+
+            // Show a document card only for the LAST tool result with this document_id
+            // (avoids showing 3 identical cards for create → edit → seed).
+            const documentId =
+              result?.document_id ?? result?.documentId;
+            const isLastCardForDoc = documentId && lastCardIndexByDocId.get(documentId) === i;
+            if (isSuccess && documentId && isLastCardForDoc) {
+              return (
+                <div key={i} className="mt-3 space-y-3 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                  {statusPill}
                   <div
-                    key={i}
-                    className="mt-4 animate-in fade-in-0 slide-in-from-bottom-2 cursor-pointer duration-300"
+                    className="cursor-pointer"
                     onClick={() => {
                       onPreviewDocument({
                         documentId,
@@ -1921,32 +2088,30 @@ function AssistantMessageContent({
                       documentId={documentId}
                       title={result.title ?? "Document"}
                       baseType={result.base_type ?? "doc"}
+                      thumbnailUrl={(result as Record<string, unknown>).thumbnail_url as string | undefined}
                       permission="edit"
                       onEdit={(docId) => {
                         window.location.assign(`/d/${docId}?aiOpen=1`);
                       }}
                     />
                   </div>
-                );
-              }
+                </div>
+              );
+            }
+            // Earlier tool results for the same document — just show the status pill
+            if (isSuccess && documentId && !isLastCardForDoc) {
+              return (
+                <div key={i} className="mt-3">
+                  {statusPill}
+                </div>
+              );
             }
 
-            // Non-document tool result — show success/error
+            // Non-document tool result — show status pill only
             if (result && typeof result === "object" && "success" in result) {
               return (
-                <div
-                  key={i}
-                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-muted-foreground dark:bg-zinc-800"
-                >
-                  {result.success ? (
-                    <Check className="size-3 text-emerald-500" />
-                  ) : (
-                    <X className="size-3 text-destructive" />
-                  )}
-                  <span>
-                    {getToolLabel(toolName)}{" "}
-                    {result.success ? "done" : "failed"}
-                  </span>
+                <div key={i} className="mt-3">
+                  {statusPill}
                 </div>
               );
             }
@@ -1987,9 +2152,37 @@ function UserMessageContent({
   const text = getMessageText(message);
   const hasImages = meta?.images && meta.images.length > 0;
   const hasFiles = meta?.files && meta.files.length > 0;
+  const hasSelectedDoc = !!meta?.selectedDoc;
 
   return (
     <>
+      {/* Selected document shown above the text bubble */}
+      {hasSelectedDoc && (
+        <div className="flex justify-end">
+          <div
+            className="flex max-w-[280px] cursor-pointer items-center gap-2.5 rounded-xl bg-white/15 p-2 pr-3 backdrop-blur-sm transition-colors hover:bg-white/25"
+            onClick={() => window.open(`/d/${meta!.selectedDoc!.id}`, "_blank")}
+          >
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20">
+              {meta!.selectedDoc!.thumbnailUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={meta!.selectedDoc!.thumbnailUrl}
+                  alt=""
+                  className="size-9 rounded-lg object-cover"
+                />
+              ) : (
+                <FileText className="size-4 opacity-70" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium">{meta!.selectedDoc!.title}</p>
+              <p className="text-[10px] opacity-60">Selected document</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Attached images shown above the text bubble */}
       {hasImages && (
         <div className={cn(

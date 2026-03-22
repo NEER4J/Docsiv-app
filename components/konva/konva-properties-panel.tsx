@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -12,8 +12,11 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { KonvaShapeDesc } from '@/lib/konva-content';
 import { getStableId } from '@/lib/konva-content';
+import { attrsToChartSheet, chartSheetToDataPoints } from '@/lib/konva-chart-sheet';
+import { KonvaChartDataDialog } from '@/components/konva/konva-chart-data-dialog';
 
 const PRESET_COLORS = [
   '#000000', '#171717', '#404040', '#737373', '#a3a3a3', '#d4d4d4', '#e5e5e5', '#fafafa', '#ffffff',
@@ -163,6 +166,7 @@ function PropertiesPanelContent({
   onUpdateAttrs: (ids: string[], attrs: Record<string, unknown>) => void;
   readOnly: boolean;
 }) {
+  const [chartDataOpen, setChartDataOpen] = useState(false);
   const attrs = first.attrs as Record<string, unknown>;
 
   const update = (key: string, value: unknown) => {
@@ -206,7 +210,11 @@ function PropertiesPanelContent({
         </PropGrid2>
       </div>
 
-      {(first.className === 'Rect' || first.className === 'Image' || first.className === 'Text' || first.className === 'Icon') && (
+      {(first.className === 'Rect' ||
+        first.className === 'Image' ||
+        first.className === 'Text' ||
+        first.className === 'Icon' ||
+        first.className === 'Chart') && (
         <div className="space-y-2">
           <p className={SECTION_HEADER}>Size</p>
           <PropGrid2>
@@ -485,6 +493,91 @@ function PropertiesPanelContent({
               {(attrs.src as string) ? 'Image loads from URL above.' : 'Add a URL to show an image, or use a placeholder until you set one.'}
             </p>
           </div>
+        </div>
+      )}
+
+      {first.className === 'Chart' && !isMultiple && (
+        <div className="space-y-2">
+          <p className={SECTION_HEADER}>Chart</p>
+          <div className="space-y-1">
+            <Label className={LABEL_CLASS}>Type</Label>
+            <Select
+              value={((attrs.chartType as string) ?? 'bar') as string}
+              onValueChange={(v) => update('chartType', v)}
+              disabled={readOnly}
+            >
+              <SelectTrigger className={`h-7 text-[11px] ${INPUT_CLASS}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={`border-zinc-700 bg-zinc-900 ${PANEL_CLASS}`}>
+                <SelectItem value="bar" className="focus:bg-zinc-800">
+                  Bar
+                </SelectItem>
+                <SelectItem value="line" className="focus:bg-zinc-800">
+                  Line
+                </SelectItem>
+                <SelectItem value="area" className="focus:bg-zinc-800">
+                  Area
+                </SelectItem>
+                <SelectItem value="pie" className="focus:bg-zinc-800">
+                  Pie
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="chart-show-labels"
+              checked={(attrs.showLabels as boolean) !== false}
+              onCheckedChange={(c) => update('showLabels', c === true)}
+              disabled={readOnly}
+              className="border-zinc-600 data-[state=checked]:bg-zinc-100 data-[state=checked]:text-zinc-900"
+            />
+            <Label htmlFor="chart-show-labels" className={`cursor-pointer text-[11px] ${LABEL_CLASS}`}>
+              Show labels
+            </Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="chart-show-legend"
+              checked={(attrs.showLegend as boolean) !== false}
+              onCheckedChange={(c) => update('showLegend', c === true)}
+              disabled={readOnly}
+              className="border-zinc-600 data-[state=checked]:bg-zinc-100 data-[state=checked]:text-zinc-900"
+            />
+            <Label htmlFor="chart-show-legend" className={`cursor-pointer text-[11px] ${LABEL_CLASS}`}>
+              Show legend (pie)
+            </Label>
+          </div>
+          <div className="space-y-1">
+            <Label className={LABEL_CLASS}>Data</Label>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={`h-8 w-full border-zinc-700 bg-zinc-800 text-[11px] text-zinc-200 hover:bg-zinc-700 ${PANEL_CLASS}`}
+              disabled={readOnly}
+              onClick={() => setChartDataOpen(true)}
+            >
+              Open chart data editor…
+            </Button>
+            <p className="text-[10px] text-zinc-500">
+              Spreadsheet editor with rows/columns; import CSV or Excel. Chart uses columns 1 (labels) and 2
+              (values).
+            </p>
+          </div>
+          <KonvaChartDataDialog
+            open={chartDataOpen}
+            onOpenChange={setChartDataOpen}
+            initialSheet={attrsToChartSheet(attrs)}
+            readOnly={readOnly}
+            onApply={(sheet) => {
+              onUpdateAttrs(selectedIds, {
+                chartSheet: sheet,
+                data: chartSheetToDataPoints(sheet),
+              });
+            }}
+          />
         </div>
       )}
 

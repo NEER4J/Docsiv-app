@@ -1,0 +1,391 @@
+{
+    "0": {
+      "id": "XIJgsWLDuh",
+      "type": "p",
+      "children": [
+        {
+          "text": ""
+        }
+      ]
+    },
+    "pages": [
+      {
+        "nodes": [
+          {
+            "type": "h1",
+            "children": [
+              {
+                "text": "How AI is Impacting Developer Jobs"
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "The landscape of software development is undergoing its most significant transformation since the advent of high-level programming languages. Artificial Intelligence, specifically Large Language Models (LLMs), has moved beyond a novelty tool to become a core component of the modern engineering workflow. This shift is redefining what it means to be a developer, altering the skills required for the role, and reshaping the career trajectory of engineers at all levels."
+              }
+            ]
+          },
+          {
+            "type": "h2",
+            "children": [
+              {
+                "text": "Automation of Routine Tasks"
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "The most immediate impact of AI is the automation of repetitive, low-level coding tasks. Developers are increasingly using AI assistants to handle the 'grunt work' that previously consumed a significant portion of their day."
+              }
+            ]
+          },
+          {
+            "type": "ul",
+            "children": [
+              {
+                "type": "li",
+                "children": [
+                  {
+                    "type": "lic",
+                    "children": [
+                      {
+                        "bold": true,
+                        "text": "Boilerplate Generation"
+                      },
+                      {
+                        "text": ": Setting up API endpoints, data models, and configuration files is now nearly instantaneous."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "li",
+                "children": [
+                  {
+                    "type": "lic",
+                    "children": [
+                      {
+                        "bold": true,
+                        "text": "Unit Testing"
+                      },
+                      {
+                        "text": ": AI can analyze logic and generate comprehensive test suites, improving code coverage with minimal manual effort."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "li",
+                "children": [
+                  {
+                    "type": "lic",
+                    "children": [
+                      {
+                        "bold": true,
+                        "text": "Documentation"
+                      },
+                      {
+                        "text": ": Tools can now automatically generate docstrings and README files based on the actual implementation of the code."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "h2",
+            "children": [
+              {
+                "text": "The Shift in Developer Roles"
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "As AI takes over the syntax and implementation details, the developer's role is shifting from a 'writer' of code to an 'editor' and 'architect.' The focus is moving away from knowing the specific syntax of a library and toward understanding system design, integration, and problem-solving."
+              }
+            ]
+          },
+          {
+            "type": "blockquote",
+            "children": [
+              {
+                "text": "The developer of the future will be measured not by how many lines of code they can write, but by how effectively they can orchestrate AI to build robust, scalable systems."
+              }
+            ]
+          },
+          {
+            "type": "h2",
+            "children": [
+              {
+                "text": "Productivity and Efficiency Gains"
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "Early data suggests that AI-assisted developers are completing tasks up to 50% faster than those working without AI. This increase in velocity allows teams to iterate more quickly and focus on high-value features rather than maintenance."
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "children": [
+              {
+                "type": "tr",
+                "children": [
+                  {
+                    "type": "th",
+                    "children": [
+                      {
+                        "text": "Activity"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "th",
+                    "children": [
+                      {
+                        "text": "Traditional Time"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "th",
+                    "children": [
+                      {
+                        "text": "AI-Assisted Time"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tr",
+                "children": [
+                  {
+                    "type": "td",
+                    "children": [
+                      {
+                        "text": "Bug Fixing"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "td",
+                    "children": [
+                      {
+                        "text": "4 Hours"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "td",
+                    "children": [
+                      {
+                        "text": "1.5 Hours"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tr",
+                "children": [
+                  {
+                    "type": "td",
+                    "children": [
+                      {
+                        "text": "Refactoring"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "td",
+                    "children": [
+                      {
+                        "text": "6 Hours"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "td",
+                    "children": [
+                      {
+                        "text": "2 Hours"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "h2",
+            "children": [
+              {
+                "text": "New Skills for the AI Era"
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "To remain competitive, developers must cultivate a new set of competencies. This includes 'Prompt Engineering'—the ability to provide clear, contextual instructions to AI—and 'AI Debugging,' which involves identifying subtle errors or hallucinations in AI-generated output."
+              }
+            ]
+          },
+          {
+            "type": "h2",
+            "children": [
+              {
+                "text": "The Challenge for Junior Developers"
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "While AI boosts productivity for experienced engineers, it creates a significant hurdle for those entering the field. Historically, junior developers learned their craft by performing the very 'entry-level' tasks—such as writing simple CRUD operations or basic UI components—that are now being automated by AI."
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "This creates a 'missing middle' in the career ladder. If juniors are not doing the foundational work, they may struggle to develop the deep intuition required for senior-level architectural decisions. Furthermore, the barrier to entry is rising; companies now expect juniors to possess the oversight capabilities of a mid-level developer from day one."
+              }
+            ]
+          },
+          {
+            "type": "callout",
+            "variant": "info",
+            "children": [
+              {
+                "type": "p",
+                "children": [
+                  {
+                    "bold": true,
+                    "text": "Mentorship Evolution"
+                  },
+                  {
+                    "text": ": Senior developers must pivot their mentorship strategies. Instead of reviewing syntax and style, they must teach juniors how to validate AI output, understand the 'why' behind architectural choices, and manage the technical debt that AI can inadvertently introduce."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "h2",
+            "children": [
+              {
+                "text": "Security, Ethics, and Intellectual Property"
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "The integration of AI into the software lifecycle introduces complex risks regarding security and legal compliance. AI models are trained on vast datasets that may include insecure code patterns or proprietary logic, leading to several critical concerns:"
+              }
+            ]
+          },
+          {
+            "type": "ul",
+            "children": [
+              {
+                "type": "li",
+                "children": [
+                  {
+                    "type": "lic",
+                    "children": [
+                      {
+                        "bold": true,
+                        "text": "Security Vulnerabilities"
+                      },
+                      {
+                        "text": ": AI can 'hallucinate' non-existent libraries or suggest deprecated functions with known exploits. Without a human-in-the-loop, these vulnerabilities can easily slip into production."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "li",
+                "children": [
+                  {
+                    "type": "lic",
+                    "children": [
+                      {
+                        "bold": true,
+                        "text": "Intellectual Property (IP) Risks"
+                      },
+                      {
+                        "text": ": There is ongoing legal ambiguity regarding the licensing of AI-generated code. If an AI suggests a snippet that is verbatim from a GPL-licensed repository, the resulting software could face significant legal challenges."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "li",
+                "children": [
+                  {
+                    "type": "lic",
+                    "children": [
+                      {
+                        "bold": true,
+                        "text": "Data Privacy"
+                      },
+                      {
+                        "text": ": Developers must be cautious not to feed proprietary company logic or sensitive customer data into public AI models, which could lead to data leaks."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "Ultimately, for critical systems—such as healthcare, finance, or infrastructure—the human-in-the-loop remains non-negotiable. AI is an assistant, not a replacement for the accountability and ethical judgment of a professional engineer."
+              }
+            ]
+          },
+          {
+            "type": "h2",
+            "children": [
+              {
+                "text": "Conclusion"
+              }
+            ]
+          },
+          {
+            "type": "p",
+            "children": [
+              {
+                "text": "AI is not replacing developers; it is evolving the profession. While the barrier to entry for juniors is rising and security concerns are mounting, the potential for innovation has never been higher. The developers who thrive in this new era will be those who embrace AI as a powerful collaborator while maintaining a rigorous focus on security, ethics, and high-level system design."
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }

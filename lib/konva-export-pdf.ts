@@ -12,6 +12,7 @@ import {
   SLIDE_HEIGHT_PX,
 } from '@/lib/konva-content';
 import { createPatternCanvas } from '@/lib/konva-background-patterns';
+import { addKonvaChartToLayer } from '@/lib/konva-chart-imperative';
 
 function getChildren(pageOrSlide: { layer?: Record<string, unknown> }): KonvaShapeDesc[] {
   const layer = pageOrSlide?.layer as { children?: KonvaShapeDesc[] } | undefined;
@@ -259,6 +260,8 @@ async function renderPageToDataURL(
           }
           layer.add(group);
         }
+      } else if (shape.className === 'Chart') {
+        addKonvaChartToLayer(Konva, layer, attrs);
       }
     }
 

@@ -80,14 +80,16 @@ Simple document:
 export const KONVA_SHAPE_FORMAT_GUIDE = `
 ## Konva shape format
 
-Generate shapes as a JSON array of shape objects. Each shape MUST have "id" (string)
-and "type" (string). All coordinates are in pixels.
+Each shape is an object with "className" (string) and "attrs" (object).
+The attrs object must include "id" (unique string). All coordinates are in pixels.
 
-### Shape types
-| type            | Required props                     | Notes |
+Example: { "className": "Text", "attrs": { "id": "title-1", "x": 60, "y": 50, "text": "Hello", "fontSize": 32, "fontFamily": "Inter", "fill": "#000" } }
+
+### Shape className values
+| className       | Required attrs                     | Notes |
 |-----------------|------------------------------------|-------|
 | Rect            | x, y, width, height               | fill, stroke, cornerRadius |
-| Text            | x, y, text                        | fontSize, fontFamily, fontStyle, fill, align, width |
+| Text            | x, y, text                        | fontSize, fontFamily (REQUIRED), fontStyle, fill, align, width |
 | Circle          | x, y, radius                      | fill, stroke |
 | Ellipse         | x, y, radiusX, radiusY            | fill, stroke |
 | Line            | points (flat array [x1,y1,x2,y2]) | stroke, strokeWidth, closed |
@@ -96,7 +98,7 @@ and "type" (string). All coordinates are in pixels.
 | Star            | x, y, numPoints, innerRadius, outerRadius | fill |
 | RegularPolygon  | x, y, sides, radius               | fill, rotation |
 
-### Common properties
+### Common attrs properties
 - fill: string (hex color or "transparent")
 - stroke: string (hex color)
 - strokeWidth: number
@@ -104,15 +106,16 @@ and "type" (string). All coordinates are in pixels.
 - rotation: number (degrees)
 - cornerRadius: number (for Rect)
 - fontSize: number (for Text)
-- fontFamily: string (for Text)
+- fontFamily: string (REQUIRED for Text — always specify)
 - fontStyle: "normal" | "bold" | "italic" | "bold italic" (for Text)
 - align: "left" | "center" | "right" (for Text)
 - verticalAlign: "top" | "middle" | "bottom" (for Text)
+- width: number (for Text — set to control wrapping)
 
 ### Available fonts
-Sans-serif: Inter, Roboto, Open Sans, Lato, Montserrat, Poppins, Source Sans Pro, Nunito, Raleway
-Serif: Playfair Display, Merriweather, Lora, PT Serif, Noto Serif
-Display: Bebas Neue, Oswald, Anton
+Sans-serif: Inter, Roboto, Open Sans, Lato, Montserrat, Poppins, DM Sans, Plus Jakarta Sans
+Serif: Playfair Display, Merriweather, Libre Baskerville, Georgia
+Display: Bebas Neue, Oswald, Raleway
 
 ### Default page sizes
 - Report page: 794 × 1123 px (A4 portrait)
@@ -120,10 +123,11 @@ Display: Bebas Neue, Oswald, Anton
 
 ### Design guidelines
 - Use consistent margins (40-60px from edges)
-- Maintain visual hierarchy with font size (titles 28-36px, headings 20-24px, body 14-16px)
+- Maintain visual hierarchy with font size (titles 32-44px, headings 24-32px, body 14-18px)
 - Use the color scheme consistently (primary for headings, secondary for accents, text color for body)
-- Never overlap text elements — ensure proper spacing
-- Add whitespace between sections (20-40px gaps)
+- NEVER overlap text elements — plan y positions so each element starts below the previous
+- Add whitespace between sections (20-40px vertical gaps)
+- Every Text element MUST have fontFamily set
 `.trim();
 
 // ── Univer cell format ──────────────────────────────────────────────────────

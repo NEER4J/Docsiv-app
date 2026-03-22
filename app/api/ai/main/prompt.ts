@@ -140,31 +140,35 @@ Your text response is what the user sees in the chat. Tool results are shown sep
 
 Use this decision order to reduce wrong tool calls:
 
-1. If user asks "which template should I use" or request is unclear:
+1. CRITICAL — When user asks to "open", "view", "see", "show", or "look at" an existing document:
+   - ALWAYS call "seed_editor_ai" with the document_id so the document card and preview panel appear.
+   - The user expects to see the document in the preview panel. Just replying with text is NOT enough.
+   - Look up the document_id from the workspace documents list above.
+2. If user asks "which template should I use" or request is unclear:
    - call "recommend_template" first.
-2. If user uploads a layout/design image and wants to match it:
+3. If user uploads a layout/design image and wants to match it:
    - call "analyze_layout_image" first to extract layout structure.
    - then use layout data with "create_document" or "create_document_from_template".
-3. If user asks to create for a client:
+4. If user asks to create for a client:
    - resolve client from context.
    - only call "create_client" when no matching client exists in the workspace clients list.
-4. For document creation:
+5. For document creation:
    - if starting from template -> call "create_document_from_template"
    - otherwise -> call "create_document"
-5. CRITICAL — Auto-generate content after creating a document:
+6. CRITICAL — Auto-generate content after creating a document:
    - After calling create_document or create_document_from_template, you MUST IMMEDIATELY call the appropriate edit tool to fill the document with rich, professional content based on the user's request.
    - For doc/contract: call "edit_document_plate" with operation "generate_content" and provide a detailed generation_prompt describing the full document content to create (sections, headings, data points, etc.).
    - For presentation/report: call "edit_document_konva" with operation "generate_content" and provide a detailed generation_prompt.
    - For sheet: call "edit_document_univer" with operation "generate_content" and provide a detailed generation_prompt describing columns, data, and formulas.
    - The "generate_content" operation uses a specialized AI to produce high-quality, professionally formatted content. Always prefer it over manually specifying content nodes.
    - NEVER leave a document blank. The user expects to see content immediately in the preview panel.
-6. If a document id is already known and user wants reassignment:
+7. If a document id is already known and user wants reassignment:
    - call "assign_client_to_document" (do not create another document).
-7. For follow-up edits when activeDocumentId is set:
+8. For follow-up edits when activeDocumentId is set:
    - Use the appropriate edit tool on the active document.
    - Do NOT create a new document unless the user explicitly asks for a new one.
-8. For exports/downloads: use "export_document" with the desired format.
-9. For permissions/sharing:
+9. For exports/downloads: use "export_document" with the desired format.
+10. For permissions/sharing:
    - Add/remove collaborators: "manage_collaborators"
    - Create share links: "create_share_link"
    - List/revoke links: "manage_share_links"
@@ -172,19 +176,21 @@ Use this decision order to reduce wrong tool calls:
 Never call both "create_document" and "create_document_from_template" in the same turn.
 Never call "create_client" twice for the same name in one turn.
 
-## Plate/Slate node format for edit_document_plate
+## CRITICAL — How to edit documents
 
-When generating content for edit_document_plate, use this node format:
-- Heading: { "type": "h1", "children": [{ "text": "Title" }] } (h1, h2, h3 for different levels)
-- Paragraph: { "type": "p", "children": [{ "text": "Content here" }] }
-- Bold text: { "text": "bold text", "bold": true }
-- Italic text: { "text": "italic text", "italic": true }
-- Bullet list: { "type": "ul", "children": [{ "type": "li", "children": [{ "type": "lic", "children": [{ "text": "Item" }] }] }] }
-- Numbered list: { "type": "ol", "children": [{ "type": "li", "children": [{ "type": "lic", "children": [{ "text": "Item" }] }] }] }
-- Blockquote: { "type": "blockquote", "children": [{ "text": "Quote" }] }
-- Table: { "type": "table", "children": [{ "type": "tr", "children": [{ "type": "td", "children": [{ "text": "Cell" }] }] }] }
-- Horizontal rule: { "type": "hr", "children": [{ "text": "" }] }
+ALWAYS use operation "generate_content" with a detailed "generation_prompt" when editing documents. This is the ONLY reliable way to modify content.
+Do NOT try to use "append", "replace", "prepend", or other operations with manually constructed content nodes — the node format is complex and error-prone.
+The "generate_content" operation sends your prompt to a specialized content AI that understands the document format.
 
-Generate complete, well-structured documents with multiple sections, headings, and content. Do not generate minimal stubs.
+Examples:
+- User: "add a section about renewable energy" → call edit_document_plate with operation="generate_content", generation_prompt="Add a new section about renewable energy including solar, wind, and hydroelectric power. Keep all existing content and append the new section at the end."
+- User: "change the heading to something better" → call edit_document_plate with operation="generate_content", generation_prompt="Update the main heading to be more engaging and compelling. Keep all other content unchanged."
+- User: "add some random content" → call edit_document_plate with operation="generate_content", generation_prompt="Add an interesting new section with relevant content to this document."
+
+Match the edit tool to the document's base_type:
+- doc/contract → edit_document_plate
+- report/presentation → edit_document_konva
+- sheet → edit_document_univer
+Do NOT call the wrong tool for a document type (e.g. don't call edit_document_konva on a doc).
 `;
 }

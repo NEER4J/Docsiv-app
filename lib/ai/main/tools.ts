@@ -1,5 +1,6 @@
 import { tool } from 'ai';
 import { z } from 'zod';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { createClientRecord } from '@/lib/actions/clients';
 import {
@@ -28,7 +29,7 @@ import {
  * Note: current production `/api/ai/main` flow is still JSON-action based.
  * Keep this module in sync only when enabling server-side tool execution.
  */
-export function getMainAiTools(workspaceId: string) {
+export function getMainAiTools(workspaceId: string, userId?: string, authedClient?: SupabaseClient) {
   const localCache = new Map<string, unknown>();
   const withCache = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
     if (localCache.has(key)) return localCache.get(key) as T;
@@ -80,7 +81,8 @@ export function getMainAiTools(workspaceId: string) {
         if (result.error || !result.documentId) {
           return { success: false as const, error: result.error ?? 'Failed to create document' };
         }
-        return { success: true as const, documentId: result.documentId, title, base_type };
+        localCache.set(`create_document:${result.documentId}`, { documentId: result.documentId });
+        return { success: true as const, document_id: result.documentId, documentId: result.documentId, title, base_type };
       },
     }),
 
@@ -130,9 +132,26 @@ export function getMainAiTools(workspaceId: string) {
       },
     }),
 
+    rename_document: tool({
+      description:
+        'Rename an existing document. Use when the user wants to change a document title.',
+      parameters: z.object({
+        document_id: z.string().describe('The document ID to rename'),
+        title: z.string().describe('The new title for the document'),
+      }),
+      // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
+      execute: async ({ document_id, title }) => {
+        const result = await updateDocumentRecord(document_id, { title });
+        if (result.error) {
+          return { success: false as const, error: result.error };
+        }
+        return { success: true as const, document_id, title };
+      },
+    }),
+
     seed_editor_ai: tool({
       description:
-        'Seed the document editor AI sidebar with a prompt so the editor AI is ready when user opens it. Always call this after create/open.',
+        'Seed the document editor AI sidebar with a prompt so the editor AI is ready when user opens it. NOTE: This does NOT generate or edit document content — use edit_document_plate/konva/univer for that. Only call this AFTER content has already been generated.',
       parameters: z.object({
         document_id: z.string().describe('The document ID to seed'),
         editor_prompt: z
@@ -159,7 +178,22 @@ export function getMainAiTools(workspaceId: string) {
         if (result.error) {
           return { success: false as const, error: result.error };
         }
-        return { success: true as const, document_id };
+        // Fetch document title/type/content for UI display and preview
+        const { createServiceRoleClient } = await import('@/lib/supabase/server');
+        const sb = createServiceRoleClient();
+        const { data: doc } = await sb
+          .from('documents')
+          .select('title,base_type,content,thumbnail_url')
+          .eq('id', document_id)
+          .maybeSingle();
+        return {
+          success: true as const,
+          document_id,
+          title: doc?.title ?? 'Document',
+          base_type: doc?.base_type ?? 'doc',
+          updatedContent: doc?.content ?? null,
+          thumbnail_url: doc?.thumbnail_url ?? null,
+        };
       },
     }),
 
@@ -378,9 +412,9 @@ export function getMainAiTools(workspaceId: string) {
     }),
 
     // Editor-specific edit tools
-    edit_document_plate: createEditDocumentPlateTool(workspaceId, localCache, withCache),
-    edit_document_konva: createEditDocumentKonvaTool(workspaceId, localCache, withCache),
-    edit_document_univer: createEditDocumentUniverTool(workspaceId, localCache, withCache),
+    edit_document_plate: createEditDocumentPlateTool(workspaceId, localCache, withCache, userId, authedClient),
+    edit_document_konva: createEditDocumentKonvaTool(workspaceId, localCache, withCache, userId, authedClient),
+    edit_document_univer: createEditDocumentUniverTool(workspaceId, localCache, withCache, userId, authedClient),
 
     // Export tool
     export_document: createExportDocumentTool(workspaceId, localCache, withCache),

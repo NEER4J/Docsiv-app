@@ -171,9 +171,10 @@ const NavItemCollapsed = ({
   item: NavMainItem;
   isActive: (url: string, subItems?: NavMainItem["subItems"]) => boolean;
 }) => {
+  const { lockHover, unlockHover } = useSidebar();
   return (
     <SidebarMenuItem key={item.title}>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(open) => (open ? lockHover() : unlockHover())}>
         <DropdownMenuTrigger asChild>
             <SidebarMenuButton
             disabled={item.comingSoon}

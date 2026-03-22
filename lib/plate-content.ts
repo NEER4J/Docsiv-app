@@ -22,6 +22,15 @@ export function isPlatePageModeContent(
 export function getPlatePages(content: unknown): Value[] {
   if (isPlatePageModeContent(content)) return content.pages;
   if (content && Array.isArray(content)) return [content as Value];
+  // Legacy AI-generated format: { pages: [{ nodes: Value }] } or { editor: "plate", pages: [...] }
+  if (content && typeof content === 'object' && !Array.isArray(content)) {
+    const obj = content as Record<string, unknown>;
+    if (Array.isArray(obj.pages) && obj.pages.length > 0) {
+      const first = obj.pages[0] as Record<string, unknown>;
+      if (Array.isArray(first?.nodes)) return [first.nodes as Value];
+      if (Array.isArray(first)) return [first as Value];
+    }
+  }
   const empty: Value = [{ type: 'p', children: [{ text: '' }] }];
   return [empty];
 }

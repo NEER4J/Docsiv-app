@@ -19,6 +19,10 @@ export type MainAiSessionMessage = {
   documentLink?: { documentId: string; title: string; phase?: "opening" | "opened" };
   /** Final step timeline for this assistant turn (stored when a handoff finishes). */
   handoffTrace?: MainAiHandoffStep[];
+  /** Persisted UIMessage parts for full-fidelity restore (tool results, etc.) */
+  parts?: Array<Record<string, unknown>>;
+  /** Selected document context when user sent this message */
+  selectedDoc?: { id: string; title: string; thumbnailUrl?: string | null };
 };
 
 export type MainAiSessionItem = {

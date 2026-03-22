@@ -42,6 +42,14 @@ type SidebarContextProps = {
   toggleSidebar: () => void
   hoverOpen: boolean
   setHoverOpen: React.Dispatch<React.SetStateAction<boolean>>
+  /** Call when a dropdown/popover inside the sidebar opens so hover stays pinned. */
+  lockHover: () => void
+  /** Call when a dropdown/popover inside the sidebar closes to release the pin. */
+  unlockHover: () => void
+  /** Ref to the sidebar container element — set by <Sidebar> so unlock can check :hover. */
+  sidebarElRef: React.RefObject<HTMLDivElement | null>
+  /** Ref tracking how many dropdowns/popovers are currently locking hover open. */
+  hoverLockCountRef: React.RefObject<number>
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -71,6 +79,27 @@ function SidebarProvider({
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
   const [hoverOpen, setHoverOpen] = React.useState(false)
+
+  // Tracks how many dropdowns/popovers inside the sidebar are currently open.
+  // As long as this is > 0, hover is "locked" and will not collapse.
+  const hoverLockCount = React.useRef(0)
+  // Set by the <Sidebar> component so unlockHover can check `:hover` state.
+  const sidebarElRef = React.useRef<HTMLDivElement | null>(null)
+
+  const lockHover = React.useCallback(() => {
+    hoverLockCount.current++
+  }, [])
+
+  const unlockHover = React.useCallback(() => {
+    hoverLockCount.current = Math.max(0, hoverLockCount.current - 1)
+    if (hoverLockCount.current === 0) {
+      // If the pointer is still physically inside the sidebar, keep hover open.
+      // mouseenter will keep it true; only collapse when the pointer has left.
+      if (!sidebarElRef.current?.matches(":hover")) {
+        setHoverOpen(false)
+      }
+    }
+  }, [setHoverOpen])
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -116,9 +145,12 @@ function SidebarProvider({
   // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? "expanded" : "collapsed"
 
-  // Close hover overlay when sidebar is permanently opened
+  // Close hover overlay when sidebar is permanently opened, and reset lock count.
   React.useEffect(() => {
-    if (open) setHoverOpen(false)
+    if (open) {
+      hoverLockCount.current = 0
+      setHoverOpen(false)
+    }
   }, [open])
 
   const contextValue = React.useMemo<SidebarContextProps>(
@@ -132,8 +164,12 @@ function SidebarProvider({
       toggleSidebar,
       hoverOpen,
       setHoverOpen,
+      lockHover,
+      unlockHover,
+      sidebarElRef,
+      hoverLockCountRef: hoverLockCount,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, hoverOpen]
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, hoverOpen, lockHover, unlockHover]
   )
 
   return (
@@ -173,7 +209,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile, hoverOpen, setHoverOpen } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, hoverOpen, setHoverOpen, sidebarElRef, hoverLockCountRef } = useSidebar()
   const isHoverExpanded = !isMobile && state === "collapsed" && hoverOpen && collapsible === "icon"
   // Track whether we're in hover mode to disable width transitions (instant open/close)
   const isHoverMode = !isMobile && state === "collapsed" && collapsible === "icon"
@@ -184,8 +220,10 @@ function Sidebar({
   }, [state, collapsible, isMobile, setHoverOpen])
 
   const handleMouseLeave = React.useCallback(() => {
+    // Don't collapse if a dropdown/popover inside the sidebar is holding the lock
+    if (hoverLockCountRef.current > 0) return
     setHoverOpen(false)
-  }, [setHoverOpen])
+  }, [setHoverOpen, hoverLockCountRef])
 
   if (collapsible === "none") {
     return (
@@ -255,7 +293,7 @@ function Sidebar({
         className={cn(
           "fixed inset-y-0 hidden h-svh w-[var(--sidebar-width)] md:flex",
           isHoverMode ? "transition-[width] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]" : "transition-[left,right,width] duration-200 ease-linear",
-          isHoverExpanded ? "z-[100] shadow-2xl" : "z-10",
+          isHoverExpanded ? "z-40 border-r border-border" : "z-10",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -265,9 +303,10 @@ function Sidebar({
             : "group-data-[collapsible=icon]:w-[var(--sidebar-width-icon)] group-data-[side=left]:border-r group-data-[side=right]:border-l border-border",
           className
         )}
+        {...props}
+        ref={sidebarElRef}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        {...props}
       >
         <div
           data-sidebar="sidebar"
