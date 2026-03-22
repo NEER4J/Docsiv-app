@@ -67,18 +67,6 @@ import type { UIMessage } from "ai";
 import { Separator } from "@/components/ui/separator";
 import { useIsMobile } from "@/hooks/use-mobile";
 
-// Tools whose result should render a DocumentArtifact card
-const DOCUMENT_TOOL_NAMES_SET = new Set([
-  "create_document",
-  "create_document_from_template",
-  "edit_document_plate",
-  "edit_document_konva",
-  "edit_document_univer",
-  "seed_editor_ai",
-  "export_document",
-  "rename_document",
-]);
-
 // Editor label for base_type (shown in the doc type chip badge)
 /** Map document_type slug → correct base_type (same as new-document-dialog.tsx) */
 const SLUG_TO_BASE_TYPE: Record<string, string> = {
@@ -119,6 +107,8 @@ const BASE_TYPE_PLACEHOLDER: Record<string, string> = {
 
 const MAX_IMAGES = 25;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAIN_AI_EDITOR_HANDOFF_STORAGE_KEY = "docsiv-main-ai-editor-handoff";
+const MAIN_AI_EDITOR_HANDOFF_MAX_MESSAGES = 8;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -156,6 +146,25 @@ type UserMessageMeta = {
   images?: string[];
   files?: Array<{ name: string; mimeType: string }>;
   selectedDoc?: { id: string; title: string; thumbnailUrl?: string | null };
+};
+
+type EditorAiHandoffMessage = {
+  role: "user" | "assistant";
+  content: string;
+  action?: "edit" | "chat";
+};
+
+type EditorAiHandoffPayload = {
+  source: "main-ai";
+  createdAt: number;
+  workspaceName?: string;
+  sessionId: string | null;
+  sessionTitle?: string;
+  documentId: string;
+  documentTitle?: string;
+  documentBaseType?: string;
+  messages: EditorAiHandoffMessage[];
+  input: string;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -270,6 +279,159 @@ function getToolLabel(toolName: string): string {
     default:
       return `Running ${toolName}`;
   }
+}
+
+function getToolStatusText(
+  toolName: string,
+  status: "running" | "success" | "error"
+): string {
+  switch (toolName) {
+    case "create_document":
+      return status === "running"
+        ? "Creating document"
+        : status === "success"
+          ? "Document created"
+          : "Could not create document";
+    case "create_document_from_template":
+      return status === "running"
+        ? "Creating document from template"
+        : status === "success"
+          ? "Document created from template"
+          : "Could not create document from template";
+    case "edit_document_plate":
+      return status === "running"
+        ? "Adding content to document"
+        : status === "success"
+          ? "Document content updated"
+          : "Could not update document content";
+    case "edit_document_konva":
+      return status === "running"
+        ? "Designing document"
+        : status === "success"
+          ? "Design updated"
+          : "Could not update design";
+    case "edit_document_univer":
+      return status === "running"
+        ? "Updating spreadsheet"
+        : status === "success"
+          ? "Spreadsheet updated"
+          : "Could not update spreadsheet";
+    case "seed_editor_ai":
+      return status === "running"
+        ? "Preparing editor"
+        : status === "success"
+          ? "Document ready"
+          : "Could not prepare editor";
+    case "rename_document":
+      return status === "running"
+        ? "Renaming document"
+        : status === "success"
+          ? "Document renamed"
+          : "Could not rename document";
+    case "export_document":
+      return status === "running"
+        ? "Exporting document"
+        : status === "success"
+          ? "Document exported"
+          : "Could not export document";
+    default: {
+      const base = getToolLabel(toolName);
+      return status === "running"
+        ? base
+        : status === "success"
+          ? `${base} complete`
+          : `${base} failed`;
+    }
+  }
+}
+
+function isToolRunningState(state: string): boolean {
+  return state === "input-streaming" || state === "input-available";
+}
+
+function hasInProgressToolPart(message?: UIMessage | null): boolean {
+  if (!message?.parts?.length) return false;
+  return message.parts.some((part) => {
+    const toolInfo = getToolInfo(part);
+    return !!toolInfo && isToolRunningState(toolInfo.state);
+  });
+}
+
+function getStreamingStatusText(message?: UIMessage | null): string {
+  if (!message?.parts?.length) return "AI is working...";
+
+  let lastCompletedTool: string | null = null;
+  for (const part of message.parts) {
+    const toolInfo = getToolInfo(part);
+    if (!toolInfo) continue;
+    if (isToolRunningState(toolInfo.state)) {
+      return `${getToolStatusText(toolInfo.toolName, "running")}...`;
+    }
+    if (toolInfo.state === "output-available") {
+      lastCompletedTool = toolInfo.toolName;
+    }
+  }
+
+  if (lastCompletedTool === "create_document" || lastCompletedTool === "create_document_from_template") {
+    return "Document created. Adding content now...";
+  }
+  if (
+    lastCompletedTool === "edit_document_plate" ||
+    lastCompletedTool === "edit_document_konva" ||
+    lastCompletedTool === "edit_document_univer"
+  ) {
+    return "Applying final updates...";
+  }
+  if (lastCompletedTool === "seed_editor_ai") {
+    return "Finalizing document...";
+  }
+  return "AI is working...";
+}
+
+function clampHandoffText(text: string, max = 900): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max).trimEnd()}...`;
+}
+
+function summarizeMessageForEditorHandoff(message: UIMessage): EditorAiHandoffMessage | null {
+  if (message.role !== "user" && message.role !== "assistant") return null;
+
+  const text = getMessageText(message).trim();
+  const toolSummaries: string[] = [];
+  let hasEditAction = false;
+
+  for (const part of message.parts ?? []) {
+    const toolInfo = getToolInfo(part);
+    if (!toolInfo) continue;
+
+    if (toolInfo.state === "output-available") {
+      const output = toolInfo.output as Record<string, unknown> | undefined;
+      const success = output?.success === true;
+      if (success) {
+        toolSummaries.push(getToolStatusText(toolInfo.toolName, "success"));
+        if (
+          toolInfo.toolName === "edit_document_plate" ||
+          toolInfo.toolName === "edit_document_konva" ||
+          toolInfo.toolName === "edit_document_univer" ||
+          toolInfo.toolName === "seed_editor_ai"
+        ) {
+          hasEditAction = true;
+        }
+      }
+    } else if (toolInfo.state === "error") {
+      toolSummaries.push(getToolStatusText(toolInfo.toolName, "error"));
+    }
+  }
+
+  const content = text || toolSummaries.join(". ");
+  if (!content.trim()) return null;
+
+  return {
+    role: message.role,
+    content: clampHandoffText(content),
+    ...(message.role === "assistant" ? { action: hasEditAction ? ("edit" as const) : ("chat" as const) } : {}),
+  };
 }
 
 /** Convert stored session messages to UIMessage format for useChat */
@@ -460,6 +622,66 @@ export function MainAiChatView({
     setPreviewKey((k) => k + 1);
   }, []);
 
+  const persistMainAiEditorHandoff = React.useCallback(
+    (documentId: string, options?: { title?: string; baseType?: string }) => {
+      if (typeof window === "undefined") return;
+
+      const activeSession = sessions.find(
+        (s) => s.id === activeSessionIdRef.current
+      );
+      const turns = (chatRef.current?.messages ?? [])
+        .map((m) => summarizeMessageForEditorHandoff(m))
+        .filter((m): m is EditorAiHandoffMessage => !!m)
+        .slice(-MAIN_AI_EDITOR_HANDOFF_MAX_MESSAGES);
+
+      const baseMeta = options?.baseType
+        ? BASE_TYPE_FALLBACK[options.baseType as keyof typeof BASE_TYPE_FALLBACK]
+        : null;
+      const docTitle = options?.title?.trim() || "Untitled";
+      const baseLabel = baseMeta?.label ?? "Document";
+
+      const intro: EditorAiHandoffMessage = {
+        role: "assistant",
+        action: "chat",
+        content: `Context synced from Main AI${activeSession?.title ? ` (${activeSession.title})` : ""}. We were working on "${docTitle}" (${baseLabel}). I'll continue from this context in the editor.`,
+      };
+
+      const latestUserPrompt =
+        [...turns].reverse().find((t) => t.role === "user")?.content ?? "";
+
+      const payload: EditorAiHandoffPayload = {
+        source: "main-ai",
+        createdAt: Date.now(),
+        workspaceName,
+        sessionId: activeSessionIdRef.current ?? null,
+        sessionTitle: activeSession?.title,
+        documentId,
+        documentTitle: options?.title,
+        documentBaseType: options?.baseType,
+        messages: [intro, ...turns],
+        input: latestUserPrompt,
+      };
+
+      try {
+        localStorage.setItem(
+          `${MAIN_AI_EDITOR_HANDOFF_STORAGE_KEY}-${documentId}`,
+          JSON.stringify(payload)
+        );
+      } catch {
+        // best effort
+      }
+    },
+    [sessions, workspaceName]
+  );
+
+  const openDocumentEditorFromMainAi = React.useCallback(
+    (documentId: string, options?: { title?: string; baseType?: string }) => {
+      persistMainAiEditorHandoff(documentId, options);
+      window.location.assign(`/d/${documentId}?aiOpen=1`);
+    },
+    [persistMainAiEditorHandoff]
+  );
+
   // ─── User message attachment metadata (for display in chat) ──────────────
   const userMessageMetaRef = React.useRef<Map<string, UserMessageMeta>>(
     new Map()
@@ -569,7 +791,7 @@ export function MainAiChatView({
     onDocumentUpdate: (doc) => {
       openPreview(doc);
     },
-    onFinish: (_message) => {
+    onFinish: () => {
       const currentChat = chatRef.current;
       const currentSessionId = activeSessionIdRef.current;
 
@@ -609,6 +831,19 @@ export function MainAiChatView({
 
   const hasChatStarted = chat.messages.length > 0;
   const isLoading = chat.status === "streaming" || chat.status === "submitted";
+  const lastAssistantMessage = React.useMemo(
+    () =>
+      [...chat.messages]
+        .reverse()
+        .find((m) => m.role === "assistant") ?? null,
+    [chat.messages]
+  );
+  const showFallbackWorkingIndicator =
+    isLoading && !hasInProgressToolPart(lastAssistantMessage);
+  const fallbackWorkingText = React.useMemo(
+    () => getStreamingStatusText(lastAssistantMessage),
+    [lastAssistantMessage]
+  );
 
   // ─── Effects ─────────────────────────────────────────────────────────────
 
@@ -659,8 +894,7 @@ export function MainAiChatView({
       userMessageMetaRef.current.set(id, meta);
     }
     chatRef.current.setMessages(uiMessages);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId]);
+  }, [activeSessionId, sessions]);
 
   // Clear preview panel on session switch
   React.useEffect(() => {
@@ -1208,7 +1442,6 @@ export function MainAiChatView({
       }, 150);
       return () => clearTimeout(timer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId]);
 
   const handleSubmit = React.useCallback(
@@ -1348,12 +1581,6 @@ export function MainAiChatView({
       selectedDocType,
     ]
   );
-
-  const handleResetChat = React.useCallback(() => {
-    chatRef.current.setMessages([]);
-    setInput("");
-    setActivePreview(null);
-  }, []);
 
   // ─── No workspace guard ──────────────────────────────────────────────────
 
@@ -1599,6 +1826,7 @@ export function MainAiChatView({
                                   onPreviewDocument={(doc) =>
                                     openPreview(doc)
                                   }
+                                  onOpenDocumentEditor={openDocumentEditorFromMainAi}
                                 />
                               </div>
                             ) : (
@@ -1611,16 +1839,14 @@ export function MainAiChatView({
                             )}
                           </div>
                         ))}
-                        {isLoading &&
-                          chat.messages.at(-1)?.role !== "assistant" && (
-                            <div className="flex animate-in fade-in-0 slide-in-from-bottom-2 justify-start duration-300">
-                              <div className="flex items-center gap-2 px-1 py-3">
-                                <span className="size-2 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: '0ms', animationDuration: '1s' }} />
-                                <span className="size-2 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: '200ms', animationDuration: '1s' }} />
-                                <span className="size-2 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: '400ms', animationDuration: '1s' }} />
-                              </div>
+                        {showFallbackWorkingIndicator && (
+                          <div className="flex animate-in fade-in-0 slide-in-from-bottom-2 justify-start duration-300">
+                            <div className="inline-flex items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-muted-foreground dark:bg-zinc-800">
+                              <LoaderIcon className="size-3 animate-spin" />
+                              <span>{fallbackWorkingText}</span>
                             </div>
-                          )}
+                          </div>
+                        )}
                         <div ref={messagesEndRef} />
                       </div>
                     </div>
@@ -2054,7 +2280,10 @@ export function MainAiChatView({
                 className="w-full"
                 onClose={() => setActivePreview(null)}
                 onOpenInEditor={(docId) => {
-                  window.location.assign(`/d/${docId}?aiOpen=1`);
+                  openDocumentEditorFromMainAi(docId, {
+                    title: activePreview?.title,
+                    baseType: activePreview?.baseType,
+                  });
                 }}
               />
             </Panel>
@@ -2076,7 +2305,10 @@ export function MainAiChatView({
                   className="w-full h-full"
                   onClose={() => setActivePreview(null)}
                   onOpenInEditor={(docId) => {
-                    window.location.assign(`/d/${docId}?aiOpen=1`);
+                    openDocumentEditorFromMainAi(docId, {
+                      title: activePreview?.title,
+                      baseType: activePreview?.baseType,
+                    });
                   }}
                 />
               )}
@@ -2127,9 +2359,14 @@ function DocTypeChip({
 function AssistantMessageContent({
   message,
   onPreviewDocument,
+  onOpenDocumentEditor,
 }: {
   message: UIMessage;
   onPreviewDocument: (doc: ActivePreview) => void;
+  onOpenDocumentEditor: (
+    documentId: string,
+    options?: { title?: string; baseType?: string }
+  ) => void;
 }) {
   if (!message.parts || message.parts.length === 0) {
     return (
@@ -2177,7 +2414,7 @@ function AssistantMessageContent({
                 className="mt-3 inline-flex animate-in fade-in-0 slide-in-from-bottom-1 items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-muted-foreground duration-200 dark:bg-zinc-800"
               >
                 <LoaderIcon className="size-3 animate-spin" />
-                <span>{getToolLabel(toolName)}...</span>
+                <span>{getToolStatusText(toolName, "running")}...</span>
               </div>
             );
           }
@@ -2185,13 +2422,11 @@ function AssistantMessageContent({
           // Tool completed
           if (state === "output-available") {
             const result = toolInfo.output as DocumentToolResult | undefined;
-            const isDocTool = DOCUMENT_TOOL_NAMES_SET.has(toolName);
 
             // Skip rendering for wrong-type tool calls (silently handled)
             const resultObj = result as Record<string, unknown> | undefined;
             if (resultObj?.skipped) return null;
 
-            // Build status pill (always shown for all tool results)
             const isSuccess = result?.success === true;
             const errorMsg = !isSuccess && result && "error" in result
               ? String((result as Record<string, unknown>).error)
@@ -2199,6 +2434,15 @@ function AssistantMessageContent({
             const warningMsg = isSuccess && result && "warning" in result
               ? String((result as Record<string, unknown>).warning)
               : null;
+            const documentId = result?.document_id ?? result?.documentId;
+            const isLastResultForDoc =
+              !documentId || lastCardIndexByDocId.get(documentId) === i;
+
+            // Streamline repeated create/edit/seed rows for the same document:
+            // keep only the latest successful result row for that document.
+            if (isSuccess && documentId && !isLastResultForDoc) {
+              return null;
+            }
 
             const statusPill = (
               <div
@@ -2215,8 +2459,7 @@ function AssistantMessageContent({
                   <X className="size-3 text-destructive" />
                 )}
                 <span>
-                  {getToolLabel(toolName)}{" "}
-                  {isSuccess ? "done" : "failed"}
+                  {getToolStatusText(toolName, isSuccess ? "success" : "error")}
                   {errorMsg && <span className="ml-1 opacity-70">— {errorMsg}</span>}
                   {warningMsg && <span className="ml-1 opacity-70">— {warningMsg}</span>}
                 </span>
@@ -2225,8 +2468,6 @@ function AssistantMessageContent({
 
             // Show a document card only for the LAST tool result with this document_id
             // (avoids showing 3 identical cards for create → edit → seed).
-            const documentId =
-              result?.document_id ?? result?.documentId;
             const isLastCardForDoc = documentId && lastCardIndexByDocId.get(documentId) === i;
             if (isSuccess && documentId && isLastCardForDoc) {
               return (
@@ -2250,18 +2491,13 @@ function AssistantMessageContent({
                       thumbnailUrl={(result as Record<string, unknown>).thumbnail_url as string | undefined}
                       permission="edit"
                       onEdit={(docId) => {
-                        window.location.assign(`/d/${docId}?aiOpen=1`);
+                        onOpenDocumentEditor(docId, {
+                          title: result.title ?? "Document",
+                          baseType: result.base_type ?? "doc",
+                        });
                       }}
                     />
                   </div>
-                </div>
-              );
-            }
-            // Earlier tool results for the same document — just show the status pill
-            if (isSuccess && documentId && !isLastCardForDoc) {
-              return (
-                <div key={i} className="mt-3">
-                  {statusPill}
                 </div>
               );
             }
@@ -2286,7 +2522,7 @@ function AssistantMessageContent({
                 className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-destructive dark:bg-red-950/40"
               >
                 <X className="size-3" />
-                <span>{getToolLabel(toolName)} failed</span>
+                <span>{getToolStatusText(toolName, "error")}</span>
               </div>
             );
           }

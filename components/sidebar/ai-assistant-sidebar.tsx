@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Sparkles, X, Loader2, Paperclip, CheckCircle2, RotateCcw } from "lucide-react";
+import { Sparkles, X, Loader2, Paperclip, CheckCircle2, RotateCcw, ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -25,6 +25,8 @@ import type { UniverStoredContent } from "@/lib/univer-sheet-content";
 import type { Value } from "platejs";
 
 const DOCUMENT_AI_CHAT_STORAGE_KEY = "document-ai-chat";
+const MAIN_AI_EDITOR_HANDOFF_STORAGE_KEY = "docsiv-main-ai-editor-handoff";
+const MAIN_AI_EDITOR_HANDOFF_MAX_AGE_MS = 1000 * 60 * 60 * 12; // 12h
 
 const SIDEBAR_PADDING_X = "px-3";
 const AI_PANEL_WIDTH = "24rem";
@@ -63,6 +65,18 @@ export type UniverSelectionContext = {
 };
 
 export type SelectionContext = PlateSelectionContext | UniverSelectionContext | null;
+
+type MainAiEditorHandoffPayload = {
+  source?: string;
+  createdAt?: number;
+  sessionId?: string | null;
+  sessionTitle?: string;
+  documentId?: string;
+  documentTitle?: string;
+  documentBaseType?: string;
+  messages?: Array<{ role?: string; content?: string; action?: string; images?: string[] }>;
+  input?: string;
+};
 
 const AiAssistantContext = React.createContext<{
   open: boolean;
@@ -195,6 +209,38 @@ function formatAiMessage(text: string): React.ReactNode {
   });
 }
 
+function normalizePersistedMessages(
+  rawMessages: Array<{ role?: string; content?: string; action?: string; images?: string[] }>
+): KonvaAiChatMessage[] {
+  return rawMessages
+    .map((m) => ({
+      role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+      content: typeof m.content === "string" ? m.content : "",
+      ...(m.action === "edit" || m.action === "chat"
+        ? { action: m.action as "edit" | "chat" }
+        : {}),
+      ...(Array.isArray(m.images) ? { images: m.images.filter((v) => typeof v === "string") } : {}),
+    }))
+    .filter((m) => m.content.trim().length > 0 || (m.images?.length ?? 0) > 0);
+}
+
+function mergeUniqueMessages(
+  base: KonvaAiChatMessage[],
+  incoming: KonvaAiChatMessage[]
+): KonvaAiChatMessage[] {
+  const out = [...base];
+  const seen = new Set(
+    out.map((m) => `${m.role}|${m.action ?? ""}|${m.content.trim()}`)
+  );
+  for (const msg of incoming) {
+    const key = `${msg.role}|${msg.action ?? ""}|${msg.content.trim()}`;
+    if (seen.has(key)) continue;
+    out.push(msg);
+    seen.add(key);
+  }
+  return out;
+}
+
 /** Resize an image data URL to fit within maxDim, returns a Promise<string> data URL. */
 function resizeImageDataUrl(dataUrl: string, maxDim = 1024): Promise<string> {
   return new Promise((resolve) => {
@@ -321,48 +367,71 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
     if (!documentId || typeof window === "undefined") {
       sessionLoadedRef.current = false;
       setSessionLoading(false);
+      setMessages([]);
+      setInput("");
       return;
     }
     sessionLoadedRef.current = false;
     setSessionLoading(true);
+    setMessages([]);
+    setInput("");
     let cancelled = false;
-    void getDocumentAiChatSession(documentId)
-      .then(({ session, error }) => {
-        if (cancelled) return;
+    void (async () => {
+      let loadedMessages: KonvaAiChatMessage[] = [];
+      let loadedInput = "";
+
+      try {
+        const { session, error } = await getDocumentAiChatSession(documentId);
         if (!error && session && (session.messages.length > 0 || session.input)) {
-          const msgs = session.messages as Array<{ role?: string; content?: string; action?: string }>;
-          setMessages(
-            msgs.map((m) => ({
-              role: (m.role ?? "user") as "user" | "assistant",
-              content: typeof m.content === "string" ? m.content : "",
-              ...(m.action && { action: m.action as "edit" | "chat" }),
-            }))
+          loadedMessages = normalizePersistedMessages(
+            session.messages as Array<{ role?: string; content?: string; action?: string; images?: string[] }>
           );
-          if (typeof session.input === "string") setInput(session.input);
-          return;
-        }
-        try {
+          if (typeof session.input === "string") loadedInput = session.input;
+        } else {
           const raw = localStorage.getItem(`${DOCUMENT_AI_CHAT_STORAGE_KEY}-${documentId}`);
-          if (!raw) return;
-          const data = JSON.parse(raw) as { messages?: Array<{ role: string; content: string; action?: string }>; input?: string };
-          if (data?.messages && Array.isArray(data.messages)) {
-            setMessages(
-              data.messages.map((m) => ({
-                role: m.role as "user" | "assistant",
-                content: m.content,
-                ...(m.action && { action: m.action as "edit" | "chat" }),
-              }))
-            );
+          if (raw) {
+            const data = JSON.parse(raw) as {
+              messages?: Array<{ role?: string; content?: string; action?: string; images?: string[] }>;
+              input?: string;
+            };
+            if (Array.isArray(data?.messages)) {
+              loadedMessages = normalizePersistedMessages(data.messages);
+            }
+            if (typeof data?.input === "string") loadedInput = data.input;
           }
-          if (typeof data?.input === "string") setInput(data.input);
-        } catch {
-          // ignore parse errors
         }
-      })
-      .catch((err) => {
-        if (cancelled) return;
+      } catch (err) {
         console.warn("[AI Assistant] Failed to load persisted session", { documentId, err });
-      })
+      }
+
+      try {
+        const handoffKey = `${MAIN_AI_EDITOR_HANDOFF_STORAGE_KEY}-${documentId}`;
+        const rawHandoff = localStorage.getItem(handoffKey);
+        if (rawHandoff) {
+          const handoff = JSON.parse(rawHandoff) as MainAiEditorHandoffPayload;
+          const createdAt = typeof handoff.createdAt === "number" ? handoff.createdAt : 0;
+          const isFresh =
+            createdAt > 0 && Date.now() - createdAt <= MAIN_AI_EDITOR_HANDOFF_MAX_AGE_MS;
+          const sameDocument = !handoff.documentId || handoff.documentId === documentId;
+          if (isFresh && sameDocument) {
+            const handoffMessages = normalizePersistedMessages(
+              Array.isArray(handoff.messages) ? handoff.messages : []
+            );
+            loadedMessages = mergeUniqueMessages(loadedMessages, handoffMessages);
+            if (!loadedInput.trim() && typeof handoff.input === "string") {
+              loadedInput = handoff.input;
+            }
+          }
+          localStorage.removeItem(handoffKey);
+        }
+      } catch {
+        // ignore handoff parse/storage issues
+      }
+
+      if (cancelled) return;
+      setMessages(loadedMessages);
+      setInput(loadedInput);
+    })()
       .finally(() => {
         if (!cancelled) {
           sessionLoadedRef.current = true;
@@ -742,6 +811,7 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
       isPlateActive,
       isUniverActive,
       isPlateSelectionMode,
+      isUniverSelectionMode,
       selectionContext,
       setSelectionContext,
       plateAi,
@@ -1015,18 +1085,18 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
           ) : (
             <>
               {sessionLoading && messages.length === 0 && (
-                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <div className="mt-2 flex items-center gap-2 rounded-xl border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                   <Loader2 className="size-3.5 animate-spin" />
                   Loading previous AI chat...
                 </div>
               )}
               {(messages.length > 0 || input.trim()) && documentId && (
-                <div className="flex shrink-0 items-center justify-end border-b border-border py-1.5">
+                <div className="flex shrink-0 items-center justify-end border-b border-border/70 py-1.5">
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="h-7 rounded-full px-3 text-xs text-muted-foreground hover:text-foreground"
                     onClick={() => {
                       setMessages([]);
                       setInput("");
@@ -1045,8 +1115,8 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
                   </Button>
                 </div>
               )}
-              <div className="flex-1 overflow-auto py-4">
-                <div className="flex flex-col gap-3 text-sm">
+              <div className="flex-1 overflow-y-auto py-4">
+                <div className="flex flex-col gap-4 text-[0.88rem] leading-relaxed">
                   <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
                     Context: {pageLabel} · {isPlateActive ? "Document" : isUniverActive ? "Sheet" : konvaAi?.mode === "presentation" ? "Presentation" : "Report"}
                     {(isPlateSelectionMode || isUniverSelectionMode) && (
@@ -1065,64 +1135,81 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
                     )}
                   </p>
                   {messages.length === 0 && (
-                    <p className="text-muted-foreground">
-                      Ask me to edit, review, or improve your design. For example: &quot;Add a title page&quot;, &quot;What&apos;s on this page?&quot;, or &quot;Suggest improvements&quot;.
-                    </p>
+                    <div className="rounded-2xl border border-border/70 bg-background px-3.5 py-3 text-sm text-muted-foreground">
+                      Ask me to edit, review, or improve this {isPlateActive ? "document" : isUniverActive ? "sheet" : konvaAi?.mode === "presentation" ? "presentation" : "report"}.
+                      Try: &quot;Tighten the intro&quot;, &quot;Improve clarity&quot;, or &quot;Add a summary section&quot;.
+                    </div>
                   )}
                   {messages.map((m, i) => (
                     <div
                       key={i}
                       className={cn(
-                        "rounded-lg border border-border p-3",
-                        m.role === "user"
-                          ? "bg-muted-hover/50 text-foreground ml-4"
-                          : "bg-background text-muted-foreground"
+                        "flex animate-in fade-in-0 slide-in-from-bottom-1 duration-200",
+                        m.role === "user" ? "justify-end" : "justify-start"
                       )}
                     >
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <p className="text-xs font-medium text-muted-foreground">
-                          {m.role === "user" ? "You" : "Assistant"}
-                        </p>
-                        {m.role === "assistant" && m.action === "edit" && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
-                            <CheckCircle2 className="size-3" />
-                            Edited
-                          </span>
+                      <div
+                        className={cn(
+                          "max-w-[90%] rounded-2xl px-3.5 py-2.5 shadow-sm",
+                          m.role === "user"
+                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                            : "border border-border/70 bg-background text-foreground"
+                        )}
+                      >
+                        <div className={cn("mb-1 flex items-center gap-1.5 text-[11px]", m.role === "user" ? "text-white/70 dark:text-zinc-700" : "text-muted-foreground")}>
+                          <p className="font-medium">{m.role === "user" ? "You" : "Assistant"}</p>
+                          {m.role === "assistant" && m.action === "edit" && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
+                              <CheckCircle2 className="size-3" />
+                              Applied changes
+                            </span>
+                          )}
+                        </div>
+                        {m.role === "assistant" ? (
+                          <div className="whitespace-pre-wrap">{formatAiMessage(m.content)}</div>
+                        ) : (
+                          <>
+                            <p className="whitespace-pre-wrap">{m.content}</p>
+                            {m.images && m.images.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {m.images.map((src, j) => (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    key={j}
+                                    src={src}
+                                    alt="attached"
+                                    className="h-16 w-16 rounded-lg border border-white/20 object-cover"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
-                      {m.role === "assistant" ? (
-                        <div className="whitespace-pre-wrap">{formatAiMessage(m.content)}</div>
-                      ) : (
-                        <>
-                          <p className="whitespace-pre-wrap">{m.content}</p>
-                          {m.images && m.images.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              {m.images.map((src, j) => (
-                                <img key={j} src={src} alt="attached" className="h-16 w-16 rounded object-cover border border-border" />
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
                     </div>
                   ))}
                   {loading && (
-                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted-hover/50 p-3 text-muted-foreground">
-                      <Loader2 className="size-4 animate-spin shrink-0" />
-                      <span className="text-xs">Thinking...</span>
+                    <div className="flex animate-in fade-in-0 slide-in-from-bottom-1 justify-start duration-200">
+                      <div className="inline-flex items-center gap-2 rounded-2xl border border-border/70 bg-background px-3 py-2 text-xs text-muted-foreground shadow-sm">
+                        <span className="size-1.5 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: "0ms", animationDuration: "1s" }} />
+                        <span className="size-1.5 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: "180ms", animationDuration: "1s" }} />
+                        <span className="size-1.5 animate-bounce rounded-full bg-foreground/25" style={{ animationDelay: "360ms", animationDuration: "1s" }} />
+                        <span>AI is working...</span>
+                      </div>
                     </div>
                   )}
                   <div ref={messagesEndRef} />
                 </div>
               </div>
 
-              <div className="flex-shrink-0 border-t border-border py-3">
+              <div className="flex-shrink-0 border-t border-border/70 py-3">
                 {/* Image attachment preview */}
                 {attachedImages.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2">
+                  <div className="mb-2 flex flex-wrap gap-1.5">
                     {attachedImages.map((img, i) => (
                       <div key={i} className="group relative">
-                        <img src={img.dataUrl} alt={img.name} className="h-12 w-12 rounded object-cover border border-border" />
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={img.dataUrl} alt={img.name} className="h-12 w-12 rounded-lg border border-border object-cover" />
                         <button
                           type="button"
                           className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-white opacity-0 transition-opacity group-hover:opacity-100"
@@ -1149,12 +1236,12 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
                     className="hidden"
                     onChange={handleImageAttach}
                   />
-                  <div className="flex min-w-0 flex-1 items-end gap-1 rounded-md border border-input bg-transparent px-2 py-1.5 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+                  <div className="flex min-w-0 flex-1 items-end gap-1 rounded-2xl border border-input/80 bg-background px-2.5 py-2 shadow-sm transition-all duration-200 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/40">
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                      className="size-7 shrink-0 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={loading || attachedImages.length >= MAX_IMAGES}
                       aria-label="Attach image"
@@ -1163,8 +1250,16 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
                     </Button>
                     <textarea
                       ref={textareaRef}
-                      placeholder="Ask about or edit the design..."
-                      className="min-h-[24px] max-h-36 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                      placeholder={
+                        isPlateActive
+                          ? "Ask AI to improve this document..."
+                          : isUniverActive
+                            ? "Ask AI to analyze or update this sheet..."
+                            : konvaAi?.mode === "presentation"
+                              ? "Ask AI to improve this presentation..."
+                              : "Ask AI to improve this report..."
+                      }
+                      className="min-h-[24px] max-h-36 flex-1 resize-none bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
                       rows={1}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
@@ -1179,11 +1274,11 @@ function AiAssistantPanel({ onClose }: { onClose: () => void }) {
                   </div>
                   <Button
                     type="submit"
-                    size="sm"
-                    className="shrink-0 self-end"
+                    size="icon"
+                    className="size-9 shrink-0 self-end rounded-full"
                     disabled={loading || (!input.trim() && attachedImages.length === 0)}
                   >
-                    {loading ? <Loader2 className="size-4 animate-spin" /> : "Send"}
+                    {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
                   </Button>
                 </form>
               </div>
