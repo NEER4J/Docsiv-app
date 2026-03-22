@@ -38,8 +38,8 @@ export type MainAiSessionItem = {
 
 async function getCurrentUserId() {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getSession();
-  return data.session?.user?.id ?? null;
+  const { data } = await supabase.auth.getUser();
+  return data.user?.id ?? null;
 }
 
 export async function listMainAiSessions(

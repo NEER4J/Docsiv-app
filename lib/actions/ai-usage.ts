@@ -2,6 +2,14 @@
 
 import { createClient } from "@/lib/supabase/server";
 
+export type WorkspaceAiUsageByModel = {
+  model: string;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  requests: number;
+};
+
 export type WorkspaceAiUsageSummary = {
   totalTokens: number;
   promptTokens: number;
@@ -10,6 +18,8 @@ export type WorkspaceAiUsageSummary = {
   successfulRequests: number;
   failedRequests: number;
   last7DaysTokens: number;
+  /** Aggregated from the same sample as the totals above (up to 5000 most recent rows). */
+  byModel: WorkspaceAiUsageByModel[];
 };
 
 export type WorkspaceAiUsageLogItem = {
@@ -42,6 +52,7 @@ export async function getWorkspaceAiUsageSummary(
         successfulRequests: 0,
         failedRequests: 0,
         last7DaysTokens: 0,
+        byModel: [],
       },
       error: "Not authenticated",
     };
@@ -49,7 +60,9 @@ export async function getWorkspaceAiUsageSummary(
 
   const { data, error } = await supabase
     .from("workspace_ai_usage_logs")
-    .select("prompt_tokens, completion_tokens, total_tokens, status, created_at")
+    .select(
+      "model, prompt_tokens, completion_tokens, total_tokens, status, created_at"
+    )
     .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(5000);
@@ -64,6 +77,7 @@ export async function getWorkspaceAiUsageSummary(
         successfulRequests: 0,
         failedRequests: 0,
         last7DaysTokens: 0,
+        byModel: [],
       },
       error: error.message,
     };
@@ -78,6 +92,16 @@ export async function getWorkspaceAiUsageSummary(
   let failedRequests = 0;
   let last7DaysTokens = 0;
 
+  const byModelMap = new Map<
+    string,
+    {
+      totalTokens: number;
+      promptTokens: number;
+      completionTokens: number;
+      requests: number;
+    }
+  >();
+
   for (const row of rows) {
     const p = Number(row.prompt_tokens ?? 0) || 0;
     const c = Number(row.completion_tokens ?? 0) || 0;
@@ -89,7 +113,29 @@ export async function getWorkspaceAiUsageSummary(
     if (row.status === "error") failedRequests += 1;
     const createdAtMs = row.created_at ? new Date(row.created_at).getTime() : 0;
     if (createdAtMs >= weekAgo) last7DaysTokens += t;
+
+    const modelKey =
+      typeof row.model === "string" && row.model.trim()
+        ? row.model.trim()
+        : "default";
+    const prev = byModelMap.get(modelKey) ?? {
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      requests: 0,
+    };
+    byModelMap.set(modelKey, {
+      totalTokens: prev.totalTokens + t,
+      promptTokens: prev.promptTokens + p,
+      completionTokens: prev.completionTokens + c,
+      requests: prev.requests + 1,
+    });
   }
+
+  const byModel: WorkspaceAiUsageByModel[] = Array.from(
+    byModelMap.entries()
+  ).map(([model, agg]) => ({ model, ...agg }));
+  byModel.sort((a, b) => b.totalTokens - a.totalTokens);
 
   return {
     summary: {
@@ -100,6 +146,7 @@ export async function getWorkspaceAiUsageSummary(
       successfulRequests,
       failedRequests,
       last7DaysTokens,
+      byModel,
     },
   };
 }

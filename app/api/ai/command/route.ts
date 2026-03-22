@@ -4,7 +4,6 @@ import type {
 } from '@/components/platejs/editor/use-chat';
 import type { NextRequest } from 'next/server';
 
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import {
   type LanguageModel,
   type UIMessageStreamWriter,
@@ -20,7 +19,8 @@ import { type SlateEditor, createSlateEditor, nanoid } from 'platejs';
 import { z } from 'zod';
 
 import { BaseEditorKit } from '@/components/platejs/editor/editor-base-kit';
-import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
+import { getAiModel } from '@/lib/ai/provider';
+import { createWebSearchTool, createFetchUrlTool } from '@/lib/ai/web-search-tool';
 import { markdownJoinerTransform } from '@/lib/markdown-joiner-transform';
 import { logAiUsage } from '@/lib/ai-usage';
 
@@ -45,19 +45,22 @@ export async function POST(req: NextRequest) {
     value: children,
   });
 
-  const apiKey = key || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-
-  if (!apiKey) {
+  let aiModel: Awaited<ReturnType<typeof getAiModel>>['model'];
+  let modelId: string;
+  let apiKey: string;
+  try {
+    const result = await getAiModel('command', { apiKey: key, model: typeof model === 'string' ? model : undefined });
+    aiModel = result.model;
+    modelId = result.modelId;
+    apiKey = result.apiKey;
+  } catch {
     return NextResponse.json(
-      { error: 'Missing Google Generative AI API key.' },
+      { error: 'No AI API key configured' },
       { status: 401 }
     );
   }
 
   const isSelecting = editor.api.isExpanded();
-
-  const google = createGoogleGenerativeAI({ apiKey });
-  const defaultModel = DEFAULT_AI_MODEL;
 
   try {
     const stream = createUIMessageStream<ChatMessage>({
@@ -76,12 +79,12 @@ export async function POST(req: NextRequest) {
               : ['generate', 'insertBlock'];
 
             const result = await generateText({
-              model: google(model && model.startsWith('google/') ? model.slice(7) : defaultModel) as unknown as LanguageModel,
+              model: aiModel,
               prompt: `${prompt}\n\nRespond with exactly one word: ${enumOptions.join(' or ')}.`,
             });
             await logAiUsage({
               route: '/api/ai/command',
-              model: model && model.startsWith('google/') ? model.slice(7) : defaultModel,
+              model: modelId,
               workspaceId: typeof workspaceId === 'string' ? workspaceId : undefined,
               documentId: typeof documentId === 'string' ? documentId : undefined,
               status: 'success',
@@ -100,30 +103,32 @@ export async function POST(req: NextRequest) {
             toolName = AIToolName;
           }
 
-          const modelId = model && model.startsWith('google/') ? model.slice(7) : defaultModel;
-          const geminiModel = google(modelId) as unknown as LanguageModel;
           const stream = streamText({
             experimental_transform: markdownJoinerTransform(),
-            model: geminiModel,
+            model: aiModel,
             system: 'You are a document editing assistant. Always respond in English only.',
+            // Disable structuredOutputs for OpenRouter compatibility
+            providerOptions: { openai: { structuredOutputs: false } },
             // Not used
             prompt: '',
             tools: {
               formatBlock: getFormatBlockTool(editor, {
                 messagesRaw,
-                model: geminiModel,
+                model: aiModel,
                 writer,
               }),
               insertBlock: getInsertBlockTool(editor, {
                 messagesRaw,
-                model: geminiModel,
+                model: aiModel,
                 writer,
               }),
               table: getTableTool(editor, {
                 messagesRaw,
-                model: geminiModel,
+                model: aiModel,
                 writer,
               }),
+              search_web: createWebSearchTool(apiKey),
+              fetch_url: createFetchUrlTool(),
             },
             prepareStep: async (step) => {
               if (toolName === 'formatBlock') {
@@ -157,7 +162,7 @@ export async function POST(req: NextRequest) {
                 return {
                   ...step,
                   activeTools: [],
-                  model: geminiModel,
+                  model: aiModel,
                   messages: [
                     {
                       content: editPrompt,
@@ -182,7 +187,7 @@ export async function POST(req: NextRequest) {
                       role: 'user',
                     },
                   ],
-                  model: geminiModel,
+                  model: aiModel,
                 };
               }
 
@@ -201,7 +206,7 @@ export async function POST(req: NextRequest) {
 
     await logAiUsage({
       route: '/api/ai/command',
-      model: model && model.startsWith('google/') ? model.slice(7) : defaultModel,
+      model: modelId,
       workspaceId: typeof workspaceId === 'string' ? workspaceId : undefined,
       documentId: typeof documentId === 'string' ? documentId : undefined,
       status: 'success',
@@ -214,7 +219,7 @@ export async function POST(req: NextRequest) {
     const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : null;
     await logAiUsage({
       route: '/api/ai/command',
-      model: model && model.startsWith('google/') ? model.slice(7) : defaultModel,
+      model: modelId,
       workspaceId: typeof workspaceId === 'string' ? workspaceId : undefined,
       documentId: typeof documentId === 'string' ? documentId : undefined,
       status: 'error',

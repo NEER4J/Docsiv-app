@@ -53,15 +53,8 @@ function extractUsageNumbers(usage: unknown): UsageNumbers {
 function pickUsageObject(resultLike: unknown): unknown {
   if (!resultLike || typeof resultLike !== "object") return undefined;
   const r = resultLike as Record<string, unknown>;
-  const providerMeta = r.providerMetadata as Record<string, unknown> | undefined;
-  const googleMeta = providerMeta?.google as Record<string, unknown> | undefined;
-  return (
-    r.usage ||
-    googleMeta?.usageMetadata ||
-    googleMeta?.usage ||
-    r.response ||
-    undefined
-  );
+  // The Vercel AI SDK normalises usage across providers into r.usage
+  return r.usage || r.response || undefined;
 }
 
 async function resolveWorkspaceId({

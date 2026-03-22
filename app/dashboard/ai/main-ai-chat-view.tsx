@@ -17,6 +17,7 @@ import {
   FileText,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -193,9 +194,36 @@ function resizeImageDataUrl(
   });
 }
 
+function ThinkingBlock({ text, isStreaming }: { text: string; isStreaming?: boolean }) {
+  const [expanded, setExpanded] = React.useState(false);
+  return (
+    <div className="mb-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200/80 bg-neutral-50/80 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-neutral-100 dark:border-zinc-700/80 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
+      >
+        {isStreaming ? (
+          <LoaderIcon className="size-3 animate-spin" />
+        ) : (
+          <Sparkles className="size-3" />
+        )}
+        <span>{isStreaming ? "Thinking..." : "Thought process"}</span>
+        <span className="ml-0.5 text-[10px]">{expanded ? "▲" : "▼"}</span>
+      </button>
+      {expanded && (
+        <div className="mt-2 max-h-[300px] overflow-y-auto rounded-lg border border-neutral-200/60 bg-neutral-50/50 p-3 text-xs leading-relaxed text-muted-foreground dark:border-zinc-700/60 dark:bg-zinc-800/30">
+          <div className="whitespace-pre-wrap">{text}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MarkdownContent({ text }: { text: string }) {
   return (
     <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
       components={{
         h1: ({ children }) => <h1 className="mb-4 mt-6 text-[1.35rem] font-bold leading-snug tracking-tight first:mt-0">{children}</h1>,
         h2: ({ children }) => <h2 className="mb-3 mt-6 text-lg font-semibold leading-snug tracking-tight first:mt-0">{children}</h2>,
@@ -272,6 +300,10 @@ function getToolLabel(toolName: string): string {
       return "Preparing editor";
     case "rename_document":
       return "Renaming document";
+    case "search_web":
+      return "Searching the web";
+    case "fetch_url":
+      return "Reading webpage";
     case "proposal_quality_check":
       return "Running quality check";
     case "sheet_anomaly_insights":
@@ -334,6 +366,18 @@ function getToolStatusText(
         : status === "success"
           ? "Document exported"
           : "Could not export document";
+    case "search_web":
+      return status === "running"
+        ? "Searching the web"
+        : status === "success"
+          ? "Web search complete"
+          : "Web search failed";
+    case "fetch_url":
+      return status === "running"
+        ? "Reading webpage"
+        : status === "success"
+          ? "Webpage loaded"
+          : "Could not read webpage";
     default: {
       const base = getToolLabel(toolName);
       return status === "running"
@@ -361,6 +405,7 @@ function getStreamingStatusText(message?: UIMessage | null): string {
   if (!message?.parts?.length) return "AI is working...";
 
   let lastCompletedTool: string | null = null;
+  let lastToolFailed = false;
   for (const part of message.parts) {
     const toolInfo = getToolInfo(part);
     if (!toolInfo) continue;
@@ -369,7 +414,14 @@ function getStreamingStatusText(message?: UIMessage | null): string {
     }
     if (toolInfo.state === "output-available") {
       lastCompletedTool = toolInfo.toolName;
+      const result = toolInfo.output as Record<string, unknown> | undefined;
+      lastToolFailed = result?.success === false;
     }
+  }
+
+  // If the last tool failed, just show generic status
+  if (lastToolFailed) {
+    return "AI is working...";
   }
 
   if (lastCompletedTool === "create_document" || lastCompletedTool === "create_document_from_template") {
@@ -380,10 +432,10 @@ function getStreamingStatusText(message?: UIMessage | null): string {
     lastCompletedTool === "edit_document_konva" ||
     lastCompletedTool === "edit_document_univer"
   ) {
-    return "Thinking...";
+    return "Finishing up...";
   }
   if (lastCompletedTool === "seed_editor_ai") {
-    return "Still working...";
+    return "Finishing up...";
   }
   return "AI is working...";
 }
@@ -691,7 +743,7 @@ export function MainAiChatView({
   // ─── Refs for attachments passed to the chat hook ────────────────────────
   const pendingImagesRef = React.useRef<string[]>([]);
   const pendingFilesRef = React.useRef<
-    Array<{ name: string; mimeType: string; dataUrl: string }>
+    Array<{ name: string; mimeType: string; dataUrl: string; extractedText?: string }>
   >([]);
   // Doc type hint from pill selection — consumed once on next send
   const pendingDocTypeRef = React.useRef<{ name: string; base_type: string; editor: string } | null>(null);
@@ -1103,7 +1155,15 @@ export function MainAiChatView({
           file.name.toLowerCase().endsWith(".md") ||
           file.name.toLowerCase().endsWith(".csv") ||
           file.name.toLowerCase().endsWith(".json");
-        if (!isImage && !isPdf && !isTextLike) {
+        const isSpreadsheet =
+          file.type.includes("spreadsheet") ||
+          file.type.includes("excel") ||
+          /\.xlsx?$/i.test(file.name.toLowerCase());
+        const isPresentation =
+          file.type.includes("presentation") ||
+          file.type.includes("powerpoint") ||
+          /\.pptx?$/i.test(file.name.toLowerCase());
+        if (!isImage && !isPdf && !isTextLike && !isSpreadsheet && !isPresentation) {
           toast.error(`Unsupported file: ${file.name}`);
           continue;
         }
@@ -1316,7 +1376,15 @@ export function MainAiChatView({
           file.name.toLowerCase().endsWith(".md") ||
           file.name.toLowerCase().endsWith(".csv") ||
           file.name.toLowerCase().endsWith(".json");
-        if (!isImage && !isPdf && !isTextLike) {
+        const isSpreadsheet =
+          file.type.includes("spreadsheet") ||
+          file.type.includes("excel") ||
+          /\.xlsx?$/i.test(file.name.toLowerCase());
+        const isPresentation =
+          file.type.includes("presentation") ||
+          file.type.includes("powerpoint") ||
+          /\.pptx?$/i.test(file.name.toLowerCase());
+        if (!isImage && !isPdf && !isTextLike && !isSpreadsheet && !isPresentation) {
           toast.error(`Unsupported file: ${file.name}`);
           continue;
         }
@@ -1475,6 +1543,7 @@ export function MainAiChatView({
         name: f.name,
         mimeType: f.mimeType,
         dataUrl: f.dataUrl,
+        extractedText: f.extractedText,
       }));
 
       // Store attachment meta for display (images, files, selected doc)
@@ -1882,7 +1951,7 @@ export function MainAiChatView({
                           <input
                             ref={fileInputRef}
                             type="file"
-                            accept="image/*,.pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,application/pdf"
+                            accept="image/*,.pdf,.txt,.md,.csv,.json,.xls,.xlsx,.ppt,.pptx,text/plain,text/markdown,text/csv,application/json,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                             multiple
                             className="hidden"
                             onChange={handleImageAttach}
@@ -1984,7 +2053,7 @@ export function MainAiChatView({
                         <input
                           ref={fileInputRef}
                           type="file"
-                          accept="image/*,.pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,application/pdf"
+                          accept="image/*,.pdf,.txt,.md,.csv,.json,.xls,.xlsx,.ppt,.pptx,text/plain,text/markdown,text/csv,application/json,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                           multiple
                           className="hidden"
                           onChange={handleImageAttach}
@@ -2403,11 +2472,27 @@ function AssistantMessageContent({
       {message.parts.map((part, i) => {
         if (part.type === "text") {
           if (!part.text.trim()) return null;
+          // Detect leaked reasoning/thinking content from models that don't
+          // use proper reasoning tokens (e.g. Gemini thinking via OpenRouter)
+          const trimmed = part.text.trim();
+          const looksLikeThinking =
+            /^(thought |<thinking>|Let me think|I need to think|Let's think|Okay,? let me|Let me analyze|Let me consider)/i.test(trimmed) &&
+            (trimmed.includes("tool call") || trimmed.includes("Tool trace") || trimmed.includes("CRITICAL") || trimmed.includes("document_id") || trimmed.length > 800);
+          if (looksLikeThinking) {
+            return <ThinkingBlock key={i} text={trimmed} />;
+          }
           return (
             <div key={i}>
               <MarkdownContent text={part.text} />
             </div>
           );
+        }
+
+        // Reasoning/thinking part from thinking models
+        if (part.type === "reasoning") {
+          const rp = part as { type: "reasoning"; text: string; state?: "streaming" | "done" };
+          if (!rp.text?.trim()) return null;
+          return <ThinkingBlock key={i} text={rp.text} isStreaming={rp.state === "streaming"} />;
         }
 
         // Handle tool parts (typed: 'tool-${name}' or dynamic: 'dynamic-tool')

@@ -2,16 +2,17 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { createClientRecord } from '@/lib/actions/clients';
-import {
-  createDocumentRecord,
-  updateDocumentRecord,
-  upsertDocumentAiChatSession,
-} from '@/lib/actions/documents';
-import {
-  instantiateDocumentTemplate,
-  listDocumentTemplates,
-} from '@/lib/actions/templates';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUuid(id: string | null | undefined): boolean {
+  if (!id || id === 'null' || id === 'undefined') return false;
+  return UUID_RE.test(id);
+}
+
+import { createServiceRoleClient } from '@/lib/supabase/server';
+// NOTE: We use authedClient (created before streaming) for RPC calls that need
+// auth.uid(), and createServiceRoleClient() for direct table reads (bypasses RLS).
+// We do NOT use server actions (createClientRecord, updateDocumentRecord, etc.)
+// because they call createClient() → cookies() which hangs during streaming.
 import {
   createEditDocumentPlateTool,
   createEditDocumentKonvaTool,
@@ -23,13 +24,13 @@ import {
   createCreateShareLinkTool,
   createManageShareLinksTool,
 } from './permission-tools';
+import { createWebSearchTool, createFetchUrlTool } from '@/lib/ai/web-search-tool';
 
 /**
- * Experimental tool set for Main AI agent.
- * Note: current production `/api/ai/main` flow is still JSON-action based.
- * Keep this module in sync only when enabling server-side tool execution.
+ * Tool set for Main AI agent.
+ * Includes workspace management tools + web search.
  */
-export function getMainAiTools(workspaceId: string, userId?: string, authedClient?: SupabaseClient) {
+export function getMainAiTools(workspaceId: string, userId?: string, authedClient?: SupabaseClient, apiKey?: string) {
   const localCache = new Map<string, unknown>();
   const withCache = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
     if (localCache.has(key)) return localCache.get(key) as T;
@@ -37,6 +38,27 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
     localCache.set(key, result);
     return result;
   };
+
+  // Use authedClient for RPC calls that check auth.uid() (e.g. create_document, create_client).
+  // The authedClient was created BEFORE streaming started, so it won't call cookies() again.
+  // Fallback to service role client for direct table reads only (bypasses RLS, no auth.uid()).
+  const getAuthDb = () => authedClient ?? createServiceRoleClient();
+  const getReadDb = () => createServiceRoleClient();
+
+  // Track the last created document so follow-up tools can fall back to it
+  // when models pass "undefined" or invalid document_id.
+  let lastCreatedDocumentId: string | null = null;
+  let lastCreatedClientId: string | null = null;
+
+  /** Resolve document_id: validate, fallback to lastCreatedDocumentId if invalid. */
+  function resolveDocumentId(raw: string | null | undefined): string | null {
+    if (isValidUuid(raw)) return raw!;
+    if (lastCreatedDocumentId) {
+      console.warn(`[tools] Received invalid document_id "${raw}", falling back to last created: ${lastCreatedDocumentId}`);
+      return lastCreatedDocumentId;
+    }
+    return null;
+  }
 
   return {
     create_client: tool({
@@ -47,12 +69,32 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ name }) => {
-        const key = `create_client:${name.trim().toLowerCase()}`;
-        const result = await withCache(key, () => createClientRecord(workspaceId, { name }));
-        if (result.error || !result.clientId) {
-          return { success: false as const, error: result.error ?? 'Failed to create client' };
+        try {
+          const key = `create_client:${name.trim().toLowerCase()}`;
+          const result = await withCache(key, async () => {
+            const sb = getAuthDb();
+            const { data, error } = await sb.rpc('create_client', {
+              p_workspace_id: workspaceId,
+              p_name: name,
+              p_email: null,
+              p_phone: null,
+              p_website: null,
+              p_notes: null,
+            });
+            if (error) return { clientId: null as string | null, error: error.message };
+            const id = typeof data === 'string' ? data.trim() : '';
+            if (!id) return { clientId: null as string | null, error: 'create_client returned no id' };
+            return { clientId: id, error: undefined };
+          });
+          if (result.error || !result.clientId) {
+            return { success: false as const, error: result.error ?? 'Failed to create client' };
+          }
+          lastCreatedClientId = result.clientId;
+          return { success: true as const, clientId: result.clientId, name };
+        } catch (err) {
+          console.error('[create_client] Tool execution error:', err);
+          return { success: false as const, error: err instanceof Error ? err.message : 'Tool execution failed' };
         }
-        return { success: true as const, clientId: result.clientId, name };
       },
     }),
 
@@ -72,20 +114,58 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ title, base_type, client_id, document_type_id }) => {
-        const key = `create_document:${title}:${base_type}:${client_id ?? 'none'}:${document_type_id ?? 'none'}`;
-        const result = await withCache(key, () =>
-          createDocumentRecord(workspaceId, {
+        try {
+          // Sanitize IDs — models often pass "null"/"undefined" strings
+          const cleanDocTypeId = isValidUuid(document_type_id) ? document_type_id : null;
+          const cleanClientId = isValidUuid(client_id) ? client_id : null;
+          const key = `create_document:${title}:${base_type}:${cleanClientId ?? 'none'}:${cleanDocTypeId ?? 'none'}`;
+          const result = await withCache(key, async () => {
+            const sb = getAuthDb();
+            let { data, error } = await sb.rpc('create_document', {
+              p_workspace_id: workspaceId,
+              p_title: title ?? 'Untitled',
+              p_base_type: base_type,
+              p_document_type_id: cleanDocTypeId,
+              p_client_id: cleanClientId,
+            });
+            // Retry without document_type_id if FK fails (hallucinated type id)
+            if (error && cleanDocTypeId && (error.message?.includes('documents_document_type_id_fkey') || error.message?.includes('invalid input syntax'))) {
+              const retry = await sb.rpc('create_document', {
+                p_workspace_id: workspaceId,
+                p_title: title ?? 'Untitled',
+                p_base_type: base_type,
+                p_document_type_id: null,
+                p_client_id: cleanClientId,
+              });
+              data = retry.data;
+              error = retry.error;
+            }
+            if (error) return { documentId: null as string | null, error: error.message };
+            return { documentId: data as string, error: undefined };
+          });
+          if (result.error || !result.documentId) {
+            return { success: false as const, error: result.error ?? 'Failed to create document' };
+          }
+          // Fetch actual base_type from DB (may differ if document_type overrides it)
+          let actualBaseType = base_type;
+          try {
+            const { data: doc } = await getReadDb().from('documents').select('base_type').eq('id', result.documentId).maybeSingle();
+            if (doc?.base_type) actualBaseType = doc.base_type;
+          } catch { /* Use requested base_type as fallback */ }
+          localCache.set(`create_document:${result.documentId}`, { documentId: result.documentId });
+          lastCreatedDocumentId = result.documentId;
+          return {
+            success: true as const,
+            document_id: result.documentId,
+            documentId: result.documentId,
             title,
-            base_type,
-            client_id,
-            document_type_id,
-          })
-        );
-        if (result.error || !result.documentId) {
-          return { success: false as const, error: result.error ?? 'Failed to create document' };
+            base_type: actualBaseType,
+            edit_tool: actualBaseType === 'sheet' ? 'edit_document_univer' : actualBaseType === 'presentation' || actualBaseType === 'report' ? 'edit_document_konva' : 'edit_document_plate',
+          };
+        } catch (err) {
+          console.error('[create_document] Tool execution error:', err);
+          return { success: false as const, error: err instanceof Error ? err.message : 'Tool execution failed' };
         }
-        localCache.set(`create_document:${result.documentId}`, { documentId: result.documentId });
-        return { success: true as const, document_id: result.documentId, documentId: result.documentId, title, base_type };
       },
     }),
 
@@ -103,21 +183,52 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ template_id, title, client_id, document_type_id }) => {
-        const key = `create_document_from_template:${template_id}:${title}:${client_id ?? 'none'}:${document_type_id ?? 'none'}`;
-        const result = await withCache(key, () =>
-          instantiateDocumentTemplate(workspaceId, template_id, {
-            title,
-            client_id,
-            document_type_id,
-          })
-        );
-        if (result.error || !result.documentId) {
+        try {
+          const cleanDocTypeId = isValidUuid(document_type_id) ? document_type_id : null;
+          const cleanClientId = isValidUuid(client_id) ? client_id : null;
+          const key = `create_document_from_template:${template_id}:${title}:${cleanClientId ?? 'none'}:${cleanDocTypeId ?? 'none'}`;
+          const result = await withCache(key, async () => {
+            const sb = getAuthDb();
+            const instantiateArgs = {
+              p_template_id: template_id,
+              p_workspace_id: workspaceId,
+              p_title: title ?? null,
+              p_client_id: cleanClientId,
+              p_document_type_id: cleanDocTypeId,
+            };
+            let { data, error } = await sb.rpc('instantiate_document_template', instantiateArgs);
+            // Retry without document_type_id if FK fails (hallucinated type id)
+            if (error && cleanDocTypeId && (error.message?.includes('documents_document_type_id_fkey') || error.message?.includes('invalid input syntax'))) {
+              const retry = await sb.rpc('instantiate_document_template', { ...instantiateArgs, p_document_type_id: null });
+              data = retry.data;
+              error = retry.error;
+            }
+            if (error) return { documentId: null as string | null, error: error.message };
+            return { documentId: data as string, error: undefined };
+          });
+          if (result.error || !result.documentId) {
+            return { success: false as const, error: result.error ?? 'Failed to create document from template' };
+          }
+          // Fetch actual base_type from DB
+          let actualBaseType = 'doc';
+          try {
+            const { data: doc } = await getReadDb().from('documents').select('base_type').eq('id', result.documentId).maybeSingle();
+            if (doc?.base_type) actualBaseType = doc.base_type;
+          } catch { /* fallback to doc */ }
+          lastCreatedDocumentId = result.documentId;
           return {
-            success: false as const,
-            error: result.error ?? 'Failed to create document from template',
+            success: true as const,
+            document_id: result.documentId,
+            documentId: result.documentId,
+            title,
+            template_id,
+            base_type: actualBaseType,
+            edit_tool: actualBaseType === 'sheet' ? 'edit_document_univer' : actualBaseType === 'presentation' || actualBaseType === 'report' ? 'edit_document_konva' : 'edit_document_plate',
           };
+        } catch (err) {
+          console.error('[create_document_from_template] Tool execution error:', err);
+          return { success: false as const, error: err instanceof Error ? err.message : 'Tool execution failed' };
         }
-        return { success: true as const, documentId: result.documentId, title, template_id };
       },
     }),
 
@@ -130,11 +241,25 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ document_id, client_id }) => {
-        const result = await updateDocumentRecord(document_id, { client_id });
-        if (result.error) {
-          return { success: false as const, error: result.error };
+        try {
+          const resolvedDocId = resolveDocumentId(document_id);
+          if (!resolvedDocId) return { success: false as const, error: `Invalid document_id: "${document_id}". No recently created document to fall back to.` };
+          const { error } = await getAuthDb().rpc('update_document', {
+            p_document_id: resolvedDocId,
+            p_title: null,
+            p_status: null,
+            p_client_id: client_id,
+            p_document_type_id: null,
+            p_require_signature: null,
+            p_clear_client_id: false,
+            p_thumbnail_url: null,
+          });
+          if (error) return { success: false as const, error: error.message };
+          return { success: true as const, document_id: resolvedDocId, client_id };
+        } catch (err) {
+          console.error('[assign_client_to_document] Tool execution error:', err);
+          return { success: false as const, error: err instanceof Error ? err.message : 'Tool execution failed' };
         }
-        return { success: true as const, document_id, client_id };
       },
     }),
 
@@ -147,11 +272,25 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ document_id, title }) => {
-        const result = await updateDocumentRecord(document_id, { title });
-        if (result.error) {
-          return { success: false as const, error: result.error };
+        try {
+          const resolvedDocId = resolveDocumentId(document_id);
+          if (!resolvedDocId) return { success: false as const, error: `Invalid document_id: "${document_id}". No recently created document to fall back to.` };
+          const { error } = await getAuthDb().rpc('update_document', {
+            p_document_id: resolvedDocId,
+            p_title: title,
+            p_status: null,
+            p_client_id: null,
+            p_document_type_id: null,
+            p_require_signature: null,
+            p_clear_client_id: false,
+            p_thumbnail_url: null,
+          });
+          if (error) return { success: false as const, error: error.message };
+          return { success: true as const, document_id: resolvedDocId, title };
+        } catch (err) {
+          console.error('[rename_document] Tool execution error:', err);
+          return { success: false as const, error: err instanceof Error ? err.message : 'Tool execution failed' };
         }
-        return { success: true as const, document_id, title };
       },
     }),
 
@@ -172,34 +311,46 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ document_id, editor_prompt, seed_message }) => {
-        const result = await upsertDocumentAiChatSession(document_id, {
-          messages: [
+        try {
+          const resolvedDocId = resolveDocumentId(document_id);
+          if (!resolvedDocId) return { success: false as const, error: `Invalid document_id: "${document_id}". No recently created document to fall back to.` };
+          // Use service role for direct table writes (no RPC auth check, bypasses RLS)
+          const sb = getReadDb();
+          const { error: upsertError } = await sb.from('document_ai_chat_sessions').upsert(
             {
-              role: 'assistant',
-              content: seed_message ?? 'Let me help you with this document.',
+              document_id: resolvedDocId,
+              user_id: userId ?? '00000000-0000-0000-0000-000000000000',
+              messages: [
+                {
+                  role: 'assistant',
+                  content: seed_message ?? 'Let me help you with this document.',
+                },
+              ],
+              input: typeof editor_prompt === 'string' ? editor_prompt : '',
             },
-          ],
-          input: editor_prompt,
-        });
-        if (result.error) {
-          return { success: false as const, error: result.error };
+            { onConflict: 'document_id,user_id' }
+          );
+          if (upsertError) {
+            return { success: false as const, error: upsertError.message };
+          }
+          // Fetch document title/type/content for UI display and preview
+          const { data: doc } = await getReadDb()
+            .from('documents')
+            .select('title,base_type,content,thumbnail_url')
+            .eq('id', resolvedDocId)
+            .maybeSingle();
+          return {
+            success: true as const,
+            document_id: resolvedDocId,
+            title: doc?.title ?? 'Document',
+            base_type: doc?.base_type ?? 'doc',
+            updatedContent: doc?.content ?? null,
+            thumbnail_url: doc?.thumbnail_url ?? null,
+          };
+        } catch (err) {
+          console.error('[seed_editor_ai] Tool execution error:', err);
+          return { success: false as const, error: err instanceof Error ? err.message : 'Tool execution failed' };
         }
-        // Fetch document title/type/content for UI display and preview
-        const { createServiceRoleClient } = await import('@/lib/supabase/server');
-        const sb = createServiceRoleClient();
-        const { data: doc } = await sb
-          .from('documents')
-          .select('title,base_type,content,thumbnail_url')
-          .eq('id', document_id)
-          .maybeSingle();
-        return {
-          success: true as const,
-          document_id,
-          title: doc?.title ?? 'Document',
-          base_type: doc?.base_type ?? 'doc',
-          updatedContent: doc?.content ?? null,
-          thumbnail_url: doc?.thumbnail_url ?? null,
-        };
       },
     }),
 
@@ -214,20 +365,29 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ scope }) => {
-        const result = await listDocumentTemplates(workspaceId, scope ?? 'all');
-        if (result.error) {
-          return { success: false as const, error: result.error };
+        try {
+          const { data, error } = await getAuthDb().rpc('list_document_templates', {
+            p_workspace_id: workspaceId,
+            p_scope: scope ?? 'all',
+          });
+          if (error) return { success: false as const, error: error.message };
+          let raw: unknown = data;
+          if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = []; } }
+          const arr = Array.isArray(raw) ? raw : [];
+          return {
+            success: true as const,
+            templates: arr.slice(0, 40).map((t: Record<string, unknown>) => ({
+              id: String(t.id ?? ''),
+              title: String(t.title ?? 'Untitled'),
+              description: t.description != null ? String(t.description) : null,
+              base_type: String(t.base_type ?? 'doc'),
+              is_marketplace: Boolean(t.is_marketplace),
+            })),
+          };
+        } catch (err) {
+          console.error('[list_templates] Tool execution error:', err);
+          return { success: false as const, error: err instanceof Error ? err.message : 'Tool execution failed' };
         }
-        return {
-          success: true as const,
-          templates: result.templates.map((t) => ({
-            id: t.id,
-            title: t.title,
-            description: t.description,
-            base_type: t.base_type,
-            is_marketplace: t.is_marketplace,
-          })),
-        };
       },
     }),
 
@@ -275,32 +435,44 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ query, base_type }) => {
-        const result = await listDocumentTemplates(workspaceId, 'all');
-        if (result.error) return { success: false as const, error: result.error };
-        const q = query.toLowerCase();
-        const scored = result.templates
-          .filter((t) => (base_type ? t.base_type === base_type : true))
-          .map((t) => {
-            const hay = `${t.title} ${t.description ?? ''} ${t.document_types.map((d) => d.name).join(' ')}`.toLowerCase();
-            let score = 0;
-            if (hay.includes(q)) score += 4;
-            for (const tok of q.split(/\s+/).filter(Boolean)) {
-              if (hay.includes(tok)) score += 1;
-            }
-            if (t.is_marketplace) score += 0.2;
-            return { t, score };
-          })
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 5)
-          .map(({ t, score }) => ({
-            id: t.id,
-            title: t.title,
-            base_type: t.base_type,
-            score: Number(score.toFixed(2)),
-            reason: t.description ?? 'Template title/type matches the request',
-          }));
+        try {
+          const { data, error } = await getAuthDb().rpc('list_document_templates', {
+            p_workspace_id: workspaceId,
+            p_scope: 'all',
+          });
+          if (error) return { success: false as const, error: error.message };
+          let raw: unknown = data;
+          if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = []; } }
+          const templates = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;
+          const q = query.toLowerCase();
+          const scored = templates
+            .filter((t) => (base_type ? String(t.base_type ?? 'doc') === base_type : true))
+            .map((t) => {
+              const dtArr = Array.isArray(t.document_types) ? t.document_types : [];
+              const hay = `${t.title ?? ''} ${t.description ?? ''} ${dtArr.map((d: Record<string, unknown>) => d.name ?? '').join(' ')}`.toLowerCase();
+              let score = 0;
+              if (hay.includes(q)) score += 4;
+              for (const tok of q.split(/\s+/).filter(Boolean)) {
+                if (hay.includes(tok)) score += 1;
+              }
+              if (t.is_marketplace) score += 0.2;
+              return { t, score };
+            })
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 5)
+            .map(({ t, score }) => ({
+              id: String(t.id ?? ''),
+              title: String(t.title ?? 'Untitled'),
+              base_type: String(t.base_type ?? 'doc'),
+              score: Number(score.toFixed(2)),
+              reason: t.description ? String(t.description) : 'Template title/type matches the request',
+            }));
 
-        return { success: true as const, recommendations: scored };
+          return { success: true as const, recommendations: scored };
+        } catch (err) {
+          console.error('[recommend_template] Tool execution error:', err);
+          return { success: false as const, error: err instanceof Error ? err.message : 'Tool execution failed' };
+        }
       },
     }),
 
@@ -418,9 +590,9 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
     }),
 
     // Editor-specific edit tools
-    edit_document_plate: createEditDocumentPlateTool(workspaceId, localCache, withCache, userId, authedClient),
-    edit_document_konva: createEditDocumentKonvaTool(workspaceId, localCache, withCache, userId, authedClient),
-    edit_document_univer: createEditDocumentUniverTool(workspaceId, localCache, withCache, userId, authedClient),
+    edit_document_plate: createEditDocumentPlateTool(workspaceId, localCache, withCache, userId, authedClient, resolveDocumentId),
+    edit_document_konva: createEditDocumentKonvaTool(workspaceId, localCache, withCache, userId, authedClient, resolveDocumentId),
+    edit_document_univer: createEditDocumentUniverTool(workspaceId, localCache, withCache, userId, authedClient, resolveDocumentId),
 
     // Export tool
     export_document: createExportDocumentTool(workspaceId, localCache, withCache),
@@ -429,6 +601,12 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
     manage_collaborators: createManageCollaboratorsTool(workspaceId, localCache, withCache),
     create_share_link: createCreateShareLinkTool(workspaceId, localCache, withCache),
     manage_share_links: createManageShareLinksTool(workspaceId, localCache, withCache),
+
+    // Web search tool — AI autonomously decides when to search the web
+    ...(apiKey ? { search_web: createWebSearchTool(apiKey) } : {}),
+
+    // URL fetching tool — reads content from specific URLs
+    fetch_url: createFetchUrlTool(),
   };
 }
 

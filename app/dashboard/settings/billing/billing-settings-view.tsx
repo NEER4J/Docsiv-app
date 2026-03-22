@@ -33,7 +33,10 @@ export function BillingSettingsView({
     successfulRequests: 0,
     failedRequests: 0,
     last7DaysTokens: 0,
+    byModel: [],
   };
+
+  const byModelRows = summary.byModel ?? [];
 
   return (
     <div className="space-y-6">
@@ -113,6 +116,74 @@ export function BillingSettingsView({
             <p className="mt-1 text-sm font-medium text-foreground">
               {summary.completionTokens.toLocaleString()}
             </p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="font-ui text-xs font-semibold text-foreground">
+            By model
+          </h3>
+          <p className="font-body text-[11px] text-muted-foreground">
+            Based on your most recent 5,000 AI requests in this workspace (same
+            scope as the totals above).
+          </p>
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="max-h-[320px] overflow-auto">
+              <div className="min-w-[560px]">
+                <div className="grid grid-cols-12 border-b border-border bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+                  <p className="col-span-4">Model</p>
+                  <p className="col-span-2 text-right">Requests</p>
+                  <p className="col-span-2 text-right">Prompt</p>
+                  <p className="col-span-2 text-right">Completion</p>
+                  <p className="col-span-2 text-right">Total tokens</p>
+                </div>
+                {byModelRows.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-muted-foreground">
+                    No model breakdown yet.
+                  </p>
+                ) : (
+                  <>
+                    {byModelRows.map((row) => (
+                      <div
+                        key={row.model}
+                        className="grid grid-cols-12 items-center border-b border-border px-3 py-2 text-xs"
+                      >
+                        <p className="col-span-4 truncate font-medium text-foreground">
+                          {row.model}
+                        </p>
+                        <p className="col-span-2 text-right text-muted-foreground">
+                          {row.requests.toLocaleString()}
+                        </p>
+                        <p className="col-span-2 text-right text-muted-foreground">
+                          {row.promptTokens.toLocaleString()}
+                        </p>
+                        <p className="col-span-2 text-right text-muted-foreground">
+                          {row.completionTokens.toLocaleString()}
+                        </p>
+                        <p className="col-span-2 text-right font-medium text-foreground">
+                          {row.totalTokens.toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                    <div className="grid grid-cols-12 items-center bg-muted/20 px-3 py-2 text-xs font-semibold text-foreground">
+                      <p className="col-span-4">Total</p>
+                      <p className="col-span-2 text-right">
+                        {summary.totalRequests.toLocaleString()}
+                      </p>
+                      <p className="col-span-2 text-right">
+                        {summary.promptTokens.toLocaleString()}
+                      </p>
+                      <p className="col-span-2 text-right">
+                        {summary.completionTokens.toLocaleString()}
+                      </p>
+                      <p className="col-span-2 text-right">
+                        {summary.totalTokens.toLocaleString()}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </section>

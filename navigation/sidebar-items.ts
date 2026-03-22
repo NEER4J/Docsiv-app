@@ -67,6 +67,11 @@ export function getDashboardSidebarItems(platformAdmin: boolean): NavGroup[] {
       label: "Platform",
       items: [
         {
+          title: "AI settings",
+          url: "/dashboard/platform/ai-settings",
+          icon: Sparkles,
+        },
+        {
           title: "Marketplace templates",
           url: "/dashboard/platform/templates",
           icon: Shield,

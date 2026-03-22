@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Sparkles, X, Loader2, Paperclip, CheckCircle2, RotateCcw, ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -187,26 +189,37 @@ export function AiAssistantSidebar() {
 
 /** Lightweight bold-text formatter for AI messages. */
 function formatAiMessage(text: string): React.ReactNode {
-  const paragraphs = text.split(/\n\n+/);
-  return paragraphs.map((para, i) => {
-    const lines = para.split("\n");
-    return (
-      <p key={i} className={i > 0 ? "mt-2" : ""}>
-        {lines.map((line, li) => (
-          <React.Fragment key={li}>
-            {li > 0 && <br />}
-            {line.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
-              part.startsWith("**") && part.endsWith("**") ? (
-                <strong key={j}>{part.slice(2, -2)}</strong>
-              ) : (
-                <React.Fragment key={j}>{part}</React.Fragment>
-              )
-            )}
-          </React.Fragment>
-        ))}
-      </p>
-    );
-  });
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => <h1 className="mb-2 mt-3 text-base font-bold first:mt-0">{children}</h1>,
+        h2: ({ children }) => <h2 className="mb-2 mt-3 text-sm font-semibold first:mt-0">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h3>,
+        p: ({ children }) => <p className="mb-2 leading-relaxed last:mb-0">{children}</p>,
+        ul: ({ children }) => <ul className="mb-2 ml-4 list-disc space-y-1 last:mb-0">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal space-y-1 last:mb-0">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+        code: ({ children, className }) => {
+          const isBlock = className?.includes("language-");
+          if (isBlock) return <code className="block overflow-x-auto rounded-lg bg-neutral-100/80 p-2 text-xs dark:bg-zinc-800/60">{children}</code>;
+          return <code className="rounded bg-neutral-100/80 px-1 py-0.5 text-xs dark:bg-zinc-800/60">{children}</code>;
+        },
+        pre: ({ children }) => <pre className="mb-2 last:mb-0">{children}</pre>,
+        a: ({ children, href }) => <a href={href} className="text-primary underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+        table: ({ children }) => (
+          <div className="mb-2 overflow-x-auto rounded-lg border border-neutral-200/80 text-xs last:mb-0 dark:border-zinc-700/80">
+            <table className="w-full border-collapse">{children}</table>
+          </div>
+        ),
+        th: ({ children }) => <th className="border-b border-neutral-200/80 bg-neutral-50/80 px-2 py-1.5 text-left text-xs font-semibold dark:border-zinc-700/80 dark:bg-zinc-800/50">{children}</th>,
+        td: ({ children }) => <td className="border-b border-neutral-100/80 px-2 py-1.5 dark:border-zinc-800/50">{children}</td>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
 function normalizePersistedMessages(

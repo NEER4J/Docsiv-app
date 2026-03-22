@@ -46,8 +46,8 @@ export async function createDocumentRecord(
   const canRetryWithoutType =
     Boolean(input.document_type_id) &&
     Boolean(error) &&
-    (error.message.includes("documents_document_type_id_fkey") ||
-      error.message.includes("invalid input syntax for type uuid"));
+    (error?.message?.includes("documents_document_type_id_fkey") ||
+      error?.message?.includes("invalid input syntax for type uuid"));
 
   if (canRetryWithoutType) {
     const retry = await supabase.rpc("create_document", {
@@ -827,7 +827,7 @@ export type DocumentAiChatSessionRow = {
 };
 
 function getCurrentUserId(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
-  return supabase.auth.getSession().then(({ data }) => data.session?.user?.id ?? null);
+  return supabase.auth.getUser().then(({ data }) => data.user?.id ?? null);
 }
 
 export async function getDocumentAiChatSession(

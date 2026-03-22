@@ -149,8 +149,8 @@ export async function instantiateDocumentTemplate(
   const canRetryWithoutType =
     Boolean(input.document_type_id) &&
     Boolean(error) &&
-    (error.message.includes("documents_document_type_id_fkey") ||
-      error.message.includes("invalid input syntax for type uuid"));
+    (error?.message?.includes("documents_document_type_id_fkey") ||
+      error?.message?.includes("invalid input syntax for type uuid"));
 
   if (canRetryWithoutType) {
     const retry = await supabase.rpc("instantiate_document_template", {

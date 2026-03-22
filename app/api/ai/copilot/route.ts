@@ -1,48 +1,38 @@
 import type { NextRequest } from 'next/server';
 
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText } from 'ai';
 import { NextResponse } from 'next/server';
 
-import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
+import { getAiModel } from '@/lib/ai/provider';
 import { logAiUsage } from '@/lib/ai-usage';
 
 export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   const {
     apiKey: key,
-    model = DEFAULT_AI_MODEL,
+    model,
     prompt,
     system,
     workspaceId,
     documentId,
   } = await req.json();
 
-  const apiKey = key || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-
-  if (!apiKey) {
+  let aiModel, modelId: string;
+  try {
+    ({ model: aiModel, modelId } = await getAiModel('copilot', { apiKey: key, model }));
+  } catch {
     return NextResponse.json(
-      { error: 'Missing Google Generative AI API key.' },
+      { error: 'No AI API key configured' },
       { status: 401 }
     );
   }
-
-  const google = createGoogleGenerativeAI({ apiKey });
-  const modelId =
-    typeof model === 'string' && model.startsWith('google/')
-      ? model.slice(7)
-      : model;
 
   try {
     const result = await generateText({
       abortSignal: req.signal,
       maxOutputTokens: 128,
-      model: google(modelId),
+      model: aiModel,
       prompt,
-      providerOptions:
-        modelId.includes('2.5') || modelId.includes('2.0-flash-thinking')
-          ? { google: { thinkingConfig: { thinkingBudget: 0 } } }
-          : undefined,
       system,
       temperature: 0.3,
     });

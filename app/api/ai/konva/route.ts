@@ -1,8 +1,7 @@
 import type { NextRequest } from 'next/server';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText, type CoreMessage } from 'ai';
 import { NextResponse } from 'next/server';
-import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
+import { getAiModel } from '@/lib/ai/provider';
 import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { getKonvaAiSystemPrompt } from './prompt';
 import { logAiUsage } from '@/lib/ai-usage';
@@ -49,9 +48,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Presentation mode requires content.presentation' }, { status: 400 });
   }
 
-  const apiKey = key || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: 'Missing Google Generative AI API key.' }, { status: 401 });
+  let aiModel;
+  let modelId: string;
+  try {
+    const result = await getAiModel('konva', { apiKey: key, model: body.model });
+    aiModel = result.model;
+    modelId = result.modelId;
+  } catch {
+    return NextResponse.json({ error: 'No AI API key configured' }, { status: 401 });
   }
 
   const contentStr = JSON.stringify(content);
@@ -120,24 +124,14 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const google = createGoogleGenerativeAI({ apiKey });
-  const modelId = typeof body.model === 'string' && body.model.startsWith('google/') ? body.model.slice(7) : DEFAULT_AI_MODEL;
-
   try {
     const result = await generateText({
       abortSignal: req.signal,
       maxOutputTokens: 65536,
-      model: google(modelId),
+      model: aiModel,
       messages: conversationMessages,
       system: getKonvaAiSystemPrompt(modeVal, pageWidthPx, pageHeightPx),
       temperature: 0.2,
-      providerOptions: {
-        google: {
-          thinkingConfig: {
-            thinkingBudget: 8192,
-          },
-        },
-      } as Parameters<typeof generateText>[0]['providerOptions'],
     });
     await logAiUsage({
       route: '/api/ai/konva',

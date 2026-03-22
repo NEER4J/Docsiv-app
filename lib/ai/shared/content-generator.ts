@@ -8,21 +8,14 @@
  * or Konva shapes in a single tool call parameter.
  */
 
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText } from 'ai';
-import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
+import { getAiModel } from '@/lib/ai/provider';
 import {
   PLATE_NODE_FORMAT_GUIDE,
   KONVA_SHAPE_FORMAT_GUIDE,
   UNIVER_CELL_FORMAT_GUIDE,
   CONTENT_QUALITY_GUIDELINES,
 } from './generation-prompts';
-
-function getGoogle() {
-  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (!apiKey) throw new Error('Missing GOOGLE_GENERATIVE_AI_API_KEY');
-  return createGoogleGenerativeAI({ apiKey });
-}
 
 function tryParseJson(text: string): unknown | null {
   let stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
@@ -78,12 +71,13 @@ export async function generatePlateContent(
   prompt: string,
   context?: { documentTitle?: string; existingContent?: unknown }
 ): Promise<PlateGenerationResult> {
-  let google;
+  let aiModel;
   try {
-    google = getGoogle();
+    const result = await getAiModel('content_gen');
+    aiModel = result.model;
   } catch (err) {
-    console.error('[generatePlateContent] Failed to create Google AI client:', err);
-    return { success: false, error: err instanceof Error ? err.message : 'Missing API key' };
+    console.error('[generatePlateContent] Failed to create AI client:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'No AI API key configured' };
   }
 
   const systemPrompt = `You are a professional document content generator for Docsiv.
@@ -105,7 +99,7 @@ IMPORTANT:
 
   try {
     const result = await generateText({
-      model: google(DEFAULT_AI_MODEL),
+      model: aiModel,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
       maxOutputTokens: 16384,
@@ -161,12 +155,13 @@ export async function generateKonvaShapes(
     layoutData?: Record<string, unknown>;
   }
 ): Promise<KonvaGenerationResult> {
-  let google;
+  let aiModel;
   try {
-    google = getGoogle();
+    const result = await getAiModel('content_gen');
+    aiModel = result.model;
   } catch (err) {
-    console.error('[generateKonvaShapes] Failed to create Google AI client:', err);
-    return { success: false, error: err instanceof Error ? err.message : 'Missing API key' };
+    console.error('[generateKonvaShapes] Failed to create AI client:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'No AI API key configured' };
   }
   const mode = context?.mode ?? 'report';
   const pageW = context?.pageWidth ?? (mode === 'presentation' ? 960 : 794);
@@ -218,7 +213,7 @@ IMPORTANT:
 
   try {
     const result = await generateText({
-      model: google(DEFAULT_AI_MODEL),
+      model: aiModel,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
       maxOutputTokens: 32768,
@@ -273,12 +268,13 @@ export async function generateUniverCells(
   prompt: string,
   context?: { documentTitle?: string; existingCells?: unknown }
 ): Promise<UniverGenerationResult> {
-  let google;
+  let aiModel;
   try {
-    google = getGoogle();
+    const result = await getAiModel('content_gen');
+    aiModel = result.model;
   } catch (err) {
-    console.error('[generateUniverCells] Failed to create Google AI client:', err);
-    return { success: false, error: err instanceof Error ? err.message : 'Missing API key' };
+    console.error('[generateUniverCells] Failed to create AI client:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'No AI API key configured' };
   }
 
   const systemPrompt = `You are a professional spreadsheet content generator for Docsiv.
@@ -300,9 +296,9 @@ IMPORTANT:
     : `${context?.documentTitle ? `Sheet: "${context.documentTitle}"\n` : ''}User request: ${prompt}\n\nGenerate the spreadsheet data.`;
 
   try {
-    console.log('[generateUniverCells] Calling Gemini with prompt:', prompt.slice(0, 200));
+    console.log('[generateUniverCells] Calling AI with prompt:', prompt.slice(0, 200));
     const result = await generateText({
-      model: google(DEFAULT_AI_MODEL),
+      model: aiModel,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
       maxOutputTokens: 16384,

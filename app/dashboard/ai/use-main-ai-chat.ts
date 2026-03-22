@@ -129,7 +129,7 @@ export type UseMainAiChatOptions = {
   chatId?: string;
   workspaceContext: WorkspaceContext;
   pendingImagesRef?: React.RefObject<string[]>;
-  pendingFilesRef?: React.RefObject<Array<{ name: string; mimeType: string; dataUrl: string }>>;
+  pendingFilesRef?: React.RefObject<Array<{ name: string; mimeType: string; dataUrl: string; extractedText?: string }>>;
   pendingDocTypeRef?: React.RefObject<{ name: string; base_type: string; editor: string } | null>;
   onDocumentUpdate?: (doc: {
     documentId: string;

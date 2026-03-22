@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
+import { getAiModel } from "@/lib/ai/provider";
 import { createClient } from "@/lib/supabase/server";
 
 const ANALYSIS_PROMPT = `You are a layout analysis expert. Analyze the uploaded layout/design image and return a precise, structured JSON description that can be used to REPRODUCE the design programmatically.
@@ -115,10 +115,12 @@ function computeImageHash(dataUrl: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (!apiKey) {
+  let aiModel: Awaited<ReturnType<typeof getAiModel>>['model'];
+  try {
+    ({ model: aiModel } = await getAiModel('analyze_layout'));
+  } catch {
     return NextResponse.json(
-      { error: "Missing Google Generative AI API key" },
+      { error: "No AI API key configured" },
       { status: 500 }
     );
   }
@@ -181,12 +183,9 @@ export async function POST(req: NextRequest) {
   const mimeMatch = header.match(/data:(.+?);/);
   const mimeType = mimeMatch?.[1] ?? "image/png";
 
-  // Call Gemini Vision API
-  const google = createGoogleGenerativeAI({ apiKey });
-
   try {
     const result = await generateText({
-      model: google("gemini-2.0-flash-exp"),
+      model: aiModel,
       maxOutputTokens: 4096,
       temperature: 0.2,
       messages: [

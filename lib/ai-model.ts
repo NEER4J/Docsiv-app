@@ -1,5 +1,5 @@
 /**
- * Default Gemini model id for AI routes (command, copilot, konva).
- * Use Flash 3 when available; fallback to 2.0-flash if SDK does not support it yet.
+ * Default model id used as a static fallback when the platform_ai_config
+ * table has not been configured yet. Uses OpenRouter format (provider/model).
  */
-export const DEFAULT_AI_MODEL = 'gemini-3-flash-preview';
+export const DEFAULT_AI_MODEL = 'google/gemini-2.5-flash';

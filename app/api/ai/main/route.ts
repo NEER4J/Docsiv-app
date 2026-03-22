@@ -1,8 +1,7 @@
 import type { NextRequest } from 'next/server';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { streamText, stepCountIs, convertToModelMessages, type UIMessage, type ModelMessage } from 'ai';
 import { NextResponse } from 'next/server';
-import { DEFAULT_AI_MODEL } from '@/lib/ai-model';
+import { getAiModel } from '@/lib/ai/provider';
 import { getMainAiSystemPrompt } from './prompt';
 import { logAiUsage } from '@/lib/ai-usage';
 import { getMainAiTools } from '@/lib/ai/main/tools';
@@ -19,8 +18,8 @@ export async function POST(req: NextRequest) {
   let authedSupabase: Awaited<ReturnType<typeof createClient>> | undefined;
   try {
     authedSupabase = await createClient();
-    const { data } = await authedSupabase.auth.getSession();
-    userId = data.session?.user?.id ?? null;
+    const { data: { user } } = await authedSupabase.auth.getUser();
+    userId = user?.id ?? null;
   } catch {
     // If cookies fail, we'll proceed without user ID
   }
@@ -55,7 +54,7 @@ export async function POST(req: NextRequest) {
     apiKey?: string;
     idempotencyKey?: string;
     pendingImages?: string[];
-    pendingFiles?: Array<{ name?: string; mimeType?: string; dataUrl?: string }>;
+    pendingFiles?: Array<{ name?: string; mimeType?: string; dataUrl?: string; extractedText?: string }>;
   };
 
   try {
@@ -73,9 +72,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const apiKey = key || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: 'Missing Google Generative AI API key.' }, { status: 401 });
+  let aiModel: Awaited<ReturnType<typeof getAiModel>>['model'];
+  let modelId: string;
+  let apiKey: string;
+  try {
+    const result = await getAiModel('main_chat', {
+      apiKey: key,
+      model: typeof body.model === 'string' ? body.model : undefined,
+    });
+    aiModel = result.model;
+    modelId = result.modelId;
+    apiKey = result.apiKey;
+  } catch {
+    return NextResponse.json({ error: 'No AI API key configured' }, { status: 401 });
   }
 
   // Detect whether messages are UIMessages (have `parts`) or legacy format (have `content` string)
@@ -180,7 +189,14 @@ export async function POST(req: NextRequest) {
         const mediaType = mimeMatch?.[1] ?? 'image/png';
         parts.push({ type: 'image', image: base64, mediaType });
       }
-      for (const file of pendingFiles as Array<{ name?: string; mimeType?: string; dataUrl?: string }>) {
+      for (const file of pendingFiles as Array<{ name?: string; mimeType?: string; dataUrl?: string; extractedText?: string }>) {
+        // If text was already extracted (XLS, PPTX, CSV, etc.), send as text —
+        // OpenRouter/Chat Completions API doesn't support arbitrary binary files.
+        if (file.extractedText) {
+          parts.push({ type: 'text', text: `\n\n--- File: ${file.name ?? 'attachment'} ---\n${file.extractedText}\n--- End of file ---` });
+          continue;
+        }
+        // Images and PDFs can be sent natively
         const dataUrl = file.dataUrl as string;
         const commaIdx = dataUrl.indexOf(',');
         if (commaIdx < 0) continue;
@@ -188,7 +204,12 @@ export async function POST(req: NextRequest) {
         const base64 = dataUrl.slice(commaIdx + 1);
         const mimeMatch = header.match(/data:(.*?);/);
         const mediaType = file.mimeType ?? mimeMatch?.[1] ?? 'application/octet-stream';
-        parts.push({ type: 'file', data: base64, mediaType });
+        // For images, send as image part; for PDFs and others, send as file part
+        if (mediaType.startsWith('image/')) {
+          parts.push({ type: 'image', image: base64, mediaType });
+        } else {
+          parts.push({ type: 'file', data: base64, mediaType });
+        }
       }
       conversationMessages[lastIdx] = { role: 'user', content: parts };
     }
@@ -244,30 +265,35 @@ export async function POST(req: NextRequest) {
     systemPrompt += `\n\n## User's document type selection\nThe user has pre-selected document type "${docTypeHint.name}" (base_type: ${docTypeHint.base_type}, editor: ${docTypeHint.editor}). When creating a document for this message:\n- Use base_type "${docTypeHint.base_type}" in the create_document tool call.\n- After creation, use "${editTool}" to generate content.\n- Do not ask the user to confirm the type — they already chose it.`;
   }
 
-  const google = createGoogleGenerativeAI({ apiKey });
-  const modelId =
-    typeof body.model === 'string' && body.model.startsWith('google/')
-      ? body.model.slice(7)
-      : DEFAULT_AI_MODEL;
-
   try {
-    const tools = getMainAiTools(workspaceContext.workspaceId, userId, authedSupabase);
+    const tools = getMainAiTools(workspaceContext.workspaceId, userId, authedSupabase, apiKey);
+
+    // Create a combined abort signal: client disconnect OR 120s timeout
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), 120_000);
+    req.signal.addEventListener('abort', () => clearTimeout(timeoutId));
+    const combinedSignal = AbortSignal.any([req.signal, timeoutController.signal]);
 
     const result = streamText({
-      abortSignal: req.signal,
+      abortSignal: combinedSignal,
       maxOutputTokens: 8192,
-      model: google(modelId),
+      model: aiModel,
       messages: conversationMessages,
       system: systemPrompt,
       temperature: 0.3,
       tools,
-      stopWhen: stepCountIs(12),
+      // Disable structuredOutputs to avoid strict-mode schema issues with
+      // OpenRouter-proxied providers (Azure, etc.) that reject `strict: false`.
+      providerOptions: { openai: { structuredOutputs: false } },
+      stopWhen: stepCountIs(8),
       onStepFinish: ({ toolCalls, toolResults }) => {
         // Log each tool call/result in real-time for debugging
         for (const tc of toolCalls ?? []) {
+          if (!tc) continue;
           console.log(`[ai/main] tool-call: ${tc.toolName}`, JSON.stringify(tc.input).slice(0, 200));
         }
         for (const tr of toolResults ?? []) {
+          if (!tr) continue;
           const output = tr.output as Record<string, unknown> | undefined;
           const success = output?.success;
           const error = output?.error;
@@ -281,8 +307,9 @@ export async function POST(req: NextRequest) {
         // Persist tool call logs to database (fire-and-forget)
         const sb = createServiceRoleClient();
         for (const tc of toolCalls ?? []) {
+          if (!tc) continue;
           const matchingResult = (toolResults ?? []).find(
-            (tr) => tr.toolName === tc.toolName
+            (tr) => tr?.toolName === tc.toolName
           );
           const output = matchingResult?.output as Record<string, unknown> | undefined;
           sb.from('ai_tool_call_logs')
@@ -306,10 +333,10 @@ export async function POST(req: NextRequest) {
       },
       onFinish: async ({ steps, usage }) => {
         const toolCalls = steps.flatMap((s) =>
-          (s.toolCalls ?? []).map((tc) => ({ name: tc.toolName, input: tc.input }))
+          (s.toolCalls ?? []).filter((tc): tc is NonNullable<typeof tc> => !!tc).map((tc) => ({ name: tc.toolName, input: tc.input }))
         );
         const toolResults = steps.flatMap((s) =>
-          (s.toolResults ?? []).map((tr) => ({ name: tr.toolName, output: tr.output }))
+          (s.toolResults ?? []).filter((tr): tr is NonNullable<typeof tr> => !!tr).map((tr) => ({ name: tr.toolName, output: tr.output }))
         );
         await logAiUsage({
           route: '/api/ai/main',
@@ -339,7 +366,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return result.toUIMessageStreamResponse();
+    return result.toUIMessageStreamResponse({ sendReasoning: true });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       return NextResponse.json(null, { status: 408 });

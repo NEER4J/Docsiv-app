@@ -12,6 +12,13 @@ import {
   generateUniverCells,
 } from "@/lib/ai/shared/content-generator";
 
+// ── UUID validation ─────────────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUuid(id: string | null | undefined): boolean {
+  if (!id || id === 'null' || id === 'undefined') return false;
+  return UUID_RE.test(id);
+}
+
 // ── Post-edit side effects (version history + thumbnail) ────────────────────
 
 /**
@@ -188,7 +195,8 @@ export function createEditDocumentPlateTool(
   localCache: Map<string, unknown>,
   withCache: <T>(key: string, fn: () => Promise<T>) => Promise<T>,
   userId?: string,
-  authedClient?: SupabaseClient
+  authedClient?: SupabaseClient,
+  resolveDocId?: (raw: string | null | undefined) => string | null,
 ) {
   return tool({
     description:
@@ -232,9 +240,15 @@ export function createEditDocumentPlateTool(
       reason,
     }) => {
       try {
+      // Resolve document_id — fall back to last created doc if model passes "undefined"
+      const resolved_id = resolveDocId ? resolveDocId(document_id) : (isValidUuid(document_id) ? document_id : null);
+      if (!resolved_id) {
+        return { success: false as const, error: `Invalid document_id: "${document_id}". Pass the UUID returned by create_document.` };
+      }
+
       // Check access permissions (skip for docs created in this session)
-      if (!isRecentlyCreatedDoc(localCache, document_id)) {
-        const hasAccess = await safeCheckDocumentAccess(document_id);
+      if (!isRecentlyCreatedDoc(localCache, resolved_id)) {
+        const hasAccess = await safeCheckDocumentAccess(resolved_id);
         if (!hasAccess) {
           return {
             success: false as const,
@@ -244,7 +258,7 @@ export function createEditDocumentPlateTool(
       }
 
       // Get current document (use service role client to avoid cookie context issues during streaming)
-      const { document, error: docError } = await getDocumentDirect(document_id);
+      const { document, error: docError } = await getDocumentDirect(resolved_id);
       if (docError || !document) {
         return {
           success: false as const,
@@ -255,12 +269,12 @@ export function createEditDocumentPlateTool(
       // Verify it's a plate-compatible document
       const isPlateDoc = ["doc", "contract"].includes(document.base_type);
       if (!isPlateDoc) {
-        console.log(`[edit_document_plate] Skipping: doc ${document_id} is "${document.base_type}", not plate-compatible`);
+        console.log(`[edit_document_plate] Skipping: doc ${resolved_id} is "${document.base_type}", not plate-compatible`);
         return {
           success: true as const,
-          document_id,
+          document_id: resolved_id,
           skipped: true,
-          reason: `Document is a ${document.base_type} — use the appropriate editor tool instead.`,
+          error: `Wrong tool: this document is base_type "${document.base_type}". Use edit_document_${document.base_type === 'sheet' ? 'univer' : document.base_type === 'presentation' || document.base_type === 'report' ? 'konva' : 'plate'} instead.`,
         };
       }
 
@@ -360,13 +374,13 @@ export function createEditDocumentPlateTool(
       const oldJson = JSON.stringify(fullValue);
       const newJson = JSON.stringify(newValue);
       const contentChanged = oldJson !== newJson;
-      console.log(`[edit_document_plate] op=${operation} doc=${document_id} changed=${contentChanged} oldNodes=${fullValue.length} newNodes=${newValue.length}`);
+      console.log(`[edit_document_plate] op=${operation} doc=${resolved_id} changed=${contentChanged} oldNodes=${fullValue.length} newNodes=${newValue.length}`);
 
       if (!contentChanged) {
         console.warn('[edit_document_plate] Content unchanged after operation — skipping DB write');
         return {
           success: true as const,
-          document_id,
+          document_id: resolved_id,
           title: document.title,
           base_type: document.base_type,
           operation,
@@ -378,7 +392,7 @@ export function createEditDocumentPlateTool(
       }
 
       const { error: updateError } = await updateDocumentContentDirect(
-        document_id,
+        resolved_id,
         newContent,
         userId,
         authedClient
@@ -392,17 +406,17 @@ export function createEditDocumentPlateTool(
         };
       }
 
-      console.log('[edit_document_plate] Success: saved to DB', document_id, operation);
+      console.log('[edit_document_plate] Success: saved to DB', resolved_id, operation);
 
       // Fire-and-forget: create version + thumbnail
       postEditSideEffects(
-        document_id, newContent,
+        resolved_id, newContent,
         `AI: ${operation}`, userId,
       ).catch(() => {});
 
       return {
         success: true as const,
-        document_id,
+        document_id: resolved_id,
         title: document.title,
         base_type: document.base_type,
         operation,
@@ -489,7 +503,8 @@ export function createEditDocumentKonvaTool(
   localCache: Map<string, unknown>,
   withCache: <T>(key: string, fn: () => Promise<T>) => Promise<T>,
   userId?: string,
-  authedClient?: SupabaseClient
+  authedClient?: SupabaseClient,
+  resolveDocId?: (raw: string | null | undefined) => string | null,
 ) {
   return tool({
     description:
@@ -526,9 +541,13 @@ export function createEditDocumentKonvaTool(
     // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
     execute: async ({ document_id, operation, page_index, layout_data, shapes, generation_prompt, reason }) => {
       try {
+      const resolved_id = resolveDocId ? resolveDocId(document_id) : (isValidUuid(document_id) ? document_id : null);
+      if (!resolved_id) {
+        return { success: false as const, error: `Invalid document_id: "${document_id}". Pass the UUID returned by create_document.` };
+      }
       // Check access permissions (skip for docs created in this session)
-      if (!isRecentlyCreatedDoc(localCache, document_id)) {
-        const hasAccess = await safeCheckDocumentAccess(document_id);
+      if (!isRecentlyCreatedDoc(localCache, resolved_id)) {
+        const hasAccess = await safeCheckDocumentAccess(resolved_id);
         if (!hasAccess) {
           return {
             success: false as const,
@@ -538,9 +557,9 @@ export function createEditDocumentKonvaTool(
       }
 
       // Get current document (use service role client to avoid cookie context issues during streaming)
-      const { document, error: docError } = await getDocumentDirect(document_id);
+      const { document, error: docError } = await getDocumentDirect(resolved_id);
       if (docError || !document) {
-        console.error('[edit_document_konva] Document not found:', document_id, docError);
+        console.error('[edit_document_konva] Document not found:', resolved_id, docError);
         return {
           success: false as const,
           error: docError ?? "Document not found",
@@ -551,12 +570,12 @@ export function createEditDocumentKonvaTool(
       const isKonvaDoc = ["report", "presentation"].includes(document.base_type);
 
       if (!isKonvaDoc) {
-        console.log(`[edit_document_konva] Skipping: doc ${document_id} is "${document.base_type}", not konva-compatible`);
+        console.log(`[edit_document_konva] Skipping: doc ${resolved_id} is "${document.base_type}", not konva-compatible`);
         return {
           success: true as const,
-          document_id,
+          document_id: resolved_id,
           skipped: true,
-          reason: `Document is a ${document.base_type} — use the appropriate editor tool instead.`,
+          error: `Wrong tool: this document is base_type "${document.base_type}". Use edit_document_${document.base_type === 'sheet' ? 'univer' : document.base_type === 'presentation' || document.base_type === 'report' ? 'konva' : 'plate'} instead.`,
         };
       }
 
@@ -901,13 +920,13 @@ export function createEditDocumentKonvaTool(
       const oldJson = JSON.stringify(pages);
       const newJson = JSON.stringify(updatedPages);
       const contentChanged = oldJson !== newJson;
-      console.log(`[edit_document_konva] op=${operation} doc=${document_id} changed=${contentChanged} oldPages=${pages.length} newPages=${updatedPages.length}`);
+      console.log(`[edit_document_konva] op=${operation} doc=${resolved_id} changed=${contentChanged} oldPages=${pages.length} newPages=${updatedPages.length}`);
 
       if (!contentChanged) {
         console.warn('[edit_document_konva] Content unchanged after operation');
         return {
           success: true as const,
-          document_id,
+          document_id: resolved_id,
           title: document.title,
           base_type: document.base_type,
           operation,
@@ -921,7 +940,7 @@ export function createEditDocumentKonvaTool(
 
       // Update the document (service role client)
       const { error: updateError } = await updateDocumentContentDirect(
-        document_id,
+        resolved_id,
         newContent,
         userId,
         authedClient
@@ -935,17 +954,17 @@ export function createEditDocumentKonvaTool(
         };
       }
 
-      console.log('[edit_document_konva] Success: saved to DB', document_id, operation);
+      console.log('[edit_document_konva] Success: saved to DB', resolved_id, operation);
 
       // Fire-and-forget: create version + thumbnail
       postEditSideEffects(
-        document_id, newContent,
+        resolved_id, newContent,
         `AI: ${operation}`, userId,
       ).catch(() => {});
 
       return {
         success: true as const,
-        document_id,
+        document_id: resolved_id,
         title: document.title,
         base_type: document.base_type,
         operation,
@@ -993,7 +1012,8 @@ export function createEditDocumentUniverTool(
   localCache: Map<string, unknown>,
   withCache: <T>(key: string, fn: () => Promise<T>) => Promise<T>,
   userId?: string,
-  authedClient?: SupabaseClient
+  authedClient?: SupabaseClient,
+  resolveDocId?: (raw: string | null | undefined) => string | null,
 ) {
   return tool({
     description:
@@ -1032,9 +1052,13 @@ export function createEditDocumentUniverTool(
     // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
     execute: async ({ document_id, operation, sheet_id, cell_updates, range, formula, generation_prompt, reason }) => {
       try {
+      const resolved_id = resolveDocId ? resolveDocId(document_id) : (isValidUuid(document_id) ? document_id : null);
+      if (!resolved_id) {
+        return { success: false as const, error: `Invalid document_id: "${document_id}". Pass the UUID returned by create_document.` };
+      }
       // Check access permissions (skip for docs created in this session)
-      if (!isRecentlyCreatedDoc(localCache, document_id)) {
-        const hasAccess = await safeCheckDocumentAccess(document_id);
+      if (!isRecentlyCreatedDoc(localCache, resolved_id)) {
+        const hasAccess = await safeCheckDocumentAccess(resolved_id);
         if (!hasAccess) {
           return {
             success: false as const,
@@ -1044,9 +1068,9 @@ export function createEditDocumentUniverTool(
       }
 
       // Get current document (use service role client to avoid cookie context issues during streaming)
-      const { document, error: docError } = await getDocumentDirect(document_id);
+      const { document, error: docError } = await getDocumentDirect(resolved_id);
       if (docError || !document) {
-        console.error('[edit_document_univer] Document not found:', document_id, docError);
+        console.error('[edit_document_univer] Document not found:', resolved_id, docError);
         return {
           success: false as const,
           error: docError ?? "Document not found",
@@ -1056,12 +1080,12 @@ export function createEditDocumentUniverTool(
       // Verify it's a spreadsheet document
       const isSheetDoc = document.base_type === "sheet";
       if (!isSheetDoc) {
-        console.log(`[edit_document_univer] Skipping: doc ${document_id} is "${document.base_type}", not a spreadsheet`);
+        console.log(`[edit_document_univer] Skipping: doc ${resolved_id} is "${document.base_type}", not a spreadsheet`);
         return {
           success: true as const,
-          document_id,
+          document_id: resolved_id,
           skipped: true,
-          reason: `Document is a ${document.base_type} — use the appropriate editor tool instead.`,
+          error: `Wrong tool: this document is base_type "${document.base_type}". Use edit_document_${document.base_type === 'sheet' ? 'univer' : document.base_type === 'presentation' || document.base_type === 'report' ? 'konva' : 'plate'} instead.`,
         };
       }
 
@@ -1223,7 +1247,7 @@ export function createEditDocumentUniverTool(
 
       // Update the document (service role client)
       const { error: updateError } = await updateDocumentContentDirect(
-        document_id,
+        resolved_id,
         newContent,
         userId,
         authedClient
@@ -1237,17 +1261,17 @@ export function createEditDocumentUniverTool(
         };
       }
 
-      console.log('[edit_document_univer] Success:', document_id, operation);
+      console.log('[edit_document_univer] Success:', resolved_id, operation);
 
       // Fire-and-forget: create version + thumbnail
       postEditSideEffects(
-        document_id, newContent,
+        resolved_id, newContent,
         `AI: ${operation}`, userId,
       ).catch(() => {});
 
       return {
         success: true as const,
-        document_id,
+        document_id: resolved_id,
         title: document.title,
         base_type: document.base_type,
         operation,
