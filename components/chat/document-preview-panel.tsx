@@ -2,16 +2,17 @@
 
 import * as React from 'react';
 import dynamic from 'next/dynamic';
-import { ExternalLink, X, Loader2, RefreshCw } from 'lucide-react';
+import { ExternalLink, X, LoaderIcon, RefreshCw } from 'lucide-react';
 import { FileText as FileTextPhosphor } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { PlateDocumentEditor } from '@/components/platejs/editors/plate-document-editor';
+import { PlateDocumentEditor, type PlateDocumentEditorHandle } from '@/components/platejs/editors/plate-document-editor';
 import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { isUniverSheetContent } from '@/lib/univer-sheet-content';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
 import { createClient } from '@/lib/supabase/client';
+import { uploadDocumentThumbnail } from '@/lib/actions/documents';
 import {
   BASE_TYPE_FALLBACK,
   type DocumentBaseTypeId,
@@ -52,7 +53,7 @@ const PageBuilderPreview = dynamic(
 function ViewerLoading() {
   return (
     <div className="flex h-full items-center justify-center">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <LoaderIcon className="h-6 w-6 animate-spin text-muted-foreground" />
     </div>
   );
 }
@@ -70,6 +71,7 @@ export type DocumentPreviewPanelProps = {
   title: string;
   baseType: string;
   content: unknown;
+  workspaceId?: string;
   className?: string;
   onClose: () => void;
   onOpenInEditor: (documentId: string) => void;
@@ -80,6 +82,7 @@ export function DocumentPreviewPanel({
   title: titleProp,
   baseType: baseTypeProp,
   content: contentProp,
+  workspaceId: workspaceIdProp,
   className,
   onClose,
   onOpenInEditor,
@@ -87,9 +90,14 @@ export function DocumentPreviewPanel({
   const [fetchedContent, setFetchedContent] = React.useState<unknown>(null);
   const [fetchedTitle, setFetchedTitle] = React.useState<string | null>(null);
   const [fetchedBaseType, setFetchedBaseType] = React.useState<string | null>(null);
+  const [fetchedWorkspaceId, setFetchedWorkspaceId] = React.useState<string | null>(null);
   const [isFetching, setIsFetching] = React.useState(false);
   // Increment to force a re-fetch (for refresh button + re-click)
   const [fetchKey, setFetchKey] = React.useState(0);
+  // Ref for Plate editor to capture thumbnail from rendered DOM
+  const plateRef = React.useRef<PlateDocumentEditorHandle>(null);
+  // Track whether we've already generated a thumbnail for this content
+  const thumbnailGenRef = React.useRef<string | null>(null);
 
   const fetchContent = React.useCallback(() => {
     if (!documentId) return;
@@ -98,7 +106,7 @@ export function DocumentPreviewPanel({
     const supabase = createClient();
     supabase
       .from('documents')
-      .select('content,title,base_type')
+      .select('content,title,base_type,workspace_id')
       .eq('id', documentId)
       .single()
       .then(({ data, error }) => {
@@ -107,6 +115,7 @@ export function DocumentPreviewPanel({
         setFetchedContent(data.content);
         if (data.title) setFetchedTitle(data.title);
         if (data.base_type) setFetchedBaseType(data.base_type);
+        if (data.workspace_id) setFetchedWorkspaceId(data.workspace_id);
       });
   }, [documentId]);
 
@@ -115,17 +124,70 @@ export function DocumentPreviewPanel({
     setFetchedContent(null);
     setFetchedTitle(null);
     setFetchedBaseType(null);
+    setFetchedWorkspaceId(null);
+    thumbnailGenRef.current = null;
     fetchContent();
   }, [documentId, fetchKey, fetchContent]);
 
   const handleRefresh = () => setFetchKey((k) => k + 1);
 
-  // Use contentProp (from tool result) as primary source — it's the most
-  // up-to-date since it comes directly from the tool that just wrote to DB.
-  // Fall back to fetched content from DB.
-  const content = contentProp ?? fetchedContent;
+  // Prefer fetched content from DB (always fresh) over contentProp
+  // (which may be stale from an older tool result message).
+  // contentProp is only used as fallback while the DB fetch is in-flight.
+  const content = fetchedContent ?? contentProp;
   const title = fetchedTitle ?? titleProp;
   const baseType = fetchedBaseType ?? baseTypeProp;
+  const wsId = fetchedWorkspaceId ?? workspaceIdProp;
+
+  // Client-side thumbnail generation after content loads.
+  // Capture functions need browser APIs (canvas, window) so they must run here.
+  React.useEffect(() => {
+    if (!content || !wsId || !documentId) return;
+    // Only generate once per documentId+content combo
+    const contentHash = JSON.stringify(content).length.toString();
+    if (thumbnailGenRef.current === `${documentId}:${contentHash}`) return;
+    thumbnailGenRef.current = `${documentId}:${contentHash}`;
+
+    const generateThumbnail = async () => {
+      try {
+        let base64: string | null = null;
+
+        if (baseType === 'presentation' || baseType === 'report') {
+          const { captureKonvaContentAsPngBase64 } = await import('@/lib/capture-thumbnail');
+          const { isKonvaContent } = await import('@/lib/konva-content');
+          if (isKonvaContent(content)) {
+            base64 = await captureKonvaContentAsPngBase64(
+              content as Parameters<typeof captureKonvaContentAsPngBase64>[0]
+            );
+          }
+        } else if (baseType === 'sheet') {
+          const { captureUniverContentAsPngBase64 } = await import('@/lib/capture-thumbnail');
+          const { isUniverSheetContent } = await import('@/lib/univer-sheet-content');
+          if (isUniverSheetContent(content)) {
+            base64 = await captureUniverContentAsPngBase64(
+              content as Parameters<typeof captureUniverContentAsPngBase64>[0]
+            );
+          }
+        } else if (baseType === 'doc' || baseType === 'contract') {
+          // Plate thumbnails need the rendered DOM — use the ref's captureThumbnail
+          if (plateRef.current) {
+            base64 = await plateRef.current.captureThumbnail();
+          }
+        }
+
+        if (base64) {
+          await uploadDocumentThumbnail(documentId, wsId, base64);
+        }
+      } catch {
+        // Thumbnail generation is best-effort — don't block the preview
+      }
+    };
+
+    // Delay to let the viewer render first — Plate needs more time for DOM layout
+    const delay = (baseType === 'doc' || baseType === 'contract') ? 3000 : 1500;
+    const timer = setTimeout(generateThumbnail, delay);
+    return () => clearTimeout(timer);
+  }, [content, baseType, documentId, wsId]);
 
   const renderViewer = () => {
     if (!content) {
@@ -199,6 +261,7 @@ export function DocumentPreviewPanel({
       return (
         <div className="flex-1 overflow-auto px-4 py-6">
           <PlateDocumentEditor
+            ref={plateRef}
             initialValue={initialValue as Parameters<typeof PlateDocumentEditor>[0]['initialValue']}
             readOnly={true}
             canComment={false}

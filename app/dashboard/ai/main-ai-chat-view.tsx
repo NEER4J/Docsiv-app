@@ -6,7 +6,7 @@ import {
   ArrowUp,
   Check,
   Ellipsis,
-  Loader2,
+  LoaderIcon,
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
@@ -65,6 +65,7 @@ import {
 } from "./use-main-ai-chat";
 import type { UIMessage } from "ai";
 import { Separator } from "@/components/ui/separator";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 // Tools whose result should render a DocumentArtifact card
 const DOCUMENT_TOOL_NAMES_SET = new Set([
@@ -406,6 +407,9 @@ export function MainAiChatView({
   >([]);
   const [isProcessingFiles, setIsProcessingFiles] = React.useState(false);
 
+  // ─── Responsive ───────────────────────────────────────────────────────────
+  const isMobile = useIsMobile();
+
   // ─── Preview panel state ─────────────────────────────────────────────────
   const [activePreview, setActivePreview] = React.useState<ActivePreview>(null);
   // Increment to force preview refresh even when clicking the same document
@@ -695,34 +699,41 @@ export function MainAiChatView({
     []
   );
 
+  const [isCreatingSession, setIsCreatingSession] = React.useState(false);
+
   const createNewSession = React.useCallback(async () => {
-    if (!workspaceId) return false;
-    const { sessionId, error } = await createMainAiSession(workspaceId, {
-      title: "New chat",
-      messages: [],
-      input: "",
-    });
-    if (error || !sessionId) {
-      toast.error(error ?? "Could not create chat session");
-      return false;
+    if (!workspaceId || isCreatingSession) return false;
+    setIsCreatingSession(true);
+    try {
+      const { sessionId, error } = await createMainAiSession(workspaceId, {
+        title: "New chat",
+        messages: [],
+        input: "",
+      });
+      if (error || !sessionId) {
+        toast.error(error ?? "Could not create chat session");
+        return false;
+      }
+      const fresh: MainAiSessionItem = {
+        id: sessionId,
+        title: "New chat",
+        summary: "",
+        messages: [],
+        input: "",
+        archived: false,
+        updated_at: new Date().toISOString(),
+        last_message_at: new Date().toISOString(),
+      };
+      setSessions((prev) => [fresh, ...prev]);
+      setActiveSessionFromUser(sessionId);
+      chatRef.current.setMessages([]);
+      setInput("");
+      setActivePreview(null);
+      return true;
+    } finally {
+      setIsCreatingSession(false);
     }
-    const fresh: MainAiSessionItem = {
-      id: sessionId,
-      title: "New chat",
-      summary: "",
-      messages: [],
-      input: "",
-      archived: false,
-      updated_at: new Date().toISOString(),
-      last_message_at: new Date().toISOString(),
-    };
-    setSessions((prev) => [fresh, ...prev]);
-    setActiveSessionFromUser(sessionId);
-    chatRef.current.setMessages([]);
-    setInput("");
-    setActivePreview(null);
-    return true;
-  }, [workspaceId, setActiveSessionFromUser]);
+  }, [workspaceId, isCreatingSession, setActiveSessionFromUser]);
 
   // Force new session from URL param
   React.useEffect(() => {
@@ -1330,9 +1341,14 @@ export function MainAiChatView({
         <button
           type="button"
           onClick={() => createNewSession()}
-          className="flex w-full items-center gap-2 rounded-lg bg-white px-3 py-2.5 text-sm text-foreground transition-all duration-200 hover:shadow dark:bg-zinc-800 border border-gray-200 dark:border-gray-800"
+          disabled={isCreatingSession}
+          className="flex w-full items-center gap-2 rounded-lg bg-white px-3 py-2.5 text-sm text-foreground transition-all duration-200 hover:shadow disabled:opacity-60 dark:bg-zinc-800 border border-gray-200 dark:border-gray-800"
         >
-          <Plus className="size-3.5 shrink-0" />
+          {isCreatingSession ? (
+            <LoaderIcon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+          ) : (
+            <Plus className="size-3.5 shrink-0" />
+          )}
           New chat
         </button>
       </div>
@@ -1476,9 +1492,14 @@ export function MainAiChatView({
                 size="icon"
                 className="size-8 rounded-full text-muted-foreground hover:text-foreground"
                 onClick={() => createNewSession()}
+                disabled={isCreatingSession}
                 aria-label="New chat"
               >
-                <Plus className="size-4" />
+                {isCreatingSession ? (
+                  <LoaderIcon className="size-4 animate-spin" />
+                ) : (
+                  <Plus className="size-4" />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
@@ -1491,7 +1512,7 @@ export function MainAiChatView({
 
       {/* ─── Main chat area ─── */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-neutral-100/70 dark:bg-zinc-950">
-        <PanelGroup direction="horizontal" className="h-full w-full">
+        <PanelGroup orientation="horizontal" className="h-full w-full">
           {/* Chat column */}
           <Panel defaultSize={activePreview ? 50 : 100} minSize={30}>
           <div className="flex min-w-0 flex-1 flex-col h-full">
@@ -1651,7 +1672,7 @@ export function MainAiChatView({
                                 }
                               >
                                 {isLoading ? (
-                                  <Loader2 className="size-4 animate-spin" />
+                                  <LoaderIcon className="size-4 animate-spin" />
                                 ) : (
                                   <ArrowUp className="size-4" />
                                 )}
@@ -1765,7 +1786,7 @@ export function MainAiChatView({
                               }
                             >
                               {isLoading ? (
-                                <Loader2 className="size-4 animate-spin" />
+                                <LoaderIcon className="size-4 animate-spin" />
                               ) : (
                                 <ArrowUp className="size-4" />
                               )}
@@ -1936,27 +1957,59 @@ export function MainAiChatView({
           </div>
           </Panel>
 
-          {/* ─── Resize handle + Document preview panel ─── */}
-          {activePreview && (
-            <>
-              <PanelResizeHandle className="hidden w-1.5 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-border/50 active:bg-border md:flex" />
-              <Panel defaultSize={50} minSize={25} className="hidden md:flex">
+          {/* ─── Resize handle + Document preview panel (desktop) ─── */}
+          {activePreview && !isMobile && (
+            <PanelResizeHandle className="group/handle relative flex w-2 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-border/30 active:bg-border/50">
+              <div className="absolute z-10 flex h-8 w-3.5 items-center justify-center rounded-full border border-border/60 bg-background shadow-sm transition-colors group-hover/handle:border-border group-hover/handle:bg-muted group-active/handle:bg-muted">
+                <div className="flex flex-col gap-[3px]">
+                  <div className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
+                  <div className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
+                  <div className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
+                </div>
+              </div>
+            </PanelResizeHandle>
+          )}
+          {activePreview && !isMobile && (
+            <Panel defaultSize={50} minSize={25}>
+              <DocumentPreviewPanel
+                key={previewKey}
+                documentId={activePreview.documentId}
+                title={activePreview.title}
+                baseType={activePreview.baseType}
+                content={activePreview.content}
+                workspaceId={workspaceId ?? undefined}
+                className="w-full"
+                onClose={() => setActivePreview(null)}
+                onOpenInEditor={(docId) => {
+                  window.location.assign(`/d/${docId}?aiOpen=1`);
+                }}
+              />
+            </Panel>
+          )}
+        </PanelGroup>
+
+        {/* ─── Document preview sheet (mobile) ─── */}
+        {isMobile && (
+          <Sheet open={!!activePreview} onOpenChange={(open) => { if (!open) setActivePreview(null); }}>
+            <SheetContent side="bottom" className="h-[85vh] p-0 flex flex-col [&>button]:hidden">
+              {activePreview && (
                 <DocumentPreviewPanel
-                  key={previewKey}
+                  key={`mobile-${previewKey}`}
                   documentId={activePreview.documentId}
                   title={activePreview.title}
                   baseType={activePreview.baseType}
                   content={activePreview.content}
-                  className="w-full"
+                  workspaceId={workspaceId ?? undefined}
+                  className="w-full h-full"
                   onClose={() => setActivePreview(null)}
                   onOpenInEditor={(docId) => {
                     window.location.assign(`/d/${docId}?aiOpen=1`);
                   }}
                 />
-              </Panel>
-            </>
-          )}
-        </PanelGroup>
+              )}
+            </SheetContent>
+          </Sheet>
+        )}
       </div>
     </div>
   );
@@ -2017,7 +2070,7 @@ function AssistantMessageContent({
                 key={i}
                 className="mt-3 inline-flex animate-in fade-in-0 slide-in-from-bottom-1 items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-muted-foreground duration-200 dark:bg-zinc-800"
               >
-                <Loader2 className="size-3 animate-spin" />
+                <LoaderIcon className="size-3 animate-spin" />
                 <span>{getToolLabel(toolName)}...</span>
               </div>
             );
@@ -2351,7 +2404,7 @@ function AttachmentPreview({
                 {getFileExt(file.name)}
               </span>
               {file.status === "processing" && (
-                <Loader2 className="size-2.5 animate-spin text-muted-foreground" />
+                <LoaderIcon className="size-2.5 animate-spin text-muted-foreground" />
               )}
               {file.status === "ready" && (
                 <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
@@ -2384,7 +2437,7 @@ function AttachmentPreview({
       {/* Processing indicator */}
       {(isProcessing || hasPending) && (
         <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] text-muted-foreground dark:bg-zinc-800">
-          <Loader2 className="size-3 animate-spin" />
+          <LoaderIcon className="size-3 animate-spin" />
           <span>
             {processingReady}/{processingTotal}
           </span>

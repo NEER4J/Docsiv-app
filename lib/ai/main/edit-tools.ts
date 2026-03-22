@@ -20,71 +20,35 @@ import {
  */
 async function postEditSideEffects(
   documentId: string,
-  workspaceId: string,
   content: unknown,
-  baseType: string,
   label: string,
   userId?: string,
 ) {
   // 1. Create a document version with label
+  // NOTE: We use a direct INSERT instead of the create_document_version RPC
+  // because the RPC uses auth.uid() which is NULL for service_role clients.
   try {
     const sb = createServiceRoleClient();
-    await sb.rpc("create_document_version", {
-      p_document_id: documentId,
-      p_content: content,
-      p_label: label,
-    });
-    console.log("[postEdit] Version created:", documentId, label);
+    const { error: versionError } = await sb
+      .from("document_versions")
+      .insert({
+        document_id: documentId,
+        content: content as Record<string, unknown>,
+        label: label || null,
+        created_by: userId || null,
+      });
+    if (versionError) {
+      console.warn("[postEdit] Version creation failed:", versionError.message, versionError.code);
+    } else {
+      console.log("[postEdit] Version created:", documentId, label);
+    }
   } catch (err) {
     console.warn("[postEdit] Version creation failed:", err);
   }
 
-  // 2. Generate and upload thumbnail (content-based, no DOM needed)
-  try {
-    let base64: string | null = null;
-
-    if (baseType === "doc" || baseType === "contract") {
-      // Plate content — use captureHtmlAsPngBase64 with a simple HTML render
-      // We can't use html2canvas server-side, so skip for Plate docs.
-      // Thumbnails will be generated when user opens the editor.
-    } else if (baseType === "presentation" || baseType === "report") {
-      const { captureKonvaContentAsPngBase64 } = await import("@/lib/capture-thumbnail");
-      const { isKonvaContent } = await import("@/lib/konva-content");
-      if (isKonvaContent(content)) {
-        base64 = await captureKonvaContentAsPngBase64(content as Parameters<typeof captureKonvaContentAsPngBase64>[0]);
-      }
-    } else if (baseType === "sheet") {
-      const { captureUniverContentAsPngBase64 } = await import("@/lib/capture-thumbnail");
-      const { isUniverSheetContent } = await import("@/lib/univer-sheet-content");
-      if (isUniverSheetContent(content)) {
-        base64 = await captureUniverContentAsPngBase64(content as Parameters<typeof captureUniverContentAsPngBase64>[0]);
-      }
-    }
-
-    if (base64) {
-      const sb = createServiceRoleClient();
-      const path = `${workspaceId}/${documentId}/thumbnail.png`;
-      const base64Data = base64.replace(/^data:image\/\w+;base64,/, "");
-      const buffer = Buffer.from(base64Data, "base64");
-
-      const { error: uploadError } = await sb.storage
-        .from("document-attachments")
-        .upload(path, buffer, { contentType: "image/png", upsert: true });
-
-      if (!uploadError) {
-        const { data: urlData } = sb.storage
-          .from("document-attachments")
-          .getPublicUrl(path);
-        if (urlData?.publicUrl) {
-          const thumbnailUrl = `${urlData.publicUrl}?v=${Date.now()}`;
-          await sb.from("documents").update({ thumbnail_url: thumbnailUrl }).eq("id", documentId);
-          console.log("[postEdit] Thumbnail uploaded:", documentId);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("[postEdit] Thumbnail generation failed:", err);
-  }
+  // 2. Thumbnail generation is handled client-side in DocumentPreviewPanel.
+  // The capture functions (captureKonvaContentAsPngBase64, captureUniverContentAsPngBase64)
+  // require browser APIs (window, document, canvas) and cannot run server-side.
 }
 
 // ── DB helpers for streaming context ─────────────────────────────────────────
@@ -432,7 +396,7 @@ export function createEditDocumentPlateTool(
 
       // Fire-and-forget: create version + thumbnail
       postEditSideEffects(
-        document_id, document.workspace_id, newContent, document.base_type,
+        document_id, newContent,
         `AI: ${operation}`, userId,
       ).catch(() => {});
 
@@ -975,7 +939,7 @@ export function createEditDocumentKonvaTool(
 
       // Fire-and-forget: create version + thumbnail
       postEditSideEffects(
-        document_id, document.workspace_id, newContent, document.base_type,
+        document_id, newContent,
         `AI: ${operation}`, userId,
       ).catch(() => {});
 
@@ -1277,7 +1241,7 @@ export function createEditDocumentUniverTool(
 
       // Fire-and-forget: create version + thumbnail
       postEditSideEffects(
-        document_id, document.workspace_id, newContent, document.base_type,
+        document_id, newContent,
         `AI: ${operation}`, userId,
       ).catch(() => {});
 
