@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import dynamic from 'next/dynamic';
-import { ExternalLink, X, LoaderIcon, RefreshCw } from 'lucide-react';
+import { ExternalLink, X, LoaderIcon, RefreshCw, Globe } from 'lucide-react';
 import { FileText as FileTextPhosphor } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -11,7 +11,8 @@ import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { isUniverSheetContent } from '@/lib/univer-sheet-content';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
-import { getDocumentById, uploadDocumentThumbnail } from '@/lib/actions/documents';
+import { getDocumentById, uploadDocumentThumbnail, getShareDialogData } from '@/lib/actions/documents';
+import { ShareDialog, type ShareDialogData } from '@/components/documents/share-dialog';
 import {
   BASE_TYPE_FALLBACK,
   type DocumentBaseTypeId,
@@ -71,6 +72,7 @@ export type DocumentPreviewPanelProps = {
   baseType: string;
   content: unknown;
   workspaceId?: string;
+  workspaceName?: string;
   className?: string;
   onClose: () => void;
   onOpenInEditor: (documentId: string) => void;
@@ -82,6 +84,7 @@ export function DocumentPreviewPanel({
   baseType: baseTypeProp,
   content: contentProp,
   workspaceId: workspaceIdProp,
+  workspaceName,
   className,
   onClose,
   onOpenInEditor,
@@ -96,6 +99,21 @@ export function DocumentPreviewPanel({
   const plateRef = React.useRef<PlateDocumentEditorHandle>(null);
   // Track whether we've already generated a thumbnail for this content
   const thumbnailGenRef = React.useRef<string | null>(null);
+  // Share dialog state
+  const [shareOpen, setShareOpen] = React.useState(false);
+  const [prefetchedShareData, setPrefetchedShareData] = React.useState<ShareDialogData | null>(null);
+
+  // Prefetch share dialog data so it opens instantly
+  React.useEffect(() => {
+    if (!documentId) return;
+    getShareDialogData(documentId).then((res) => {
+      setPrefetchedShareData({
+        links: res.links ?? [],
+        collaborators: res.collaborators ?? [],
+        requests: res.requests ?? [],
+      });
+    }).catch(() => {});
+  }, [documentId]);
 
   const fetchContent = React.useCallback(() => {
     if (!documentId || !workspaceIdProp) return;
@@ -325,6 +343,15 @@ export function DocumentPreviewPanel({
             variant="outline"
             size="sm"
             className="h-7 text-xs"
+            onClick={() => setShareOpen(true)}
+          >
+            <Globe className="mr-1 h-3.5 w-3.5" />
+            Share
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
             onClick={() => onOpenInEditor(documentId)}
           >
             <ExternalLink className="mr-1 h-3.5 w-3.5" />
@@ -345,6 +372,17 @@ export function DocumentPreviewPanel({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {renderViewer()}
       </div>
+
+      {/* Share dialog – same popup as the edit page */}
+      <ShareDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        documentId={documentId}
+        documentTitle={title}
+        workspaceName={workspaceName}
+        initialData={prefetchedShareData}
+        onDataLoaded={setPrefetchedShareData}
+      />
     </div>
   );
 }

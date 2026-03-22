@@ -56,6 +56,19 @@ async function renderPageToDataURL(
     const stage = new Konva.Stage({ container, width, height });
     const layer = new Konva.Layer();
 
+    // Match editor: Stage sits on a white surface (see konva-editor-core shrink-0 bg-white).
+    // Without this, thumbnails / PDF show transparent or wrong color when `background` is unset.
+    layer.add(
+      new Konva.Rect({
+        x: 0,
+        y: 0,
+        width,
+        height,
+        fill: '#ffffff',
+        listening: false,
+      })
+    );
+
     if (background?.type === 'solid') {
       const rect = new Konva.Rect({ x: 0, y: 0, width, height, fill: background.color });
       layer.add(rect);

@@ -306,10 +306,10 @@ function getToolStatusText(
           : "Could not update document content";
     case "edit_document_konva":
       return status === "running"
-        ? "Designing document"
+        ? "Editing document"
         : status === "success"
-          ? "Design updated"
-          : "Could not update design";
+          ? "Document updated"
+          : "Could not update document";
     case "edit_document_univer":
       return status === "running"
         ? "Updating spreadsheet"
@@ -380,10 +380,10 @@ function getStreamingStatusText(message?: UIMessage | null): string {
     lastCompletedTool === "edit_document_konva" ||
     lastCompletedTool === "edit_document_univer"
   ) {
-    return "Applying final updates...";
+    return "Thinking...";
   }
   if (lastCompletedTool === "seed_editor_ai") {
-    return "Finalizing document...";
+    return "Still working...";
   }
   return "AI is working...";
 }
@@ -2277,6 +2277,7 @@ export function MainAiChatView({
                 baseType={activePreview.baseType}
                 content={activePreview.content}
                 workspaceId={workspaceId ?? undefined}
+                workspaceName={workspaceName}
                 className="w-full"
                 onClose={() => setActivePreview(null)}
                 onOpenInEditor={(docId) => {
@@ -2302,6 +2303,7 @@ export function MainAiChatView({
                   baseType={activePreview.baseType}
                   content={activePreview.content}
                   workspaceId={workspaceId ?? undefined}
+                  workspaceName={workspaceName}
                   className="w-full h-full"
                   onClose={() => setActivePreview(null)}
                   onOpenInEditor={(docId) => {
@@ -2380,11 +2382,18 @@ function AssistantMessageContent({
   // tool result with each document_id. Earlier tool results (create, edit,
   // seed) just show the status pill instead of repeating the card.
   const lastCardIndexByDocId = new Map<string, number>();
+  let hasSuccessfulCreateInMessage = false;
   message.parts.forEach((part, i) => {
     const toolInfo = getToolInfo(part);
     if (!toolInfo || toolInfo.state !== "output-available") return;
     const result = toolInfo.output as DocumentToolResult | undefined;
     if (!result?.success) return;
+    if (
+      toolInfo.toolName === "create_document" ||
+      toolInfo.toolName === "create_document_from_template"
+    ) {
+      hasSuccessfulCreateInMessage = true;
+    }
     const docId = result?.document_id ?? result?.documentId;
     if (docId) lastCardIndexByDocId.set(docId, i);
   });
@@ -2434,6 +2443,15 @@ function AssistantMessageContent({
             const warningMsg = isSuccess && result && "warning" in result
               ? String((result as Record<string, unknown>).warning)
               : null;
+            const isCreateTool =
+              toolName === "create_document" ||
+              toolName === "create_document_from_template";
+
+            // If creation eventually succeeded in this same assistant turn,
+            // hide earlier failed create rows to avoid confusing noise.
+            if (!isSuccess && isCreateTool && hasSuccessfulCreateInMessage) {
+              return null;
+            }
             const documentId = result?.document_id ?? result?.documentId;
             const isLastResultForDoc =
               !documentId || lastCardIndexByDocId.get(documentId) === i;
@@ -2516,6 +2534,12 @@ function AssistantMessageContent({
 
           // Tool error
           if (state === "error") {
+            const isCreateTool =
+              toolName === "create_document" ||
+              toolName === "create_document_from_template";
+            if (isCreateTool && hasSuccessfulCreateInMessage) {
+              return null;
+            }
             return (
               <div
                 key={i}

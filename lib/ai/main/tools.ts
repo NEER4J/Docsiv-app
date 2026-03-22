@@ -65,7 +65,10 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
           .enum(['doc', 'sheet', 'presentation', 'contract'])
           .describe('Document type: doc for reports/briefs, sheet for spreadsheets, presentation for decks, contract for contracts/SOWs'),
         client_id: z.string().nullable().describe('Client ID to assign, or null'),
-        document_type_id: z.string().nullable().describe('Document type ID from the workspace types list, or null'),
+        document_type_id: z
+          .string()
+          .nullable()
+          .describe('Document type UUID from the provided workspace types list only; use null if unknown'),
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ title, base_type, client_id, document_type_id }) => {
@@ -93,7 +96,10 @@ export function getMainAiTools(workspaceId: string, userId?: string, authedClien
         template_id: z.string().describe('The template ID to instantiate'),
         title: z.string().describe('Document title'),
         client_id: z.string().nullable().describe('Client ID to assign, or null'),
-        document_type_id: z.string().nullable().describe('Document type ID, or null'),
+        document_type_id: z
+          .string()
+          .nullable()
+          .describe('Document type UUID from the provided workspace types list only; use null if unknown'),
       }),
       // @ts-expect-error AI SDK v5 tool() overload inference issue with execute return type
       execute: async ({ template_id, title, client_id, document_type_id }) => {

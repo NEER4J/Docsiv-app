@@ -32,13 +32,32 @@ export async function createDocumentRecord(
   input: CreateDocumentInput
 ): Promise<{ documentId: string | null; error?: string }> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("create_document", {
+  const createArgs = {
     p_workspace_id: workspaceId,
     p_title: input.title ?? "Untitled",
     p_base_type: input.base_type,
     p_document_type_id: input.document_type_id ?? null,
     p_client_id: input.client_id ?? null,
-  });
+  };
+  let { data, error } = await supabase.rpc("create_document", createArgs);
+
+  // AI tool calls can occasionally send stale or hallucinated document_type_id values.
+  // If that happens, fall back to null so creation can continue safely.
+  const canRetryWithoutType =
+    Boolean(input.document_type_id) &&
+    Boolean(error) &&
+    (error.message.includes("documents_document_type_id_fkey") ||
+      error.message.includes("invalid input syntax for type uuid"));
+
+  if (canRetryWithoutType) {
+    const retry = await supabase.rpc("create_document", {
+      ...createArgs,
+      p_document_type_id: null,
+    });
+    data = retry.data;
+    error = retry.error;
+  }
+
   if (error) return { documentId: null, error: error.message };
   return { documentId: data as string };
 }

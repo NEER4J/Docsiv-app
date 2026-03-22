@@ -133,13 +133,34 @@ export async function instantiateDocumentTemplate(
   input: InstantiateTemplateInput = {}
 ): Promise<{ documentId: string | null; error?: string }> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("instantiate_document_template", {
+  const instantiateArgs = {
     p_template_id: templateId,
     p_workspace_id: workspaceId,
     p_title: input.title ?? null,
     p_client_id: input.client_id ?? null,
     p_document_type_id: input.document_type_id ?? null,
-  });
+  };
+  let { data, error } = await supabase.rpc(
+    "instantiate_document_template",
+    instantiateArgs
+  );
+
+  // Keep template instantiation resilient when AI passes an invalid type id.
+  const canRetryWithoutType =
+    Boolean(input.document_type_id) &&
+    Boolean(error) &&
+    (error.message.includes("documents_document_type_id_fkey") ||
+      error.message.includes("invalid input syntax for type uuid"));
+
+  if (canRetryWithoutType) {
+    const retry = await supabase.rpc("instantiate_document_template", {
+      ...instantiateArgs,
+      p_document_type_id: null,
+    });
+    data = retry.data;
+    error = retry.error;
+  }
+
   if (error) return { documentId: null, error: error.message };
   return { documentId: data as string };
 }

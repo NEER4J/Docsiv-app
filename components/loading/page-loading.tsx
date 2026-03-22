@@ -1,10 +1,14 @@
+"use client";
+
 import React from "react";
 import { LoaderIcon } from "lucide-react";
+import { useOptionalSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
 /**
- * Route `loading.tsx` overlay — Server Component safe (no client hooks).
- * Same spinner as the sidebar (workspace switcher, editor document list): Lucide `Loader` via `LoaderIcon`.
+ * Route `loading.tsx` overlay — centers the spinner in the main column (SidebarInset),
+ * not the full viewport, so it lines up with the sidebar gap (expanded vs icon width).
+ * Falls back to full-viewport center when used outside SidebarProvider.
  */
 export function PageLoading({
   className,
@@ -13,12 +17,26 @@ export function PageLoading({
   className?: string;
   message?: string;
 }) {
+  const sidebar = useOptionalSidebar();
+
+  const mainColumnLeft =
+    sidebar == null
+      ? undefined
+      : sidebar.isMobile
+        ? "0"
+        : sidebar.state === "expanded"
+          ? "var(--sidebar-width)"
+          : "var(--sidebar-width-icon)";
+
   return (
     <div
       className={cn(
-        "fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background/80",
-        className
+        "fixed top-0 right-0 bottom-0 z-50 flex flex-col items-center justify-center gap-4 bg-background/80",
+        "transition-[left] duration-200 ease-linear",
+        mainColumnLeft == null && "left-0",
+        className,
       )}
+      style={mainColumnLeft != null ? { left: mainColumnLeft } : undefined}
       aria-busy="true"
     >
       <div role="status" aria-label="Loading">
