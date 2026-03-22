@@ -14,6 +14,11 @@ import {
 import { DocumentsFilterBar } from "@/components/documents/documents-filter-bar";
 import { DocumentsList } from "@/components/documents/documents-list";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { getDocumentById, uploadDocumentThumbnail, softDeleteDocument, bulkSoftDeleteDocuments } from "@/lib/actions/documents";
 import { toast } from "sonner";
 import { captureHtmlAsPngBase64, captureKonvaContentAsPngBase64, captureUniverContentAsPngBase64 } from "@/lib/capture-thumbnail";
@@ -40,64 +45,79 @@ const CLIENT_TABS: DocumentTypeTabItem[] = [
 ];
 
 function OverviewTab({ client }: { client: ClientWithDocCount }) {
-  return (
-    <div className="mt-6 space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2">
-        {client.email && (
-          <div className="flex items-start gap-3">
-            <Envelope className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs text-muted-foreground">Email</p>
-              <a
-                href={`mailto:${client.email}`}
-                className="font-body text-sm hover:underline"
-              >
-                {client.email}
-              </a>
-            </div>
-          </div>
-        )}
-        {client.phone && (
-          <div className="flex items-start gap-3">
-            <Phone className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs text-muted-foreground">Phone</p>
-              <a
-                href={`tel:${client.phone}`}
-                className="font-body text-sm hover:underline"
-              >
-                {client.phone}
-              </a>
-            </div>
-          </div>
-        )}
-        {client.website && (
-          <div className="flex items-start gap-3">
-            <Globe className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs text-muted-foreground">Website</p>
-              <a
-                href={client.website}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-body text-sm hover:underline"
-              >
-                {client.website}
-              </a>
-            </div>
-          </div>
-        )}
-      </div>
+  const hasContact = Boolean(client.email || client.phone || client.website);
 
-      <div>
-        <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Recent activity
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {client.doc_count === 0
-            ? "No documents created yet."
-            : `${client.doc_count} document${client.doc_count === 1 ? "" : "s"} total.`}
-        </p>
+  return (
+    <div className="mt-6">
+      <div className="rounded-xl border border-border bg-background p-5 sm:p-6">
+        <p className="mb-4 text-sm font-medium text-foreground">Contact</p>
+        {hasContact ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {client.email && (
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-3">
+                <div className="flex items-start gap-3">
+                  <Envelope className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium text-muted-foreground">Email</p>
+                    <a
+                      href={`mailto:${client.email}`}
+                      className="font-body text-[13px] text-foreground transition-colors duration-200 hover:underline"
+                    >
+                      {client.email}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+            {client.phone && (
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-3">
+                <div className="flex items-start gap-3">
+                  <Phone className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium text-muted-foreground">Phone</p>
+                    <a
+                      href={`tel:${client.phone}`}
+                      className="font-body text-[13px] text-foreground transition-colors duration-200 hover:underline"
+                    >
+                      {client.phone}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+            {client.website && (
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-3 sm:col-span-2">
+                <div className="flex items-start gap-3">
+                  <Globe className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium text-muted-foreground">Website</p>
+                    <a
+                      href={client.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-body text-[13px] text-foreground transition-colors duration-200 hover:underline break-all"
+                    >
+                      {client.website}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No contact details added yet.</p>
+        )}
+
+        <div className="mt-6 border-t border-border pt-6">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Recent activity
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {client.doc_count === 0
+              ? "No documents created yet."
+              : `${client.doc_count} document${client.doc_count === 1 ? "" : "s"} total.`}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -338,81 +358,99 @@ export function ClientDetailView({
       <div>
         <Link
           href="/dashboard/clients"
-          className="font-body mb-4 inline-flex items-center gap-1 text-[0.8125rem] text-muted-foreground transition-colors hover:text-foreground"
+          className="font-body mb-4 inline-flex items-center gap-1 text-[0.8125rem] text-muted-foreground transition-colors duration-200 hover:text-foreground"
         >
-          <ChevronLeft className="size-3.5" />
+          <ChevronLeft className="size-3.5 shrink-0" aria-hidden />
           Clients
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-lg border border-border bg-muted">
-            <User className="size-5 text-muted-foreground" />
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted">
+            <User className="size-5 text-muted-foreground" weight="fill" aria-hidden />
           </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="font-ui text-xl font-semibold">{client.name}</h1>
+          <div className="min-w-0 flex-1 basis-[min(100%,12rem)]">
+            <h1 className="font-ui text-2xl font-semibold tracking-[-0.02em] text-foreground">
+              {client.name}
+            </h1>
             <p className="text-xs text-muted-foreground">
               {client.doc_count} {client.doc_count === 1 ? "document" : "documents"}
             </p>
           </div>
           {hasClientPortal && (
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={copyingLink}
-                onClick={async () => {
-                  setCopyingLink(true);
-                  const { url, error } = await getClientPortalUrl(workspaceId, client.id);
-                  setCopyingLink(false);
-                  if (error) {
-                    toast.error(error);
-                    return;
-                  }
-                  if (!url) return;
-                  try {
-                    await navigator.clipboard.writeText(url);
-                    toast.success("Portal link copied to clipboard");
-                  } catch {
-                    toast.error("Could not copy link");
-                  }
-                }}
-              >
-                {copyingLink ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Link2 className="size-4" />
-                )}
-                Copy portal link
-              </Button>
-              {client.email?.trim() && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={sendingInvite}
-                  onClick={async () => {
-                    setSendingInvite(true);
-                    const { error } = await sendClientPortalInvite(workspaceId, client.id);
-                    setSendingInvite(false);
-                    if (error) toast.error(error);
-                    else {
-                      toast.success("Portal invite sent to " + client.email);
-                      router.refresh();
-                    }
-                  }}
-                >
-                  {sendingInvite ? (
-                    <>
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-h-9 gap-2"
+                    disabled={copyingLink}
+                    onClick={async () => {
+                      setCopyingLink(true);
+                      const { url, error } = await getClientPortalUrl(workspaceId, client.id);
+                      setCopyingLink(false);
+                      if (error) {
+                        toast.error(error);
+                        return;
+                      }
+                      if (!url) return;
+                      try {
+                        await navigator.clipboard.writeText(url);
+                        toast.success("Portal link copied to clipboard");
+                      } catch {
+                        toast.error("Could not copy link");
+                      }
+                    }}
+                  >
+                    {copyingLink ? (
                       <Loader2 className="size-4 animate-spin" />
-                      Sending…
-                    </>
-                  ) : (
-                    <>
-                      <Send className="size-4" />
-                      Send portal invite
-                    </>
-                  )}
-                </Button>
+                    ) : (
+                      <Link2 className="size-4 shrink-0" />
+                    )}
+                    <span className="sm:hidden">Copy link</span>
+                    <span className="hidden sm:inline">Copy portal link</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-[240px]">
+                  Copy the client portal URL to your clipboard
+                </TooltipContent>
+              </Tooltip>
+              {client.email?.trim() && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-9 gap-2"
+                      disabled={sendingInvite}
+                      onClick={async () => {
+                        setSendingInvite(true);
+                        const { error } = await sendClientPortalInvite(workspaceId, client.id);
+                        setSendingInvite(false);
+                        if (error) toast.error(error);
+                        else {
+                          toast.success("Portal invite sent to " + client.email);
+                          router.refresh();
+                        }
+                      }}
+                    >
+                      {sendingInvite ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin shrink-0" />
+                          <span>Sending…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="size-4 shrink-0" />
+                          <span className="hidden min-[380px]:inline">Send portal invite</span>
+                          <span className="min-[380px]:hidden">Invite</span>
+                        </>
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[240px]">
+                    Send portal access to {client.email}
+                  </TooltipContent>
+                </Tooltip>
               )}
             </div>
           )}

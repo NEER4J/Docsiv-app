@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { User } from "lucide-react";
+import { Users } from "lucide-react";
 import { APP_CONFIG } from "@/config/app-config";
 import { getClients } from "@/lib/actions/clients";
 import { NewClientDialog } from "@/components/clients/new-client-dialog";
+import { ClientsPageContent } from "@/components/clients/clients-page-content";
 import { getCurrentWorkspaceContext } from "@/lib/workspace-context/server";
 
 export const metadata: Metadata = {
@@ -22,8 +22,14 @@ export default async function ClientsPage() {
   if (!workspaceId) {
     return (
       <div className="space-y-6">
-        <h1 className="font-ui text-2xl font-bold tracking-[-0.02em]">Clients</h1>
-        <p className="text-sm text-muted-foreground">No workspace selected.</p>
+        <h1 className="font-ui text-2xl font-semibold tracking-[-0.02em]">Clients</h1>
+        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-muted/40 px-6 py-12 text-center">
+          <Users className="size-10 text-muted-foreground/50" aria-hidden />
+          <p className="text-sm font-medium text-foreground">No workspace selected</p>
+          <p className="max-w-sm text-xs text-muted-foreground">
+            Select a workspace from the sidebar to manage clients.
+          </p>
+        </div>
       </div>
     );
   }
@@ -31,48 +37,11 @@ export default async function ClientsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-ui text-2xl font-bold tracking-[-0.02em]">
-          Clients
-        </h1>
+        <h1 className="font-ui text-2xl font-semibold tracking-[-0.02em]">Clients</h1>
         <NewClientDialog workspaceId={workspaceId} />
       </div>
 
-      <input
-        type="search"
-        placeholder="Search clients..."
-        className="font-body w-full max-w-md rounded-lg border border-border bg-background px-3 py-2 text-[0.875rem] placeholder:text-muted-foreground"
-      />
-
-      {clients.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
-          <p className="text-sm text-muted-foreground">No clients yet.</p>
-          <NewClientDialog
-            workspaceId={workspaceId}
-            trigger={
-              <button className="font-body inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-[0.875rem] transition-colors hover:bg-muted-hover">
-                + Add your first client
-              </button>
-            }
-          />
-        </div>
-      ) : (
-        <ul className="space-y-0 rounded-lg border border-border">
-          {clients.map((client) => (
-            <li key={client.id} className="border-b border-border last:border-b-0">
-              <Link
-                href={`/dashboard/clients/${client.id}`}
-                className="font-body flex flex-wrap items-center gap-4 px-4 py-3 transition-colors hover:bg-muted-hover"
-              >
-                <User className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 font-medium">{client.name}</span>
-                <span className="text-muted-foreground">
-                  {client.doc_count} {client.doc_count === 1 ? "doc" : "docs"}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <ClientsPageContent workspaceId={workspaceId} clients={clients} />
     </div>
   );
 }

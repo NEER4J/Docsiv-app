@@ -1,9 +1,10 @@
 import React from "react";
+import { LoaderIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
  * Route `loading.tsx` overlay — Server Component safe (no client hooks).
- * Keeps a flat, full-viewport spinner without coupling to dashboard sidebars.
+ * Same spinner as the sidebar (workspace switcher, editor document list): Lucide `Loader` via `LoaderIcon`.
  */
 export function PageLoading({
   className,
@@ -20,11 +21,12 @@ export function PageLoading({
       )}
       aria-busy="true"
     >
-      <div
-        role="status"
-        aria-label="Loading"
-        className="size-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent"
-      />
+      <div role="status" aria-label="Loading">
+        <LoaderIcon
+          className="size-8 shrink-0 animate-spin text-muted-foreground"
+          aria-hidden
+        />
+      </div>
       {message && (
         <p className="font-[family-name:var(--font-dm-sans)] text-sm text-muted-foreground">
           {message}
