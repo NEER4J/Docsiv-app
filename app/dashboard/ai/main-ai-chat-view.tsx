@@ -79,6 +79,24 @@ const DOCUMENT_TOOL_NAMES_SET = new Set([
   "rename_document",
 ]);
 
+// Editor label for base_type (shown in the doc type chip badge)
+const BASE_TYPE_EDITOR_LABEL: Record<string, string> = {
+  doc: "Docs",
+  contract: "Docs",
+  sheet: "Sheets",
+  presentation: "Slides",
+  report: "Canvas",
+};
+
+// Dynamic placeholder when a doc type is selected
+const BASE_TYPE_PLACEHOLDER: Record<string, string> = {
+  doc: "Describe the document you want to create...",
+  contract: "Describe the contract you need...",
+  sheet: "Upload a spreadsheet to work with or create from scratch",
+  presentation: "Describe the presentation you want to create...",
+  report: "Describe the report layout you want...",
+};
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_IMAGES = 25;
@@ -388,9 +406,14 @@ export function MainAiChatView({
   const [selectedDocumentId, setSelectedDocumentId] = React.useState<
     string | null
   >(null);
-  const [selectedDocTypeId, setSelectedDocTypeId] = React.useState<
-    string | null
-  >(null);
+  const [selectedDocType, setSelectedDocType] = React.useState<{
+    id: string;
+    name: string;
+    base_type: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    icon: React.ComponentType<any>;
+    color: string;
+  } | null>(null);
   const [clientChoiceModalOpen, setClientChoiceModalOpen] =
     React.useState(false);
 
@@ -430,6 +453,8 @@ export function MainAiChatView({
   const pendingFilesRef = React.useRef<
     Array<{ name: string; mimeType: string; dataUrl: string }>
   >([]);
+  // Doc type hint from pill selection — consumed once on next send
+  const pendingDocTypeRef = React.useRef<{ name: string; base_type: string; editor: string } | null>(null);
 
   // ─── Refs ────────────────────────────────────────────────────────────────
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
@@ -519,6 +544,7 @@ export function MainAiChatView({
     },
     pendingImagesRef,
     pendingFilesRef,
+    pendingDocTypeRef,
     onDocumentUpdate: (doc) => {
       openPreview(doc);
     },
@@ -1219,10 +1245,21 @@ export function MainAiChatView({
         };
       }
 
-      // Clear attachments and input immediately
+      // Clear attachments, input, and doc type selection immediately
       setAttachedImages([]);
       setAttachedFiles([]);
       setInput("");
+
+      // Capture doc type selection and set it on workspace context
+      // so the AI receives it as context (not visible in the chat bubble)
+      if (selectedDocType) {
+        pendingDocTypeRef.current = {
+          name: selectedDocType.name,
+          base_type: selectedDocType.base_type,
+          editor: BASE_TYPE_EDITOR_LABEL[selectedDocType.base_type] ?? "Docs",
+        };
+      }
+      setSelectedDocType(null);
 
       const messageText = trimmed || "See attached file(s)";
 
@@ -1287,6 +1324,7 @@ export function MainAiChatView({
       isProcessingFiles,
       setActiveSessionFromUser,
       selectedDocument,
+      selectedDocType,
     ]
   );
 
@@ -1628,7 +1666,7 @@ export function MainAiChatView({
                                 <Button
                                   type="button"
                                   size="icon"
-                                    className="size-8 shrink-0 rounded-lg bg-gray-100 text-muted-foreground/60 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 hover:text-foreground disabled:opacity-100"
+                                    className="size-8 shrink-0 rounded-lg bg-muted/70 text-muted-foreground/60 hover:bg-muted dark:bg-zinc-800 dark:hover:bg-zinc-700 hover:text-foreground disabled:opacity-100"
                                     onClick={() => fileInputRef.current?.click()}
                                   disabled={
                                     isLoading ||
@@ -1729,7 +1767,11 @@ export function MainAiChatView({
                           <div className="px-4 pt-3 pb-1">
                             <textarea
                               ref={textareaRef}
-                              placeholder="What do you want to create?"
+                              placeholder={
+                                selectedDocType
+                                  ? BASE_TYPE_PLACEHOLDER[selectedDocType.base_type] ?? `Describe the ${selectedDocType.name.toLowerCase()} you want to create...`
+                                  : "What do you want to create?"
+                              }
                               className="w-full min-h-[52px] max-h-40 resize-none bg-transparent text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/50 disabled:opacity-50"
                               rows={2}
                               value={input}
@@ -1747,7 +1789,7 @@ export function MainAiChatView({
                             />
                           </div>
                           <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
-                            <div className="flex items-center gap-0.5">
+                            <div className="flex items-center gap-1.5">
                               <Button
                                 type="button"
                                 size="icon"
@@ -1763,6 +1805,15 @@ export function MainAiChatView({
                               >
                                 <Plus className="size-4" />
                               </Button>
+                              {selectedDocType && (
+                                <DocTypeChip
+                                  icon={selectedDocType.icon}
+                                  color={selectedDocType.color}
+                                  name={selectedDocType.name}
+                                  editorLabel={BASE_TYPE_EDITOR_LABEL[selectedDocType.base_type] ?? "Docs"}
+                                  onRemove={() => setSelectedDocType(null)}
+                                />
+                              )}
                             </div>
                             <Button
                               type="submit"
@@ -1774,8 +1825,8 @@ export function MainAiChatView({
                                   attachedImages.length === 0 &&
                                   attachedFiles.length === 0) ||
                                 hasPendingAttachments
-                                  ? "bg-muted text-muted-foreground/40 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-400"
-                                  : "bg-foreground text-background hover:bg-foreground/90 shadow-sm"
+                                  ? "bg-gray-100 text-muted-foreground/40 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-400"
+                                  : "bg-gray-700 text-white hover:bg-gray-900 hover:text-white dark:bg-gray-300 dark:hover:bg-white dark:text-gray-900 dark:hover:text-gray-900"
                               )}
                               disabled={
                                 isLoading ||
@@ -1801,7 +1852,7 @@ export function MainAiChatView({
                         <div className="mt-5 flex flex-wrap justify-center gap-2">
                           {documentTypeChips.map((t) => {
                             const Icon = t.display.icon;
-                            const selected = selectedDocTypeId === t.id;
+                            const selected = selectedDocType?.id === t.id;
                             return (
                               <button
                                 key={t.id}
@@ -1809,22 +1860,23 @@ export function MainAiChatView({
                                 className={cn(
                                   "inline-flex border border-gray-200 dark:border-gray-800 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs transition-all duration-200",
                                   selected
-                                    ? "bg-white  text-foreground shadow-sm dark:bg-zinc-800"
+                                    ? "bg-white text-foreground shadow-sm ring-1 ring-border dark:bg-zinc-800"
                                     : "bg-white/60 text-muted-foreground hover:bg-white hover:text-foreground dark:bg-zinc-800/40 dark:hover:bg-zinc-800"
                                 )}
                                 onClick={() => {
-                                  setSelectedDocTypeId((prevSelected) => {
-                                    const nextSelected =
-                                      prevSelected === t.id ? null : t.id;
-                                    if (nextSelected) {
-                                      setInput((prevInput: string) =>
-                                        prevInput
-                                          ? prevInput
-                                          : `Create a ${t.name}`
-                                      );
-                                    }
-                                    return nextSelected;
-                                  });
+                                  if (selected) {
+                                    setSelectedDocType(null);
+                                  } else {
+                                    setSelectedDocType({
+                                      id: t.id,
+                                      name: t.name,
+                                      base_type: t.base_type ?? "doc",
+                                      icon: Icon,
+                                      color: t.display.color,
+                                    });
+                                  }
+                                  // Focus the textarea after selection
+                                  setTimeout(() => textareaRef.current?.focus(), 50);
                                 }}
                               >
                                 <Icon
@@ -2016,6 +2068,39 @@ export function MainAiChatView({
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
+
+/** Chip badge shown inside the input field when a document type is selected */
+function DocTypeChip({
+  icon: Icon,
+  color,
+  name,
+  editorLabel,
+  onRemove,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: React.ComponentType<any>;
+  color: string;
+  name: string;
+  editorLabel: string;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-blue-50/60 py-0.5 pl-1.5 pr-1 text-xs font-medium text-foreground dark:bg-blue-950/30">
+      <Icon weight="fill" className="size-3.5" style={{ color }} />
+      <span className="text-muted-foreground">{editorLabel}</span>
+      <span className="mx-px text-border">|</span>
+      <span>{name}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="ml-0.5 flex size-4 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
+        aria-label={`Remove ${name} filter`}
+      >
+        <X className="size-3" />
+      </button>
+    </span>
+  );
+}
 
 /** Renders an assistant message's parts (text, tool invocations, artifacts) */
 function AssistantMessageContent({

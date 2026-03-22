@@ -10,7 +10,7 @@ export function FixedToolbar(props: React.ComponentProps<typeof Toolbar>) {
       {...props}
       data-sticky-toolbar
       className={cn(
-        'scrollbar-hide sticky top-0 left-0 z-50 w-full justify-between overflow-x-auto rounded-t-lg border-b border-b-border bg-background p-1',
+        'scrollbar-hide sticky top-0 left-0 z-10 w-full justify-between overflow-x-auto rounded-t-lg border-b border-b-border bg-background p-1',
         props.className
       )}
     />

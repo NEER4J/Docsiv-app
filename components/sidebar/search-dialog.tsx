@@ -1,7 +1,8 @@
 "use client";
+
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
+import { FileText, MessageSquare, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +15,11 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { sidebarItems } from "@/navigation/sidebar-items";
+import {
+  getCommandPaletteWorkspaceData,
+  type CommandPaletteAiSessionRow,
+  type CommandPaletteDocumentRow,
+} from "@/lib/actions/command-palette";
 
 interface SearchItem {
   group: string;
@@ -23,27 +29,24 @@ interface SearchItem {
   disabled?: boolean;
 }
 
-// Transform sidebar items into search items
 const transformSidebarItemsToSearchItems = (): SearchItem[] => {
   const items: SearchItem[] = [];
 
   sidebarItems.forEach((group) => {
     group.items.forEach((item) => {
-      // Add main item
       items.push({
-        group: group.label || "Main",
+        group: group.label || "Pages",
         label: item.title,
         url: item.url,
         icon: item.icon,
         disabled: item.comingSoon,
       });
 
-      // Add subItems if they exist
       if (item.subItems) {
         item.subItems.forEach((subItem) => {
           items.push({
-            group: group.label || "Main",
-            label: `${item.title} - ${subItem.title}`,
+            group: group.label || "Pages",
+            label: `${item.title} — ${subItem.title}`,
             url: subItem.url,
             icon: subItem.icon || item.icon,
             disabled: subItem.comingSoon,
@@ -56,29 +59,55 @@ const transformSidebarItemsToSearchItems = (): SearchItem[] => {
   return items;
 };
 
-const searchItems = transformSidebarItemsToSearchItems();
+const staticSearchItems = transformSidebarItemsToSearchItems();
 
-export function SearchDialog() {
+const STATIC_GROUPS = [...new Set(staticSearchItems.map((item) => item.group))];
+
+export function SearchDialog({ workspaceId = null }: { workspaceId?: string | null }) {
   const [open, setOpen] = React.useState(false);
+  const [documents, setDocuments] = React.useState<CommandPaletteDocumentRow[]>([]);
+  const [aiSessions, setAiSessions] = React.useState<CommandPaletteAiSessionRow[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = React.useState(false);
   const router = useRouter();
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === "j" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setOpen((open) => !open);
+        setOpen((o) => !o);
       }
     };
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, []);
 
-  const handleSelect = (item: SearchItem) => {
-    if (!item.disabled && item.url) {
-      router.push(item.url);
-      setOpen(false);
+  React.useEffect(() => {
+    if (!open || !workspaceId) {
+      if (!open) {
+        setWorkspaceLoading(false);
+      }
+      return;
     }
-  };
+    let cancelled = false;
+    setWorkspaceLoading(true);
+    void getCommandPaletteWorkspaceData(workspaceId).then((res) => {
+      if (cancelled) return;
+      setDocuments(res.documents);
+      setAiSessions(res.aiSessions);
+      setWorkspaceLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, workspaceId]);
+
+  const pushUrl = React.useCallback(
+    (url: string) => {
+      router.push(url);
+      setOpen(false);
+    },
+    [router]
+  );
 
   return (
     <>
@@ -94,20 +123,21 @@ export function SearchDialog() {
         </kbd>
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Search reports, data, clients, and more…" />
-        <CommandList>
+        <CommandInput placeholder="Search pages, documents, AI chats…" />
+        <CommandList className="max-h-[min(24rem,50vh)]">
           <CommandEmpty>No results found.</CommandEmpty>
-          {[...new Set(searchItems.map((item) => item.group))].map((group, i) => (
+          {STATIC_GROUPS.map((group, i) => (
             <React.Fragment key={group}>
               {i !== 0 && <CommandSeparator />}
-              <CommandGroup heading={group} key={group}>
-                {searchItems
+              <CommandGroup heading={group}>
+                {staticSearchItems
                   .filter((item) => item.group === group)
                   .map((item) => (
                     <CommandItem
                       className="!py-1.5"
-                      key={`${item.group}-${item.label}`}
-                      onSelect={() => handleSelect(item)}
+                      key={`${group}-${item.label}-${item.url}`}
+                      value={`${item.label} ${item.url}`}
+                      onSelect={() => !item.disabled && pushUrl(item.url)}
                       disabled={item.disabled}
                     >
                       {item.icon && <item.icon className="size-4" />}
@@ -117,6 +147,55 @@ export function SearchDialog() {
               </CommandGroup>
             </React.Fragment>
           ))}
+          {workspaceId && documents.length > 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="Documents">
+                {documents.map((d) => (
+                  <CommandItem
+                    className="!py-1.5"
+                    key={`doc-${d.id}`}
+                    value={`${d.title} ${d.keywords}`}
+                    onSelect={() => pushUrl(`/d/${d.id}`)}
+                  >
+                    <FileText className="size-4" />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0 text-left">
+                      <span className="truncate">{d.title}</span>
+                      <span className="truncate text-xs text-muted-foreground">{d.subtitle}</span>
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+          {workspaceId && aiSessions.length > 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="AI chats">
+                {aiSessions.map((s) => (
+                  <CommandItem
+                    className="!py-1.5"
+                    key={`ai-${s.id}`}
+                    value={s.keywords}
+                    onSelect={() => pushUrl(`/dashboard/ai?session=${encodeURIComponent(s.id)}`)}
+                  >
+                    <MessageSquare className="size-4" />
+                    <span className="truncate">{s.title}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+          {workspaceId && workspaceLoading && documents.length === 0 && aiSessions.length === 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="Workspace">
+                <CommandItem disabled className="!py-1.5">
+                  <span className="text-muted-foreground">Loading documents and chats…</span>
+                </CommandItem>
+              </CommandGroup>
+            </>
+          )}
         </CommandList>
       </CommandDialog>
     </>

@@ -182,7 +182,7 @@ export function SharedDocumentView({
   return (
     <div className={rootContainerClass}>
       {/* Combined header bar */}
-      <header className="sticky top-0 z-50 flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
+      <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
         {/* Left: Logo + breadcrumb */}
         <div className="flex min-w-0 items-center gap-2.5">
           {workspaceLogoUrl ? (

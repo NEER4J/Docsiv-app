@@ -293,7 +293,9 @@ function Sidebar({
         className={cn(
           "fixed inset-y-0 hidden h-svh w-[var(--sidebar-width)] md:flex",
           isHoverMode ? "transition-[width] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]" : "transition-[left,right,width] duration-200 ease-linear",
-          isHoverExpanded ? "z-40 border-r border-border" : "z-10",
+          /* z-40: above dashboard/editor chrome (z-30); below dialogs & portaled menus (z-50) */
+          "z-40",
+          isHoverExpanded && "border-r border-border",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -376,7 +378,8 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        "bg-background relative flex w-full flex-1 flex-col",
+        /* z-0: keep entire inset (incl. Plate sticky toolbars) below fixed sidebar (z-40) */
+        "bg-background relative z-0 flex w-full flex-1 flex-col",
         "md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}

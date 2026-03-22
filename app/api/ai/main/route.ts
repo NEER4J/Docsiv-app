@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
         is_marketplace?: boolean;
       }>;
       sessionSummary?: string;
+      selectedDocTypeHint?: { name: string; base_type: string; editor: string } | null;
     };
     model?: string;
     apiKey?: string;
@@ -213,7 +214,7 @@ export async function POST(req: NextRequest) {
     templates: workspaceContext.templatesIndex ?? [],
   });
 
-  const systemPrompt = getMainAiSystemPrompt({
+  let systemPrompt = getMainAiSystemPrompt({
     workspaceId: workspaceContext.workspaceId,
     workspaceName: workspaceContext.workspaceName,
     clients: workspaceContext.clients ?? [],
@@ -228,6 +229,12 @@ export async function POST(req: NextRequest) {
         : undefined,
     memoryHints,
   });
+
+  // Append doc type hint from pill selection (if user selected a doc type before sending)
+  const docTypeHint = workspaceContext.selectedDocTypeHint;
+  if (docTypeHint?.name && docTypeHint?.base_type) {
+    systemPrompt += `\n\n## User's document type selection\nThe user has pre-selected document type "${docTypeHint.name}" (base_type: ${docTypeHint.base_type}, editor: ${docTypeHint.editor}). When creating a document for this message, use this type and the corresponding editor tool. Do not ask the user to confirm the type — they already chose it.`;
+  }
 
   const google = createGoogleGenerativeAI({ apiKey });
   const modelId =

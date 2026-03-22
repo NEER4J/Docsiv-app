@@ -75,7 +75,7 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
                   <header
                     className={cn(
                       "flex h-12 shrink-0 items-center gap-2 border-b border-border transition-[width,height] ease-linear",
-                      "sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
+                      "sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
                     )}
                   >
                     <div className="flex w-full items-center gap-2 px-4 lg:px-6">
@@ -83,7 +83,7 @@ export default async function DocumentEditorRootLayout({ children }: Readonly<{ 
                       <Separator orientation="vertical" className="h-4 shrink-0" />
                       <DashboardNavbar />
                       <div className="ml-auto flex shrink-0 items-center gap-1">
-                        <SearchDialog />
+                        <SearchDialog workspaceId={currentWorkspaceId} />
                         <AiAssistantSidebar />
                       </div>
                     </div>

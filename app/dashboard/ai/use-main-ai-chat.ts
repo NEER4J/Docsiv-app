@@ -117,6 +117,12 @@ export type WorkspaceContext = {
     is_marketplace?: boolean;
   }>;
   sessionSummary?: string;
+  /** Hint from the doc type pill selection — tells the AI what type & editor to use */
+  selectedDocTypeHint?: {
+    name: string;
+    base_type: string;
+    editor: string;
+  } | null;
 };
 
 export type UseMainAiChatOptions = {
@@ -124,6 +130,7 @@ export type UseMainAiChatOptions = {
   workspaceContext: WorkspaceContext;
   pendingImagesRef?: React.RefObject<string[]>;
   pendingFilesRef?: React.RefObject<Array<{ name: string; mimeType: string; dataUrl: string }>>;
+  pendingDocTypeRef?: React.RefObject<{ name: string; base_type: string; editor: string } | null>;
   onDocumentUpdate?: (doc: {
     documentId: string;
     title: string;
@@ -139,6 +146,7 @@ export function useMainAiChat({
   workspaceContext,
   pendingImagesRef,
   pendingFilesRef,
+  pendingDocTypeRef,
   onDocumentUpdate,
   onFinish,
   onError,
@@ -153,11 +161,19 @@ export function useMainAiChat({
     id: chatId,
     transport: new DefaultChatTransport({
       api: '/api/ai/main',
-      body: () => ({
-        workspaceContext: workspaceContextRef.current,
-        pendingImages: pendingImagesRef?.current ?? [],
-        pendingFiles: pendingFilesRef?.current ?? [],
-      }),
+      body: () => {
+        // Consume the one-shot doc type hint
+        const docTypeHint = pendingDocTypeRef?.current ?? null;
+        if (pendingDocTypeRef?.current) pendingDocTypeRef.current = null;
+        return {
+          workspaceContext: {
+            ...workspaceContextRef.current,
+            selectedDocTypeHint: docTypeHint,
+          },
+          pendingImages: pendingImagesRef?.current ?? [],
+          pendingFiles: pendingFilesRef?.current ?? [],
+        };
+      },
     }),
     onFinish: ({ message }) => {
       // Check if this message contains document tool results

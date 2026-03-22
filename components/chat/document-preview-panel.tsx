@@ -11,8 +11,7 @@ import { isKonvaContent, type KonvaStoredContent } from '@/lib/konva-content';
 import { isUniverSheetContent } from '@/lib/univer-sheet-content';
 import { isGrapesJSContent, type GrapesJSStoredContent } from '@/lib/grapesjs-content';
 import { getPlatePages, mergePlatePagesToSingle } from '@/lib/plate-content';
-import { createClient } from '@/lib/supabase/client';
-import { uploadDocumentThumbnail } from '@/lib/actions/documents';
+import { getDocumentById, uploadDocumentThumbnail } from '@/lib/actions/documents';
 import {
   BASE_TYPE_FALLBACK,
   type DocumentBaseTypeId,
@@ -90,7 +89,6 @@ export function DocumentPreviewPanel({
   const [fetchedContent, setFetchedContent] = React.useState<unknown>(null);
   const [fetchedTitle, setFetchedTitle] = React.useState<string | null>(null);
   const [fetchedBaseType, setFetchedBaseType] = React.useState<string | null>(null);
-  const [fetchedWorkspaceId, setFetchedWorkspaceId] = React.useState<string | null>(null);
   const [isFetching, setIsFetching] = React.useState(false);
   // Increment to force a re-fetch (for refresh button + re-click)
   const [fetchKey, setFetchKey] = React.useState(0);
@@ -100,31 +98,31 @@ export function DocumentPreviewPanel({
   const thumbnailGenRef = React.useRef<string | null>(null);
 
   const fetchContent = React.useCallback(() => {
-    if (!documentId) return;
+    if (!documentId || !workspaceIdProp) return;
     setIsFetching(true);
 
-    const supabase = createClient();
-    supabase
-      .from('documents')
-      .select('content,title,base_type,workspace_id')
-      .eq('id', documentId)
-      .single()
-      .then(({ data, error }) => {
+    getDocumentById(workspaceIdProp, documentId)
+      .then(({ document, error }) => {
         setIsFetching(false);
-        if (error || !data) return;
-        setFetchedContent(data.content);
-        if (data.title) setFetchedTitle(data.title);
-        if (data.base_type) setFetchedBaseType(data.base_type);
-        if (data.workspace_id) setFetchedWorkspaceId(data.workspace_id);
+        if (error || !document) {
+          console.warn('[DocumentPreviewPanel] Fetch failed:', error ?? 'no document returned');
+          return;
+        }
+        setFetchedContent(document.content);
+        if (document.title) setFetchedTitle(document.title);
+        if (document.base_type) setFetchedBaseType(document.base_type);
+      })
+      .catch((err) => {
+        setIsFetching(false);
+        console.warn('[DocumentPreviewPanel] Fetch error:', err);
       });
-  }, [documentId]);
+  }, [documentId, workspaceIdProp]);
 
   // Fetch on mount, documentId change, or manual refresh
   React.useEffect(() => {
     setFetchedContent(null);
     setFetchedTitle(null);
     setFetchedBaseType(null);
-    setFetchedWorkspaceId(null);
     thumbnailGenRef.current = null;
     fetchContent();
   }, [documentId, fetchKey, fetchContent]);
@@ -137,7 +135,7 @@ export function DocumentPreviewPanel({
   const content = fetchedContent ?? contentProp;
   const title = fetchedTitle ?? titleProp;
   const baseType = fetchedBaseType ?? baseTypeProp;
-  const wsId = fetchedWorkspaceId ?? workspaceIdProp;
+  const wsId = workspaceIdProp;
 
   // Client-side thumbnail generation after content loads.
   // Capture functions need browser APIs (canvas, window) so they must run here.

@@ -153,6 +153,11 @@ export function AiAssistantProvider({ children }: { children: React.ReactNode })
 /** Button to toggle the AI panel; place in the navbar. */
 export function AiAssistantSidebar() {
   const { open, setOpen } = useAiAssistant();
+  const pathname = usePathname();
+  const isMainAiPage = pathname === "/dashboard/ai";
+
+  if (isMainAiPage) return null;
+
   return (
     <Button
       variant="ghost"

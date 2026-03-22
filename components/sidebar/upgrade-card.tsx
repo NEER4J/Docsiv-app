@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles, Zap, BarChart3 } from "lucide-react";
+import { Crown, Sparkles, Zap, BarChart3 } from "lucide-react";
 import { useSidebar } from "@/components/ui/sidebar";
 import {
   Tooltip,
@@ -102,14 +102,15 @@ export function UpgradeCard() {
             <Link
               href="#"
               className="flex size-9 items-center justify-center rounded-md border border-border bg-muted-hover/50 text-foreground transition-colors hover:bg-muted-hover"
+              aria-label="Upgrade to Pro"
             >
-              <Sparkles className="size-4" />
+              <Crown className="size-4" />
             </Link>
           </TooltipTrigger>
           <TooltipContent side="right" className="max-w-[240px] p-0" sideOffset={8}>
             <div className="p-3">
               <div className="mb-2 flex items-center gap-2">
-                <Sparkles className="size-3.5" />
+                <Crown className="size-3.5" />
                 <span className="text-[0.8125rem] font-semibold">Upgrade to Pro</span>
               </div>
               <ul className="mb-3 space-y-1 text-[0.75rem] text-muted-foreground">

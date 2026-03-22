@@ -272,7 +272,7 @@
 .plate-doc-toolbar-full [data-sticky-toolbar] {
   position: sticky;
   top: 0;
-  z-index: 40;
+  z-index: 10;
   background: var(--background) !important;
   width: 100%;
   flex-shrink: 0;
