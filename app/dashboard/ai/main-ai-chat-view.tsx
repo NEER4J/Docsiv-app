@@ -80,6 +80,24 @@ const DOCUMENT_TOOL_NAMES_SET = new Set([
 ]);
 
 // Editor label for base_type (shown in the doc type chip badge)
+/** Map document_type slug → correct base_type (same as new-document-dialog.tsx) */
+const SLUG_TO_BASE_TYPE: Record<string, string> = {
+  proposal: "presentation",
+  report: "doc",
+  brief: "doc",
+  document: "doc",
+  sheet: "sheet",
+  contract: "contract",
+  sow: "contract",
+  deck: "presentation",
+};
+
+/** Resolve the effective base_type for a document type, using slug override when available */
+function resolveBaseType(slug?: string, base_type?: string): string {
+  if (slug && SLUG_TO_BASE_TYPE[slug]) return SLUG_TO_BASE_TYPE[slug];
+  return base_type ?? "doc";
+}
+
 const BASE_TYPE_EDITOR_LABEL: Record<string, string> = {
   doc: "Docs",
   contract: "Docs",
@@ -536,7 +554,10 @@ export function MainAiChatView({
       workspaceId: workspaceId ?? "",
       workspaceName,
       clients,
-      documentTypes,
+      documentTypes: documentTypes.map((t) => ({
+        ...t,
+        base_type: resolveBaseType(t.slug, t.base_type),
+      })),
       selectedDocumentId,
       activeDocumentId: activePreview?.documentId ?? null,
       documentsIndex,
@@ -1870,7 +1891,7 @@ export function MainAiChatView({
                                     setSelectedDocType({
                                       id: t.id,
                                       name: t.name,
-                                      base_type: t.base_type ?? "doc",
+                                      base_type: resolveBaseType(t.slug, t.base_type),
                                       icon: Icon,
                                       color: t.display.color,
                                     });

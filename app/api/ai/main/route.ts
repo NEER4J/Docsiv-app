@@ -233,7 +233,15 @@ export async function POST(req: NextRequest) {
   // Append doc type hint from pill selection (if user selected a doc type before sending)
   const docTypeHint = workspaceContext.selectedDocTypeHint;
   if (docTypeHint?.name && docTypeHint?.base_type) {
-    systemPrompt += `\n\n## User's document type selection\nThe user has pre-selected document type "${docTypeHint.name}" (base_type: ${docTypeHint.base_type}, editor: ${docTypeHint.editor}). When creating a document for this message, use this type and the corresponding editor tool. Do not ask the user to confirm the type — they already chose it.`;
+    const editToolMap: Record<string, string> = {
+      doc: 'edit_document_plate',
+      contract: 'edit_document_plate',
+      presentation: 'edit_document_konva',
+      report: 'edit_document_konva',
+      sheet: 'edit_document_univer',
+    };
+    const editTool = editToolMap[docTypeHint.base_type] ?? 'edit_document_plate';
+    systemPrompt += `\n\n## User's document type selection\nThe user has pre-selected document type "${docTypeHint.name}" (base_type: ${docTypeHint.base_type}, editor: ${docTypeHint.editor}). When creating a document for this message:\n- Use base_type "${docTypeHint.base_type}" in the create_document tool call.\n- After creation, use "${editTool}" to generate content.\n- Do not ask the user to confirm the type — they already chose it.`;
   }
 
   const google = createGoogleGenerativeAI({ apiKey });
